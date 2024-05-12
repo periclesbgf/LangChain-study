@@ -11,10 +11,7 @@ load_dotenv()
 password = os.getenv("CODE")
 
 def code_confirmation(code):
-    print("Password", password)
     if code == password:
-        logger.critical("Code", code)
-        logger.critical("Password", password)
         return True
     else:
         return False
