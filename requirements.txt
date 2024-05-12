@@ -1,0 +1,15 @@
+langchain
+langchain-openai
+langchain-google-genai
+fastapi
+uvicorn
+python-dotenv
+langchain-community
+pymysql
+transformers
+torch
+unstructured
+pandas
+openpyxl
+sentence-transformers
+qdrant-client
