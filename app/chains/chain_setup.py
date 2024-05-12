@@ -2,6 +2,10 @@ import os
 from langchain.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
 from langchain.chains import LLMChain
+from dotenv import load_dotenv
+
+load_dotenv()
+openai_key = os.getenv("OPENAI_API_KEY")
 
 def setup_chain(text):
     """configuring chain and prompt template for the chain"""
@@ -48,7 +52,7 @@ def setup_chain(text):
 
     llm = ChatOpenAI(
         model="gpt-4-turbo",
-        api_key=os.environ["OPENAI_API_KEY"],
+        api_key=openai_key,
         #max_tokens=70,
     )
 
