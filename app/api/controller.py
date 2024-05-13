@@ -1,22 +1,14 @@
-from dotenv import load_dotenv
-import os
-from chains.chain_setup import setup_chain, invoke_chain
-import logging
+from chains.chain_setup import LanguageChain
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-load_dotenv()
-
-password = os.getenv("CODE")
+from utils import OPENAI_API_KEY, CODE
 
 def code_confirmation(code):
-    if code == password:
+    if code == CODE:
         return True
     else:
         return False
 
 def build_chain(text):
-    chain, information = setup_chain(text)
-    response = invoke_chain(chain, information)
+    chain = LanguageChain(api_key=OPENAI_API_KEY)
+    response = chain.setup_chain(text=text)
     return response
