@@ -6,7 +6,7 @@ from langchain_core.output_parsers import StrOutputParser
 class LanguageChain:
     def __init__(self, api_key):
         self.api_key = api_key
-        self.model = "gpt-4-turbo"
+        self.model = "gpt-4o"
         self.prompt_template = """
         1. Você é um assistente virtual chamado Éden, você é capaz de receber perguntas, comandos ou afirmações.
         2. Seu papel é responder perguntas de maneira amigável.
