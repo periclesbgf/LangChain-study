@@ -253,3 +253,292 @@ def prompt_template(question: str, context: str):
 
     Question: {question}
     """
+
+
+
+class SQLSchoolChain:
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.model = "gpt-4o"
+        self.prompt_template_selec_tables = """
+        [Contexto]
+        Você é um especialista em bases de dados, capaz de analisar uma pergunta de um usuário e, a partir de um esquema de base de dados, descrever quais tabelas e colunas são relevantes para responder à pergunta.
+
+        [Objetivo]
+        Sua tarefa é analisar o texto fornecido e descrever quais tabelas e colunas são relevantes para responder à pergunta.
+
+        [Instruções]
+        - O formato de saída deve ser JSON na seguinte estrutura:
+
+        {
+            "Nome da primeira tabela": ["lista de colunas relevantes"],
+            "Nome da segunda tabela": ["lista de colunas relevantes"],
+            ...
+            "Nome da n-ésima tabela": ["lista de colunas relevantes"]
+        }
+
+        - Em cada tabela com informações relevantes para responder à pergunta, ordene as colunas importantes em ordem decrescente, considerando a importância para responder à pergunta (ordenar da coluna mais relevante para a menos relevante).
+        - Adicione apenas colunas que ajudem a responder à pergunta realizada.
+        - Adicione apenas tabelas e colunas presentes no esquema apresentado.
+        - Caso mais de uma tabela apresente informações importantes, lembre-se de adicionar na lista de colunas de ambas as tabelas as colunas que podem unir essas tabelas. Caso contrário, adicione apenas as colunas da tabela de interesse.
+
+        [Exemplo 1]
+        Pergunta: 'Quais disciplinas estou cursando atualmente?'
+
+        Resposta (entre colchetes):
+        {
+            "Disciplinas": ["Periodo", "CursoID"],
+            "Cursos": ["NomeCurso", "CursoID"]
+        }
+
+        [Exemplo 2]
+        Pergunta: 'Em quais matérias fui para a final?'
+
+        Resposta (entre colchetes):
+        {
+            "Disciplinas": ["NomeDisciplina", "DisciplinaID"],
+            "HistoricoEscolar": ["Final", "DisciplinaID"]
+        }
+
+        [Tarefa]
+        Analise o [Esquema] a seguir e descreva quais tabelas e colunas são relevantes para responder à pergunta.
+
+        [Esquema]
+        Tabelas:
+            - Tabela: "Cursos"
+            Colunas:
+                - Nome: "CursoID"
+                Tipo: Integer
+                Chave Primária: True
+                Descrição: ID único do curso
+                Exemplo de dados: 1, 2, 3, ...
+                - Nome: "NomeCurso"
+                Tipo: String(100)
+                Descrição: Nome do curso
+                Exemplo de dados: "Ciência da Computação", "Design", "Sistemas de Informação", "Gestão de TI", "Análise e Desenvolvimento de Sistemas"
+
+            - Tabela: "Disciplinas"
+            Colunas:
+                - Nome: "DisciplinaID"
+                Tipo: Integer
+                Chave Primária: True
+                Descrição: ID único da disciplina
+                Exemplo de dados: 1, 2, 3, ...
+                - Nome: "NomeDisciplina"
+                Tipo: String(100)
+                Descrição: Nome da disciplina
+                Exemplo de dados: "Modelagem e Projeto de BD", "Design de Produtos", "Gestão de Projetos"
+                - Nome: "Periodo"
+                Tipo: Integer
+                Descrição: Período da disciplina
+                Exemplo de dados: 1, 2, 3, ... 8
+                - Nome: "CursoID"
+                Tipo: Integer
+                Chave Estrangeira: "Cursos"."CursoID"
+                Descrição: ID do curso ao qual a disciplina pertence
+                Exemplo de dados: 1, 2, 3, ...
+
+            - Tabela: "AssuntosSemanais"
+            Colunas:
+                - Nome: "AssuntoID"
+                Tipo: Integer
+                Chave Primária: True
+                Descrição: ID único do assunto semanal
+                Exemplo de dados: 1, 2, 3, ...
+                - Nome: "DisciplinaID"
+                Tipo: Integer
+                Chave Estrangeira: "Disciplinas"."DisciplinaID"
+                Descrição: ID da disciplina associada ao assunto semanal
+                Exemplo de dados: 1, 2, 3, ...
+                - Nome: "Semana"
+                Tipo: Integer
+                Descrição: Número da semana
+                Exemplo de dados: 1, 2, 3, ... 20
+                - Nome: "Assunto"
+                Tipo: String(255)
+                Descrição: Descrição do assunto semanal
+                Exemplo de dados: "Introdução ao Banco de Dados", "Planejamento de Projetos", "Introdução à Segurança da Informação", "Metodologias de Desenvolvimento"
+
+            - Tabela: "HistoricoEscolar"
+            Colunas:
+                - Nome: "HistoricoID"
+                Tipo: Integer
+                Chave Primária: True
+                Descrição: ID único do histórico escolar
+                Exemplo de dados: 1, 2, 3, ...
+                - Nome: "DisciplinaID"
+                Tipo: Integer
+                Chave Estrangeira: "Disciplinas"."DisciplinaID"
+                Descrição: ID da disciplina no histórico escolar
+                Exemplo de dados: 1, 2, 3, ...
+                - Nome: "Semestre"
+                Tipo: String(10)
+                Descrição: Semestre em que a disciplina foi cursada
+                Exemplo de dados: "2021.1", "2021.2", "2042.1"
+                - Nome: "AV1"
+                Tipo: Float
+                Descrição: Nota da primeira avaliação (Importante: A AV1 abrange os assuntos das semanas 1 a 10)
+                Exemplo de dados: 5.0, 7.5, 10.0
+                - Nome: "AV2"
+                Tipo: Float
+                Descrição: Nota da segunda avaliação (Importante: A AV2 abrange os assuntos das semanas 11 a 20)
+                Exemplo de dados: 5.0, 8.5, 7.0
+                - Nome: "Final"
+                Tipo: Float
+                Descrição: Nota da avaliação final (Importante: A nota final é calculada a partir das notas da AV1 e AV2)
+                Exemplo de dados: 2.0, 7.5, 10.0
+
+        Aqui vai uma pergunta. Lembre-se com atenção das instruções e resolva o problema conforme solicitado:
+        [Pergunta]
+        {pergunta}
+        """
+
+        self.prompt_2 = """
+        [Contexto]
+        Você é um especialista em bases de dados, capaz de analisar as tabelas e colunas relevantes para responder a uma pergunta de um usuário.
+        Dado um [Esquema] de um banco de dados, as tabelas e suas respectivas colunas relevantes como [Evidencia] e a [Pergunta],
+        sua tarefa é decompor a pergunta em subperguntas e gerar o código SQL correspondente utilizando PostgreSQL.
+
+        [Restrições]
+        - As consultas geradas devem ser em PostgreSQL.
+        - Utilize apenas nomes de tabelas e colunas presentes no esquema.
+        - Selecione apenas as colunas necessárias para responder à pergunta, sem incluir colunas ou valores desnecessários.
+        - Inclua apenas as tabelas necessárias em FROM ou JOIN.
+        - Certifique-se de que as tabelas estão presentes na [Evidencia].
+        - Não utilize LIMIT com IN, ALL, ANY ou SOME em subconsultas.
+        - Se utilizar funções MAX ou MIN, primeiro faça o JOIN da tabela, depois use SELECT MAX("coluna") ou SELECT MIN("coluna").
+        - Não utilize ILIKE, LIKE, SIMILAR TO, ou outras comparações de string que não sejam =, <>, <, >, <=, >=.
+        - Todas as tabelas e colunas devem ser referenciadas com o nome correto e entre aspas duplas.
+
+        [Esquema]
+        Tabelas:
+            - Tabela: "Cursos"
+            Colunas:
+                - Nome: "CursoID"
+                Tipo: Integer
+                Chave Primária: True
+                Descrição: ID único do curso
+                Exemplo de dados: 1, 2, 3, ...
+                - Nome: "NomeCurso"
+                Tipo: String(100)
+                Descrição: Nome do curso
+                Exemplo de dados: "Ciência da Computação", "Design", "Sistemas de Informação", "Gestão de TI", "Análise e Desenvolvimento de Sistemas"
+
+            - Tabela: "Disciplinas"
+            Colunas:
+                - Nome: "DisciplinaID"
+                Tipo: Integer
+                Chave Primária: True
+                Descrição: ID único da disciplina
+                Exemplo de dados: 1, 2, 3, ...
+                - Nome: "NomeDisciplina"
+                Tipo: String(100)
+                Descrição: Nome da disciplina
+                Exemplo de dados: "Modelagem e Projeto de BD", "Design de Produtos", "Gestão de Projetos"
+                - Nome: "Periodo"
+                Tipo: Integer
+                Descrição: Período da disciplina
+                Exemplo de dados: 1, 2, 3, ... 8
+                - Nome: "CursoID"
+                Tipo: Integer
+                Chave Estrangeira: "Cursos"."CursoID"
+                Descrição: ID do curso ao qual a disciplina pertence
+                Exemplo de dados: 1, 2, 3, ...
+
+            - Tabela: "AssuntosSemanais"
+            Colunas:
+                - Nome: "AssuntoID"
+                Tipo: Integer
+                Chave Primária: True
+                Descrição: ID único do assunto semanal
+                Exemplo de dados: 1, 2, 3, ...
+                - Nome: "DisciplinaID"
+                Tipo: Integer
+                Chave Estrangeira: "Disciplinas"."DisciplinaID"
+                Descrição: ID da disciplina associada ao assunto semanal
+                Exemplo de dados: 1, 2, 3, ...
+                - Nome: "Semana"
+                Tipo: Integer
+                Descrição: Número da semana
+                Exemplo de dados: 1, 2, 3, ... 20
+                - Nome: "Assunto"
+                Tipo: String(255)
+                Descrição: Descrição do assunto semanal
+                Exemplo de dados: "Introdução ao Banco de Dados", "Planejamento de Projetos", "Introdução à Segurança da Informação", "Metodologias de Desenvolvimento"
+
+            - Tabela: "HistoricoEscolar"
+            Colunas:
+                - Nome: "HistoricoID"
+                Tipo: Integer
+                Chave Primária: True
+                Descrição: ID único do histórico escolar
+                Exemplo de dados: 1, 2, 3, ...
+                - Nome: "DisciplinaID"
+                Tipo: Integer
+                Chave Estrangeira: "Disciplinas"."DisciplinaID"
+                Descrição: ID da disciplina no histórico escolar
+                Exemplo de dados: 1, 2, 3, ...
+                - Nome: "Semestre"
+                Tipo: String(10)
+                Descrição: Semestre em que a disciplina foi cursada
+                Exemplo de dados: "2021.1", "2021.2", "2042.1"
+                - Nome: "AV1"
+                Tipo: Float
+                Descrição: Nota da primeira avaliação (Importante: A AV1 abrange os assuntos das semanas 1 a 10)
+                Exemplo de dados: 5.0, 7.5, 10.0
+                - Nome: "AV2"
+                Tipo: Float
+                Descrição: Nota da segunda avaliação (Importante: A AV2 abrange os assuntos das semanas 11 a 20)
+                Exemplo de dados: 5.0, 8.5, 7.0
+                - Nome: "Final"
+                Tipo: Float
+                Descrição: Nota da avaliação final (Importante: A nota final é calculada a partir das notas da AV1 e AV2)
+                Exemplo de dados: 2.0, 7.5, 10.0
+
+        Para interpretar a pergunta do usuário, você pode levar em consideração o significado dos valores, mas para construir a query utilize os valores presentes na coluna.
+
+        [Pergunta]
+        {pergunta}
+        [Evidencia]
+        {evidencia}
+
+        Decomponha a pergunta em subperguntas, considerando as [Restrições], e gere a consulta PostgreSQL final, pensando no passo a passo \
+        (Gere apenas o valor da SQL FINAL, em uma linha só, sem traços especiais como ```):
+        """
+
+        self.final_prompt = """
+        [Contexto]
+        Você é um assistente virtual chamado Eden preparado para receber uma pergunta, os dados relacionados a essa pergunta e a consulta SQL da pergunta.\
+        Você deve responder a pergunta de maneira direta.\
+        Essa pergunta vem de um usuário que deseja pesquisar dados em uma base de dados.\
+        os dados que virá junto com a pergunta são referentes a um [Esquema].\
+        Você também receberá uma consulta SQL que foi gerada a partir da pergunta do usuário.\
+        Use essa consulta para verificar quais dados foram retornados a partir do SELECT e responda a pergunta do usuário.
+        [Objetivo]
+        Seu objetivo é responder a pergunta que se relacione com os dados do contexto acima.\
+
+        Dado a pergunta do usuário {user_question}, o contexto acima, os {data} recuperados de uma consulta a um banco de dados\
+        e também a aconsulta SQL: {query}, responda a pergunta do usuário.
+        """
+
+    def setup_chain(self, question, context):
+        initial_prompt = ChatPromptTemplate.from_template(self.prompt_template_selec_tables)
+        llm = ChatOpenAI(model=self.model, api_key=self.api_key, temperature=0.1)
+        output_parser = StrOutputParser()
+        chain = (initial_prompt
+                | llm 
+                | output_parser
+                | 
+                | output_parser)
+        
+        return chain.invoke(text)
+        chain = (
+            get_stock_prices_prompt
+            | model
+            | JsonOutputKeyToolsParser(key_name="stock_search", first_tool_only=True, return_single=True)
+            | stock_search
+            | calculate_percent_difference_prompt
+            | model
+            | JsonOutputKeyToolsParser(key_name="repl_tool", first_tool_only=True, return_single=True)
+            | repl_tool
+        )

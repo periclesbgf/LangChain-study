@@ -2,19 +2,17 @@ import psycopg2
 
 def execute_query(query):
     try:
-        connection = psycopg2.connect(
+        with psycopg2.connect(
             host='localhost',
             port=5432,
             database='postgres',
             user='postgres',
             password='123456789'
-        )
-        cursor = connection.cursor()
-        cursor.execute(query)
-        results = cursor.fetchall()
-        cursor.close()
-        connection.close()
-        return results
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(query)
+                results = cursor.fetchall()
+                return results
     except Exception as e:
         print(f"Ocorreu um erro ao executar a query: {e}")
         return None
@@ -31,12 +29,49 @@ def list_tables():
 
 list_tables()
 
-def prepare_query(query):
-    return query.replace('```sql', '').replace('```', '').strip()
-
 query = """
-SELECT c."Cliente", COUNT(*) AS Quantidade FROM "Telemetria" t JOIN "Chassis" c ON t."Chassi" = c."Chassi" WHERE t."Serie" = 'E' GROUP BY c."Cliente" ORDER BY Quantidade DESC LIMIT 1;
+WITH PioresNotas AS (
+    SELECT h."DisciplinaID",
+           d."NomeDisciplina",
+           LEAST(COALESCE(h."AV1", 10), COALESCE(h."AV2", 10)) AS "PiorNota",
+           CASE
+               WHEN COALESCE(h."AV1", 10) <= COALESCE(h."AV2", 10) THEN 'AV1'
+               ELSE 'AV2'
+           END AS "TipoNota"
+    FROM "HistoricoEscolar" h
+    JOIN "Disciplinas" d ON h."DisciplinaID" = d."DisciplinaID"
+    WHERE d."Periodo" = 7
+)
+SELECT a."Assunto", p."NomeDisciplina", p."PiorNota", p."TipoNota"
+FROM "AssuntosSemanais" a
+JOIN PioresNotas p ON a."DisciplinaID" = p."DisciplinaID"
+WHERE p."PiorNota" < 7
+  AND ((p."TipoNota" = 'AV1' AND a."Semana" BETWEEN 1 AND 10)
+   OR (p."TipoNota" = 'AV2' AND a."Semana" BETWEEN 11 AND 20))
+ORDER BY p."PiorNota" ASC;
 """
-column_names = execute_query(query)
-print("Colunas na tabela Telemetria:")
-print(column_names)
+results = execute_query(query)
+
+if results:
+    print("Dados na tabela:")
+    for row in results:
+        print(row)
+else:
+    print("Não foi possível recuperar os dados da tabela.")
+
+
+# Quais disciplinas  tem no 5 periodo de design?
+# query = """
+# SELECT d."NomeDisciplina"
+# FROM "Disciplinas" d
+# JOIN "Cursos" c ON d."CursoID" = c."CursoID"
+# WHERE c."NomeCurso" = 'Design' AND d."Periodo" = 5;
+# """
+
+# Em quais disciplinas fui para a final
+# query = """
+# SELECT d."NomeDisciplina"
+# FROM "HistoricoEscolar" h
+# JOIN "Disciplinas" d ON h."DisciplinaID" = d."DisciplinaID"
+# WHERE h."Final" IS NOT NULL;
+# """
