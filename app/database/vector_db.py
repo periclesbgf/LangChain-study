@@ -2,15 +2,30 @@ from langchain_community.vectorstores import Qdrant
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.embeddings import HuggingFaceBgeEmbeddings
+from io import BytesIO
+from langchain.docstore.document import Document
 
+from qdrant_client import QdrantClient
+import fitz
 
 class DocumentLoader:
-    def __init__(self, file_path):
+    def __init__(self, file_bytes=None, file_path=None):
+        self.file_bytes = file_bytes
         self.file_path = file_path
 
     def load_documents(self):
-        loader = PyPDFLoader(file_path=self.file_path)
-        documents = loader.load()
+        if self.file_bytes:
+            document = fitz.open(stream=self.file_bytes, filetype="pdf")
+        else:
+            document = fitz.open(self.file_path)
+
+        documents = []
+        for page_num in range(len(document)):
+            page = document.load_page(page_num)
+            text = page.get_text()
+            documents.append(Document(page_content=text, metadata={"page_number": page_num}))
+
         return documents
 
 class TextSplitter:
@@ -26,12 +41,10 @@ class TextSplitter:
         return text_splitter.split_documents(documents)
 
 class Embeddings:
-    def __init__(self, model_name, model_kwargs=None, encode_kwargs=None):
-        if encode_kwargs is None:
-            encode_kwargs = {'normalize_embeddings': False}
-        self.model_name = model_name
+    def __init__(self):
+        self.model_name = "BAAI/bge-large-en"
         self.model_kwargs = {'device': 'cpu'}
-        self.encode_kwargs = encode_kwargs
+        self.encode_kwargs = {'normalize_embeddings': False}
         self.embeddings = self.load_embeddings()
 
     def load_embeddings(self):
@@ -49,6 +62,7 @@ class QdrantIndex:
         self.url = url
         self.collection_name = collection_name
         self.embeddings = embeddings
+        self.client = self.create_client()
 
     def create_index(self, text):
         qdrant = Qdrant.from_documents(
@@ -60,31 +74,19 @@ class QdrantIndex:
         )
         return qdrant
 
-def main(data_path):
-    # Load Documents
-    loader = DocumentLoader(file_path=data_path)
-    documents = loader.load_documents()
-    print("Type of documents:", type(documents))
-    print("First few documents:", documents)
+    def create_client(self):
+        return QdrantClient(
+            url=self.url,
+            prefer_grpc=False,
+        )
 
-    splitter = TextSplitter()
-    text = splitter.split_documents(documents)
+    def create_db(self):
+        return Qdrant(
+            client=self.client,
+            collection_name=self.collection_name,
+            embeddings=self.embeddings
+        )
 
-    if not text:
-        print("No text documents were processed. Please check the format of the input data.")
-        return
+    def similarity_search(self, query, k=5):
+        return self.create_db().similarity_search_with_score(query=query, k=k)
 
-    model_name = "BAAI/bge-large-en"
-    embeddings_obj = Embeddings(model_name=model_name)
-    embeddings = embeddings_obj.get_embeddings()
-    print("Embedding models loaded")
-
-    url = "http://localhost:6333"
-    collection_name = "gpt_db"
-    qdrant_index = QdrantIndex(url, collection_name, embeddings)
-    qdrant = qdrant_index.create_index(text)
-    print("Qdrant Index created")
-
-if __name__ == "__main__":
-    data_path = "/Users/peric/projects/LangChain-study/app/database/data/Liquidity_Is_All_You_Need.pdf"
-    main(data_path)

@@ -661,3 +661,91 @@ class DefaultChain():
         chain = prompt | llm | output_parser
 
         return chain.invoke(text)
+
+
+class RetrievalChain:
+    """
+    This class is responsible for setting up the chain for the Retrieval task.
+    """
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.model = "gpt-4o"
+        self.prompt_template = """
+        [Contexto]
+        Você é um assistente virtual chamado Éden, capaz de ler informações recuperadas de um banco de dados vetorial\
+        e responder perguntas com base nesses dados.
+        Os documentos virão em formato JSON, contendo informações relevantes para responder a pergunta do usuário.
+        Os documentos virão com informações quebradas em partes, cada parte contendo uma ou várias informações relevantes.
+        Os documentos terão notas associadas a cada parte, indicando a relevância da informação para responder a pergunta.
+
+        [Objetivo]
+        Sua tarefa é responder a pergunta do usuário com base nos [dados] fornecidos.
+
+        [Instruções]
+        - Leia os documentos fornecidos.
+        - Com base na pergunta do usuário, tente responder a pergunta utilizando as informações contidas nos documentos.
+        - Utilize as informações contidas nos documentos para responder a pergunta do usuário.
+        - Responda a pergunta de maneira amigável e informativa.
+
+        [Pergunta]
+        {text}
+
+        [dados]
+        {data}
+
+        """
+
+    def format_data_for_prompt(self, results):
+        scores = [result[1] for result in results]
+        contents = [result[0].page_content for result in results]
+
+        formatted_data = {
+            "scores": scores,
+            "contents": contents
+        }
+
+        print("formatted_data: ", formatted_data)
+        return formatted_data
+
+    def setup_chain(self, text, data):
+        prompt_template = """
+        [Contexto]
+        Você é um assistente virtual chamado Éden, capaz de ler informações recuperadas de um banco de dados vetorial\
+        e responder perguntas com base nesses dados.
+        Os documentos virão em formato JSON, contendo informações relevantes para responder a pergunta do usuário.
+        Os documentos virão com informações quebradas em partes, cada parte contendo uma ou várias informações relevantes.
+        Os documentos terão notas associadas a cada parte, indicando a relevância da informação para responder a pergunta.
+
+        [Objetivo]
+        Sua tarefa é responder a pergunta do usuário com base nos [dados] fornecidos.
+
+        [Instruções]
+        - Leia os documentos fornecidos.
+        - Com base na pergunta do usuário, tente responder a pergunta utilizando as informações contidas nos documentos.
+        - Utilize as informações contidas nos documentos para responder a pergunta do usuário.
+        - Responda a pergunta de maneira amigável e informativa.
+
+        [Pergunta]
+        {text}
+
+        [dados]
+        {data}
+        """
+
+        documents = "\n\n".join(
+            [f"Score: {score}\nContent: {content}" for score, content in zip(data["scores"], data["contents"])]
+        )
+        prompt_text = prompt_template.format(text=text, data=documents)
+
+        prompt = ChatPromptTemplate.from_template(prompt_text)
+        llm = ChatOpenAI(model=self.model, api_key=self.api_key)
+        output_parser = StrOutputParser()
+
+        chain = prompt | llm | output_parser
+
+        response = chain.invoke({
+            'text': text,
+            'data': documents
+        })
+        print("response: ", response)
+        return response

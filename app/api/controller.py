@@ -1,9 +1,9 @@
-from chains.chain_setup import CommandChain, SQLChain, AnswerChain, ClassificationChain, SQLSchoolChain, DefaultChain
+from chains.chain_setup import CommandChain, SQLChain, AnswerChain, ClassificationChain, SQLSchoolChain, DefaultChain, RetrievalChain
 from database.query import execute_query
 from langchain_core.runnables import RunnableLambda
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
-
+from database.vector_db import DocumentLoader, TextSplitter, Embeddings, QdrantIndex
 
 from fastapi.logger import logger
 
@@ -47,12 +47,52 @@ def route_chooser(info, isFile):
         default_chain = DefaultChain(api_key=OPENAI_API_KEY)
         return default_chain
 
-def route_request(text, file=None):
+def create_embedding(text, file_bytes):
+    loader = DocumentLoader(file_bytes=file_bytes)
+    documents = loader.load_documents()
+    print("Type of documents:", type(documents))
+    print("First few documents:", documents)
+
+    splitter = TextSplitter()
+    text = splitter.split_documents(documents)
+
+    if not text:
+        print("No text documents were processed. Please check the format of the input data.")
+        return
+
+    embeddings_obj = Embeddings()
+    embeddings = embeddings_obj.get_embeddings()
+    print("Embedding models loaded")
+
+    url = "http://localhost:6333"
+    collection_name = "gpt_db"
+    qdrant_index = QdrantIndex(url=url, collection_name=collection_name, embeddings=embeddings)
+    qdrant_index.create_index(text)
+    print("Qdrant Index created")
+
+def query_Qdrant(query):
+    embeddings_model = Embeddings()
+    embeddings = embeddings_model.get_embeddings()
+
+    qdrant_db = QdrantIndex(url="http://localhost:6333", collection_name="gpt_db", embeddings=embeddings)
+    docs = qdrant_db.similarity_search(query=query, k=5)
+
+    for doc, score in docs:
+        print({"score": score, "content": doc.page_content, "metadata": doc.metadata})
+
+    return docs
+
+
+
+def route_request(text, file_bytes=None):
     try:
-        if file:
-            file_content = file.file.read()
-            text = text + " " + file_content.decode("utf-8")
-            
+        if file_bytes:
+            create_embedding(text, file_bytes)
+            json_response = query_Qdrant(text)
+            chain = RetrievalChain(api_key=OPENAI_API_KEY)
+            formated_data = chain.format_data_for_prompt(json_response)
+            response = chain.setup_chain(text=text, data=formated_data)
+            return response, None
 
 
         classification_chain = ClassificationChain(api_key=OPENAI_API_KEY)
@@ -92,6 +132,12 @@ def route_request(text, file=None):
             response = command_chain.setup_chain(text=text)
             logger.critical(f"Generated response: {response}")
             return response
+        else:
+            logger.critical("Setting up Default chain.")
+            default_chain = DefaultChain(api_key=OPENAI_API_KEY)
+            response = default_chain.setup_chain(text=text)
+            logger.critical(f"Generated response: {response}")
+            return response, None
 
     except Exception as e:
         logger.error(f"An error occurred: {e}", exc_info=True)

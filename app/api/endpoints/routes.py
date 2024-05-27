@@ -35,8 +35,8 @@ def read_sql(question: Question):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/route")
-def read_route(
+@router.post("/route")
+async def read_route(
     question: str = Form(...),
     code: str = Form(...),
     file: UploadFile = File(None)
@@ -45,7 +45,11 @@ def read_route(
         raise HTTPException(status_code=400, detail="Invalid code")
 
     try:
-        response = route_request(question, file)
+        if file is None:
+            response = route_request(question)
+            return response
+        file_bytes = await file.read()
+        response = route_request(question, file_bytes)
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
