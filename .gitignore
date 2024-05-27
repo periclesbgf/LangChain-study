@@ -6,3 +6,6 @@ venv
 *.json
 .DS_Store
 .vscode
+*.csv
+*.sql
+*.txt

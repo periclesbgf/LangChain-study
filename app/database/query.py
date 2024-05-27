@@ -27,37 +27,24 @@ def list_tables():
     else:
         print("Não foi possível recuperar a lista de tabelas.")
 
-list_tables()
+def prepare_query(query):
+    return query.replace('```sql', '').replace('```', '').strip()
 
-query = """
-WITH PioresNotas AS (
-    SELECT h."DisciplinaID",
-           d."NomeDisciplina",
-           LEAST(COALESCE(h."AV1", 10), COALESCE(h."AV2", 10)) AS "PiorNota",
-           CASE
-               WHEN COALESCE(h."AV1", 10) <= COALESCE(h."AV2", 10) THEN 'AV1'
-               ELSE 'AV2'
-           END AS "TipoNota"
-    FROM "HistoricoEscolar" h
-    JOIN "Disciplinas" d ON h."DisciplinaID" = d."DisciplinaID"
-    WHERE d."Periodo" = 7
-)
-SELECT a."Assunto", p."NomeDisciplina", p."PiorNota", p."TipoNota"
-FROM "AssuntosSemanais" a
-JOIN PioresNotas p ON a."DisciplinaID" = p."DisciplinaID"
-WHERE p."PiorNota" < 7
-  AND ((p."TipoNota" = 'AV1' AND a."Semana" BETWEEN 1 AND 10)
-   OR (p."TipoNota" = 'AV2' AND a."Semana" BETWEEN 11 AND 20))
-ORDER BY p."PiorNota" ASC;
-"""
-results = execute_query(query)
+#list_tables()
 
-if results:
-    print("Dados na tabela:")
-    for row in results:
-        print(row)
-else:
-    print("Não foi possível recuperar os dados da tabela.")
+# query = """
+# SELECT "AV1", "AV2", "Final" FROM "HistoricoEscolar" WHERE "DisciplinaID" = 
+# (SELECT "DisciplinaID" FROM "Disciplinas" WHERE "NomeDisciplina" = 'Modelagem e Projeto de BD' LIMIT 1);
+# """
+
+# results = execute_query(query)
+
+# if results:
+#     print("Dados na tabela:")
+#     for row in results:
+#         print(row)
+# else:
+#     print("Não foi possível recuperar os dados da tabela.")
 
 
 # Quais disciplinas  tem no 5 periodo de design?

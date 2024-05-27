@@ -4,7 +4,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import UnstructuredExcelLoader
 from langchain_community.document_loaders import PyPDFLoader
 
-data_path = "/Users/peric/projects/LangChain-study/app/database/Liquidity_Is_All_You_Need.pdf"
+data_path = "/Users/peric/projects/LangChain-study/app/database/126887.pdf"
 
 
 loader = PyPDFLoader(file_path=data_path)

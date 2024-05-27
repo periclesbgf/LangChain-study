@@ -1,9 +1,12 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
+from langchain_core.prompts import PromptTemplate
+import logging
+from fastapi.logger import logger as fastapi_logger
 
 
-class LanguageChain:
+class CommandChain:
     def __init__(self, api_key):
         self.api_key = api_key
         self.model = "gpt-4o"
@@ -50,7 +53,7 @@ class LanguageChain:
         llm = ChatOpenAI(model=self.model, api_key=self.api_key)
         output_parser = StrOutputParser()
         chain = prompt | llm | output_parser
-        return chain.invoke(text)
+        return chain.invoke(text), None
 
 
 class SQLChain:
@@ -257,6 +260,9 @@ def prompt_template(question: str, context: str):
 
 
 class SQLSchoolChain:
+    """
+    This class is responsible for setting up the chain for the SQL School task.
+    """
     def __init__(self, api_key):
         self.api_key = api_key
         self.model = "gpt-4o"
@@ -270,12 +276,11 @@ class SQLSchoolChain:
         [Instruções]
         - O formato de saída deve ser JSON na seguinte estrutura:
 
-        {
             "Nome da primeira tabela": ["lista de colunas relevantes"],
             "Nome da segunda tabela": ["lista de colunas relevantes"],
             ...
             "Nome da n-ésima tabela": ["lista de colunas relevantes"]
-        }
+
 
         - Em cada tabela com informações relevantes para responder à pergunta, ordene as colunas importantes em ordem decrescente, considerando a importância para responder à pergunta (ordenar da coluna mais relevante para a menos relevante).
         - Adicione apenas colunas que ajudem a responder à pergunta realizada.
@@ -286,19 +291,15 @@ class SQLSchoolChain:
         Pergunta: 'Quais disciplinas estou cursando atualmente?'
 
         Resposta (entre colchetes):
-        {
             "Disciplinas": ["Periodo", "CursoID"],
             "Cursos": ["NomeCurso", "CursoID"]
-        }
 
         [Exemplo 2]
         Pergunta: 'Em quais matérias fui para a final?'
 
         Resposta (entre colchetes):
-        {
             "Disciplinas": ["NomeDisciplina", "DisciplinaID"],
             "HistoricoEscolar": ["Final", "DisciplinaID"]
-        }
 
         [Tarefa]
         Analise o [Esquema] a seguir e descreva quais tabelas e colunas são relevantes para responder à pergunta.
@@ -393,18 +394,21 @@ class SQLSchoolChain:
         {pergunta}
         """
 
-        self.prompt_2 = """
+        self.prompt_build_sql_query = """
         [Contexto]
         Você é um especialista em bases de dados, capaz de analisar as tabelas e colunas relevantes para responder a uma pergunta de um usuário.
-        Dado um [Esquema] de um banco de dados, as tabelas e suas respectivas colunas relevantes como [Evidencia] e a [Pergunta],
+        Dado um [Esquema] de um banco de dados, as tabelas e suas respectivas colunas relevantes como [TabelasImportantes] e a [Pergunta],
         sua tarefa é decompor a pergunta em subperguntas e gerar o código SQL correspondente utilizando PostgreSQL.
+        Lembre-se que o ano letivo é dividido em dois semestres, sendo o primeiro semestre representado por "ano.1" e o segundo semestre por "ano.2".\
+        Ou seja, o ano letivo 2023 é representado por "2023.1" e "2023.2".
+        Lembre-se que o ano atual é 2024.1
 
         [Restrições]
         - As consultas geradas devem ser em PostgreSQL.
         - Utilize apenas nomes de tabelas e colunas presentes no esquema.
         - Selecione apenas as colunas necessárias para responder à pergunta, sem incluir colunas ou valores desnecessários.
         - Inclua apenas as tabelas necessárias em FROM ou JOIN.
-        - Certifique-se de que as tabelas estão presentes na [Evidencia].
+        - Certifique-se de que as tabelas estão presentes na [TabelasImportantes].
         - Não utilize LIMIT com IN, ALL, ANY ou SOME em subconsultas.
         - Se utilizar funções MAX ou MIN, primeiro faça o JOIN da tabela, depois use SELECT MAX("coluna") ou SELECT MIN("coluna").
         - Não utilize ILIKE, LIKE, SIMILAR TO, ou outras comparações de string que não sejam =, <>, <, >, <=, >=.
@@ -498,9 +502,9 @@ class SQLSchoolChain:
         Para interpretar a pergunta do usuário, você pode levar em consideração o significado dos valores, mas para construir a query utilize os valores presentes na coluna.
 
         [Pergunta]
-        {pergunta}
-        [Evidencia]
-        {evidencia}
+        {user_question}
+        [TabelasImportantes]
+        {importantTables}
 
         Decomponha a pergunta em subperguntas, considerando as [Restrições], e gere a consulta PostgreSQL final, pensando no passo a passo \
         (Gere apenas o valor da SQL FINAL, em uma linha só, sem traços especiais como ```):
@@ -514,6 +518,8 @@ class SQLSchoolChain:
         os dados que virá junto com a pergunta são referentes a um [Esquema].\
         Você também receberá uma consulta SQL que foi gerada a partir da pergunta do usuário.\
         Use essa consulta para verificar quais dados foram retornados a partir do SELECT e responda a pergunta do usuário.
+        Se por algum motivo retornoar None na consulta da nota, é porque essa nota não esta disponivel, \
+        seja porquê a disciplina não foi cursada ou porque ele nao precisou fazer a prova por outro motivo.
         [Objetivo]
         Seu objetivo é responder a pergunta que se relacione com os dados do contexto acima.\
 
@@ -521,24 +527,137 @@ class SQLSchoolChain:
         e também a aconsulta SQL: {query}, responda a pergunta do usuário.
         """
 
-    def setup_chain(self, question, context):
+    def setup_chain(self, text):
         initial_prompt = ChatPromptTemplate.from_template(self.prompt_template_selec_tables)
-        llm = ChatOpenAI(model=self.model, api_key=self.api_key, temperature=0.1)
+        sql_query_prompt = ChatPromptTemplate.from_template(self.prompt_build_sql_query)
+
+        llm = ChatOpenAI(model=self.model, api_key=self.api_key, temperature=0)
+
+        output_parser_json = JsonOutputParser()
         output_parser = StrOutputParser()
-        chain = (initial_prompt
-                | llm 
-                | output_parser
-                | 
-                | output_parser)
-        
-        return chain.invoke(text)
-        chain = (
-            get_stock_prices_prompt
-            | model
-            | JsonOutputKeyToolsParser(key_name="stock_search", first_tool_only=True, return_single=True)
-            | stock_search
-            | calculate_percent_difference_prompt
-            | model
-            | JsonOutputKeyToolsParser(key_name="repl_tool", first_tool_only=True, return_single=True)
-            | repl_tool
+
+        selec_tables_chain = (
+            initial_prompt
+            | llm
+            | output_parser_json
         )
+        sql_query_builder_chain = (
+            sql_query_prompt
+            | llm
+            | output_parser
+        )
+
+        fastapi_logger.critical("Dentro do setup_chain")
+        fastapi_logger.critical("text: %s", text)
+
+        selec_tables_chain_result = selec_tables_chain.invoke({'pergunta': text})
+
+        fastapi_logger.critical("selec_tables_chain: %s", selec_tables_chain_result)
+
+        sql_query_builder_chain_result = sql_query_builder_chain.invoke({
+            'importantTables': selec_tables_chain_result, 
+            'user_question': text
+        })
+        fastapi_logger.critical("sql_query_builder_chain: %s", sql_query_builder_chain_result)
+
+        return sql_query_builder_chain_result, selec_tables_chain_result
+
+
+    def output_chain(self, user_question, importantTables, data, query):
+        final_prompt = ChatPromptTemplate.from_template(self.final_prompt)
+        llm = ChatOpenAI(model=self.model, api_key=self.api_key, temperature=0.5)
+        output_parser = StrOutputParser()
+        chain = final_prompt | llm | output_parser
+        response = chain.invoke({'user_question': user_question, 'importantTables': importantTables, 'data': data, 'query': query})
+
+        return response
+
+
+class ClassificationChain:
+    """
+    This class is responsible for setting up the chain for the Classification task.
+    """
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.model = "gpt-4o"
+        self.prompt_clasificator = """
+        [Contexto]
+        Você é um especialista em analisar texto e determinar a classificação de uma questão em um tópico específico.
+        Você tem três rotas possíveis para classificar a questão: `Comando`, `ConsultarBancoDeDados` ou `outros`.
+
+        [Objetivo]
+        Sua tarefa é classificar a questão em um dos tópicos acima.
+
+        [Rotas]
+        - Comando:
+            [Descrição]
+            Essa rota determina se a questão é um comando a ser executado em um sistema de automação residencial ou Se é uma solicitação de dados de um dispositivo em casa.
+
+            [Exemplo]
+            Questões que solicitam a execução de uma ação. Essa ação pode ser ligar ou desligar um dispositivo, abrir ou fechar uma porta, entre outras ações envolvendo automação residencial.
+            Dentro de comandos, você pode encontrar palavras-chave como "ligar", "desligar", "abrir", "fechar".
+            Ao escolher comando, a pergunta ou ação do usuário irá para uma determinada rota que irá passar por um processamento específico.
+            Este processamento irá identificar o comando específico que o usuário deseja executar.
+            Tambem irá identificar se o usuário quer solicitar dados de algum dispositivo em casa.
+
+        - ConsultarBancoDeDados:
+            [Descrição]
+            Essa rota determina se a questão é uma solicitação de dados de um banco de dados envolvendo seu historico escolar. Ou algo referente a faculdade.\
+
+            [Exemplos]
+            Questões que solicitam informações sobre disciplinas cursadas, notas, semestres, cursos, entre outras informações relacionadas ao histórico escolar.
+            Dentro de consultar banco de dados, você pode encontrar palavras-chave como "disciplina", "curso", "nota", "semestre".
+            Ao escolher consultar banco de dados, a pergunta ou ação do usuário irá para uma determinada rota que irá passar por um processamento específico.
+            Este processamento irá identificar as informações solicitadas pelo usuário e retornar a resposta correta.
+
+        - Outros:
+            [Descrição]
+            Essa rota determina se a questão não se encaixa nas rotas de comando ou consultar banco de dados.
+
+            [Exemplos]
+            Questões que não se encaixam nas rotas de comando ou consultar banco de dados.
+            Dentro de outros, pode encontrar perguntas diversas que não se encaixam em nenhuma das rotas anteriores.
+            Esta rota irá identificar que a questão não se encaixa nas rotas de comando ou consultar banco de dados.
+
+        Baseado no contexto acima, classifique a questão a seguir em uma das [Rotas] acima. Retorne apenas \
+        o nome da [Rotas].  Não responda mais do que uma palavra:
+
+        <pergunta>
+        {question}
+        </pergunta>
+        """
+
+
+    def setup_chain(self, text):
+        prompt = ChatPromptTemplate.from_template(self.prompt_clasificator)
+        llm = ChatOpenAI(model=self.model, api_key=self.api_key)
+        output_parser = StrOutputParser()
+        chain = prompt | llm | output_parser
+
+        return chain.invoke(text)
+
+
+class DefaultChain():
+    """
+    This class is responsible for setting up the chain for the Default task.
+    """
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.model = "gpt-4o"
+        self.prompt_template = """
+        [Contexto]
+        Você é um assistente virtual chamado Éden.
+
+        [Objetivo]
+        Seu papel é responder perguntas de maneira amigável.
+
+        [Prgunta]
+        {text}
+        """
+    def setup_chain(self, text):
+        prompt = ChatPromptTemplate.from_template(self.prompt_template)
+        llm = ChatOpenAI(model=self.model, api_key=self.api_key)
+        output_parser = StrOutputParser()
+        chain = prompt | llm | output_parser
+
+        return chain.invoke(text)

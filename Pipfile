@@ -29,6 +29,8 @@ llama-index-llms-openai = "*"
 hugchat = "*"
 cd = "*"
 faker = "*"
+langchain-anthropic = "*"
+langchain-qdrant = "*"
 
 [dev-packages]
 

@@ -86,71 +86,71 @@ disciplinas = {
         ('Eletiva 4', 8), ('Tópicos Contemporâneos em Computação 3', 8),
         ('Tópicos Contemporâneos em Computação 4', 8), ('Fundamentos de Projetos 8', 8),
         ('Projeto de Trabalho de Conclusão de Curso', 8)
+    ],
+    'Design': [
+        ('Filosofia Prática', 1), ('Fundamentos da Pesquisa Social', 1), ('Sistemas Digitais', 1),
+        ('Design da Experiência', 1), ('Fundamentos de Projeto 1', 1), ('Projeto 1', 1),
+        ('Estudos de Futuro', 2), ('Análise e Comunicação da Pesquisa', 2),
+        ('Semiótica', 2), ('Representação Visual', 2), ('Fundamentos de Projetos 2', 2),
+        ('Projeto 2', 2), ('História e Teoria do Design I', 3), ('Projeto Gráfico', 3),
+        ('Técnicas de Ideação', 3), ('Design Especulativo', 3), ('Fundamentos de Projetos 3', 3),
+        ('Projeto 3', 3), ('Representação Tridimensional', 4), ('Design de Interfaces I', 4),
+        ('Prototipação e Testes com Usuários I', 4), ('História e Teoria do Design II', 4),
+        ('Fundamentos de Projetos 4', 4), ('Projeto 4', 4), ('Prototipação e Testes com Usuários II', 5),
+        ('Design de Interfaces II', 5), ('Design de Produtos', 5), ('Design de Serviços', 5),
+        ('Fundamentos de Projetos 5', 5), ('Projeto 5', 5), ('Fabricação Digital', 6),
+        ('Design de Interfaces Ubíquas', 6), ('Teoria e Futuro do Design', 6),
+        ('Design e Meio Ambiente', 6), ('Fundamentos de Projetos 6', 6), ('Projeto 6', 6),
+        ('Eletiva 1', 7), ('Eletiva 2', 7), ('Tópicos Contemporâneos em Design 1', 7),
+        ('Tópicos Contemporâneos em Design 2', 7), ('Fundamentos de Projetos 7', 7), ('Projeto 7', 7),
+        ('Eletiva 3', 8), ('Eletiva 4', 8), ('Tópicos Contemporâneos em Design 3', 8),
+        ('Tópicos Contemporâneos em Design 4', 8), ('Fundamentos de Projetos 8', 8),
+        ('Projeto de Trabalho de Conclusão de Curso', 8)
+    ],
+    'Gestão de TI': [
+        ('Introdução à Computação', 1), ('Matemática para Computação', 1), ('Design da Experiência', 1),
+        ('Fundamentos de Programação', 1), ('Projeto 1', 1), ('Orientação a Objetos', 2),
+        ('Técnicas de Ideação', 2), ('Gestão de Pessoas', 2), ('Fundamentos de Desenvolvimento de Software', 2),
+        ('Projeto 2', 2), ('Estudos de Futuro', 3), ('Modelagem e Projeto de BD', 3),
+        ('Requisitos e Validação', 3), ('Gestão de Projetos', 3), ('Projeto 3', 3),
+        ('Negócios na Internet', 4), ('Interação Humano Máquina', 4), ('Estatística e Probabilidade', 4),
+        ('Empreendedorismo', 4), ('Projeto 4', 4), ('Eletiva I', 5), ('Governança em TI', 5),
+        ('Tópicos em Direito (LGPD)', 5), ('Análise e Visualização de Dados', 5), ('Projeto 5', 5)
+    ],
+    'Análise e Desenvolvimento de Sistemas': [
+        ('Introdução à Computação', 1), ('Matemática para Computação', 1), ('Sistemas Digitais', 1),
+        ('Fundamentos de Programação', 1), ('Projeto 1', 1), ('FP1: Gestão de Pessoas', 1),
+        ('Programação Imperativa', 2), ('Interfaces Humano Computador', 2), ('Lógica para Computação', 2),
+        ('Fundamentos de Desenvolvimento de Software', 2), ('Projeto 2', 2), ('FP2: Gestão de Projetos', 2),
+        ('Orientação a Objetos', 3), ('Algoritmos e Estrutura de Dados', 3),
+        ('Infraestrutura de Software (SO)', 3), ('Infraestrutura de Software (RSD)', 3),
+        ('Estatística e Probabilidade', 3), ('Projeto 3', 3), ('Modelagem e Projeto de BD', 4),
+        ('Requisitos, Projeto de Software e Validação', 4),
+        ('Fundamentos de Computação Concorrente, Paralela e Distribuída', 4),
+        ('Desenvolvimento Web', 4), ('Disciplina Optativa: Libras e Outras', 4), ('Projeto 4', 4),
+        ('Segurança da Informação', 5), ('Desenvolvimento Mobile', 5), ('Eletiva 2', 5),
+        ('Eletiva 3', 5), ('Negócios na Internet', 5), ('Projeto 5', 5)
+    ],
+    'Sistemas de Informação': [
+        ('Introdução à Computação', 1), ('Matemática para Computação', 1), ('Sistemas Digitais', 1),
+        ('Fundamentos de Programação', 1), ('Projeto 1', 1), ('FP1: Gestão de Pessoas', 1),
+        ('Programação Imperativa', 2), ('Interfaces Humano Computador', 2), ('Lógica para Computação', 2),
+        ('Fundamentos de Desenvolvimento de Software', 2), ('Projetos 2', 2), ('FP2: Gestão de Projetos', 2),
+        ('Orientação a Objetos', 3), ('Infraestrutura de Hardware (AOC)', 3),
+        ('Administração de Empresas', 3), ('Algoritmos e Estrutura de Dados', 3),
+        ('Projeto 3', 3), ('FP3: Metodologia Científica', 3), ('Modelagem e Projeto de BD', 4),
+        ('Infraestrutura de Comunicação (RSD)', 4), ('Estatística e Probabilidade', 4),
+        ('Infraestrutura de Software (SO)', 4), ('Projeto 4', 4), ('FP4: Empreendedorismo', 4),
+        ('Requisitos, Projeto de Software e Validação', 5), ('Análise e Visualização de Dados', 5),
+        ('Pensamento Empresarial', 5), ('Fundamentos de Computação Concorrente, Paralela e Distribuída', 5),
+        ('Projeto 5', 5), ('FP5: Marketing', 5), ('Aprendizado de Máquina', 6),
+        ('Arquitetura de Software Nativa em Nuvem', 6), ('Segurança da Informação', 6),
+        ('Desenvolvimento Web', 6), ('Projeto 6', 6), ('FP6: Tópicos em Direito', 6),
+        ('Eletiva 1', 7), ('Eletiva 2', 7), ('DevOps', 7), ('Desenvolvimento Mobile', 7),
+        ('Projeto 7', 7), ('Pré-Projeto de TCC', 7), ('Eletiva 3', 8), ('Eletiva 4', 8),
+        ('Tópicos Contemporâneos em Sistema de Informação', 8), ('Governança de TI', 8),
+        ('FP8: Acompanhamento de TCC', 8)
     ]
-    # 'Design': [
-    #     ('Filosofia Prática', 1), ('Fundamentos da Pesquisa Social', 1), ('Sistemas Digitais', 1),
-    #     ('Design da Experiência', 1), ('Fundamentos de Projeto 1', 1), ('Projeto 1', 1),
-    #     ('Estudos de Futuro', 2), ('Análise e Comunicação da Pesquisa', 2),
-    #     ('Semiótica', 2), ('Representação Visual', 2), ('Fundamentos de Projetos 2', 2),
-    #     ('Projeto 2', 2), ('História e Teoria do Design I', 3), ('Projeto Gráfico', 3),
-    #     ('Técnicas de Ideação', 3), ('Design Especulativo', 3), ('Fundamentos de Projetos 3', 3),
-    #     ('Projeto 3', 3), ('Representação Tridimensional', 4), ('Design de Interfaces I', 4),
-    #     ('Prototipação e Testes com Usuários I', 4), ('História e Teoria do Design II', 4),
-    #     ('Fundamentos de Projetos 4', 4), ('Projeto 4', 4), ('Prototipação e Testes com Usuários II', 5),
-    #     ('Design de Interfaces II', 5), ('Design de Produtos', 5), ('Design de Serviços', 5),
-    #     ('Fundamentos de Projetos 5', 5), ('Projeto 5', 5), ('Fabricação Digital', 6),
-    #     ('Design de Interfaces Ubíquas', 6), ('Teoria e Futuro do Design', 6),
-    #     ('Design e Meio Ambiente', 6), ('Fundamentos de Projetos 6', 6), ('Projeto 6', 6),
-    #     ('Eletiva 1', 7), ('Eletiva 2', 7), ('Tópicos Contemporâneos em Design 1', 7),
-    #     ('Tópicos Contemporâneos em Design 2', 7), ('Fundamentos de Projetos 7', 7), ('Projeto 7', 7),
-    #     ('Eletiva 3', 8), ('Eletiva 4', 8), ('Tópicos Contemporâneos em Design 3', 8),
-    #     ('Tópicos Contemporâneos em Design 4', 8), ('Fundamentos de Projetos 8', 8),
-    #     ('Projeto de Trabalho de Conclusão de Curso', 8)
-    # ],
-    # 'Gestão de TI': [
-    #     ('Introdução à Computação', 1), ('Matemática para Computação', 1), ('Design da Experiência', 1),
-    #     ('Fundamentos de Programação', 1), ('Projeto 1', 1), ('Orientação a Objetos', 2),
-    #     ('Técnicas de Ideação', 2), ('Gestão de Pessoas', 2), ('Fundamentos de Desenvolvimento de Software', 2),
-    #     ('Projeto 2', 2), ('Estudos de Futuro', 3), ('Modelagem e Projeto de BD', 3),
-    #     ('Requisitos e Validação', 3), ('Gestão de Projetos', 3), ('Projeto 3', 3),
-    #     ('Negócios na Internet', 4), ('Interação Humano Máquina', 4), ('Estatística e Probabilidade', 4),
-    #     ('Empreendedorismo', 4), ('Projeto 4', 4), ('Eletiva I', 5), ('Governança em TI', 5),
-    #     ('Tópicos em Direito (LGPD)', 5), ('Análise e Visualização de Dados', 5), ('Projeto 5', 5)
-    # ],
-    # 'Análise e Desenvolvimento de Sistemas': [
-    #     ('Introdução à Computação', 1), ('Matemática para Computação', 1), ('Sistemas Digitais', 1),
-    #     ('Fundamentos de Programação', 1), ('Projeto 1', 1), ('FP1: Gestão de Pessoas', 1),
-    #     ('Programação Imperativa', 2), ('Interfaces Humano Computador', 2), ('Lógica para Computação', 2),
-    #     ('Fundamentos de Desenvolvimento de Software', 2), ('Projeto 2', 2), ('FP2: Gestão de Projetos', 2),
-    #     ('Orientação a Objetos', 3), ('Algoritmos e Estrutura de Dados', 3),
-    #     ('Infraestrutura de Software (SO)', 3), ('Infraestrutura de Software (RSD)', 3),
-    #     ('Estatística e Probabilidade', 3), ('Projeto 3', 3), ('Modelagem e Projeto de BD', 4),
-    #     ('Requisitos, Projeto de Software e Validação', 4),
-    #     ('Fundamentos de Computação Concorrente, Paralela e Distribuída', 4),
-    #     ('Desenvolvimento Web', 4), ('Disciplina Optativa: Libras e Outras', 4), ('Projeto 4', 4),
-    #     ('Segurança da Informação', 5), ('Desenvolvimento Mobile', 5), ('Eletiva 2', 5),
-    #     ('Eletiva 3', 5), ('Negócios na Internet', 5), ('Projeto 5', 5)
-    # ],
-    # 'Sistemas de Informação': [
-    #     ('Introdução à Computação', 1), ('Matemática para Computação', 1), ('Sistemas Digitais', 1),
-    #     ('Fundamentos de Programação', 1), ('Projeto 1', 1), ('FP1: Gestão de Pessoas', 1),
-    #     ('Programação Imperativa', 2), ('Interfaces Humano Computador', 2), ('Lógica para Computação', 2),
-    #     ('Fundamentos de Desenvolvimento de Software', 2), ('Projetos 2', 2), ('FP2: Gestão de Projetos', 2),
-    #     ('Orientação a Objetos', 3), ('Infraestrutura de Hardware (AOC)', 3),
-    #     ('Administração de Empresas', 3), ('Algoritmos e Estrutura de Dados', 3),
-    #     ('Projeto 3', 3), ('FP3: Metodologia Científica', 3), ('Modelagem e Projeto de BD', 4),
-    #     ('Infraestrutura de Comunicação (RSD)', 4), ('Estatística e Probabilidade', 4),
-    #     ('Infraestrutura de Software (SO)', 4), ('Projeto 4', 4), ('FP4: Empreendedorismo', 4),
-    #     ('Requisitos, Projeto de Software e Validação', 5), ('Análise e Visualização de Dados', 5),
-    #     ('Pensamento Empresarial', 5), ('Fundamentos de Computação Concorrente, Paralela e Distribuída', 5),
-    #     ('Projeto 5', 5), ('FP5: Marketing', 5), ('Aprendizado de Máquina', 6),
-    #     ('Arquitetura de Software Nativa em Nuvem', 6), ('Segurança da Informação', 6),
-    #     ('Desenvolvimento Web', 6), ('Projeto 6', 6), ('FP6: Tópicos em Direito', 6),
-    #     ('Eletiva 1', 7), ('Eletiva 2', 7), ('DevOps', 7), ('Desenvolvimento Mobile', 7),
-    #     ('Projeto 7', 7), ('Pré-Projeto de TCC', 7), ('Eletiva 3', 8), ('Eletiva 4', 8),
-    #     ('Tópicos Contemporâneos em Sistema de Informação', 8), ('Governança de TI', 8),
-    #     ('FP8: Acompanhamento de TCC', 8)
-    # ]
 }
 
 for curso, disps in disciplinas.items():
@@ -174,7 +174,6 @@ for curso, disps in disciplinas.items():
             print(f"Erro: Disciplina '{disp[0]}' não encontrada após inserção para o curso '{curso}'.")
 
 
-# Notas para todos os períodos (1 a 7) do curso de Ciência da Computação
 notas_historicos = [
     # 1º período
     {'DisciplinaID': session.execute(disciplinas_table.select().where(disciplinas_table.c.NomeDisciplina == 'Introdução à Computação')).fetchone()[0], 'Semestre': '2021.1', 'AV1': 8.0, 'AV2': 7.5, 'Final': None},
@@ -230,15 +229,7 @@ notas_historicos = [
     {'DisciplinaID': session.execute(disciplinas_table.select().where(disciplinas_table.c.NomeDisciplina == 'Tópicos Contemporâneos em Computação 1')).fetchone()[0], 'Semestre': '2024.1', 'AV1': 4.0, 'AV2': 10.0, 'Final': None},
     {'DisciplinaID': session.execute(disciplinas_table.select().where(disciplinas_table.c.NomeDisciplina == 'Tópicos Contemporâneos em Computação 2')).fetchone()[0], 'Semestre': '2024.1', 'AV1': 7.5, 'AV2': 7.0, 'Final': None},
     {'DisciplinaID': session.execute(disciplinas_table.select().where(disciplinas_table.c.NomeDisciplina == 'Fundamentos de Projetos 7')).fetchone()[0], 'Semestre': '2024.1', 'AV1': 7.8, 'AV2': 8.0, 'Final': None},
-    {'DisciplinaID': session.execute(disciplinas_table.select().where(disciplinas_table.c.NomeDisciplina == 'Projeto 7')).fetchone()[0], 'Semestre': '2024.1', 'AV1': 4.2, 'AV2': 7.5, 'Final': 8.0},
-
-# 8º período
-    {'DisciplinaID': session.execute(disciplinas_table.select().where(disciplinas_table.c.NomeDisciplina == 'Eletiva 3')).fetchone()[0], 'Semestre': '2024.2', 'AV1': None, 'AV2': None, 'Final': None},
-    {'DisciplinaID': session.execute(disciplinas_table.select().where(disciplinas_table.c.NomeDisciplina == 'Eletiva 4')).fetchone()[0], 'Semestre': '2024.2', 'AV1': None, 'AV2': None, 'Final': None},
-    {'DisciplinaID': session.execute(disciplinas_table.select().where(disciplinas_table.c.NomeDisciplina == 'Tópicos Contemporâneos em Computação 3')).fetchone()[0], 'Semestre': '2024.2', 'AV1': None, 'AV2': None, 'Final': None},
-    {'DisciplinaID': session.execute(disciplinas_table.select().where(disciplinas_table.c.NomeDisciplina == 'Tópicos Contemporâneos em Computação 4')).fetchone()[0], 'Semestre': '2024.2', 'AV1': None, 'AV2': None, 'Final': None},
-    {'DisciplinaID': session.execute(disciplinas_table.select().where(disciplinas_table.c.NomeDisciplina == 'Fundamentos de Projetos 8')).fetchone()[0], 'Semestre': '2024.2', 'AV1': None, 'AV2': None, 'Final': None},
-    {'DisciplinaID': session.execute(disciplinas_table.select().where(disciplinas_table.c.NomeDisciplina == 'Projeto de Trabalho de Conclusão de Curso')).fetchone()[0], 'Semestre': '2024.2', 'AV1': None, 'AV2': None, 'Final': None}
+    {'DisciplinaID': session.execute(disciplinas_table.select().where(disciplinas_table.c.NomeDisciplina == 'Projeto 7')).fetchone()[0], 'Semestre': '2024.1', 'AV1': 4.2, 'AV2': 7.5, 'Final': 8.0}
 ]
 
 # Inserir notas no histórico escolar
@@ -256,6 +247,9 @@ for disciplina in design_disciplinas:
     print(disciplina)
 
 session.commit()
+
+
+
 
 assuntos_periodos = {
     1: {
@@ -1197,7 +1191,7 @@ assuntos_periodos = {
         ]
     },
     8: {
-        'Eletiva 3': [
+        'Eletiva 1': [
             {'Semana': 1, 'Assunto': 'Introdução ao Desenvolvimento Frontend'},
             {'Semana': 2, 'Assunto': 'HTML5 e Estrutura de Páginas Web'},
             {'Semana': 3, 'Assunto': 'CSS3 e Design Responsivo'},
@@ -1219,7 +1213,7 @@ assuntos_periodos = {
             {'Semana': 19, 'Assunto': 'Revisão e Prova Final'},
             {'Semana': 20, 'Assunto': 'Apresentação dos Projetos'}
         ],
-        'Eletiva 4': [
+        'Eletiva 2': [
             {'Semana': 1, 'Assunto': 'Introdução à Criação de Portfólio'},
             {'Semana': 2, 'Assunto': 'Identidade Visual e Branding'},
             {'Semana': 3, 'Assunto': 'Ferramentas de Design (Photoshop, Illustrator)'},
@@ -1240,94 +1234,6 @@ assuntos_periodos = {
             {'Semana': 18, 'Assunto': 'Revisão e Prova Final'},
             {'Semana': 19, 'Assunto': 'Feedback e Melhorias'},
             {'Semana': 20, 'Assunto': 'Apresentação dos Portfólios'}
-        ],
-        'Tópicos Contemporâneos em Computação 3': [
-            {'Semana': 1, 'Assunto': 'Introdução a Inteligência Artificial'},
-            {'Semana': 2, 'Assunto': 'Aprendizado de Máquina Supervisionado'},
-            {'Semana': 3, 'Assunto': 'Redes Neurais Artificiais'},
-            {'Semana': 4, 'Assunto': 'Aprendizado Profundo'},
-            {'Semana': 5, 'Assunto': 'Processamento de Linguagem Natural'},
-            {'Semana': 6, 'Assunto': 'Visão Computacional'},
-            {'Semana': 7, 'Assunto': 'Aprendizado por Reforço'},
-            {'Semana': 8, 'Assunto': 'Redes Generativas Adversárias (GANs)'},
-            {'Semana': 9, 'Assunto': 'Aplicações de IA em Jogos'},
-            {'Semana': 10, 'Assunto': 'Ética em Inteligência Artificial'},
-            {'Semana': 11, 'Assunto': 'IA em Sistemas Autônomos'},
-            {'Semana': 12, 'Assunto': 'IA em Big Data'},
-            {'Semana': 13, 'Assunto': 'Plataformas de Desenvolvimento de IA'},
-            {'Semana': 14, 'Assunto': 'Técnicas de Pré-processamento de Dados'},
-            {'Semana': 15, 'Assunto': 'Ferramentas de Avaliação de Modelos de IA'},
-            {'Semana': 16, 'Assunto': 'Trabalho Prático em IA'},
-            {'Semana': 17, 'Assunto': 'Estudos de Caso em IA'},
-            {'Semana': 18, 'Assunto': 'Revisão e Prova Final'},
-            {'Semana': 19, 'Assunto': 'Apresentação de Projetos'},
-            {'Semana': 20, 'Assunto': 'Discussão de Projetos'}
-        ],
-        'Tópicos Contemporâneos em Computação 4': [
-            {'Semana': 1, 'Assunto': 'Introdução a Computação Quântica'},
-            {'Semana': 2, 'Assunto': 'Fundamentos da Mecânica Quântica'},
-            {'Semana': 3, 'Assunto': 'Qubits e Portas Quânticas'},
-            {'Semana': 4, 'Assunto': 'Algoritmos Quânticos'},
-            {'Semana': 5, 'Assunto': 'Correção de Erros Quânticos'},
-            {'Semana': 6, 'Assunto': 'Criptografia Quântica'},
-            {'Semana': 7, 'Assunto': 'Computação Quântica na Nuvem'},
-            {'Semana': 8, 'Assunto': 'Aplicações da Computação Quântica'},
-            {'Semana': 9, 'Assunto': 'Simuladores Quânticos'},
-            {'Semana': 10, 'Assunto': 'Programação em Qiskit'},
-            {'Semana': 11, 'Assunto': 'Desafios e Limitações da Computação Quântica'},
-            {'Semana': 12, 'Assunto': 'Inovação e Futuro da Computação Quântica'},
-            {'Semana': 13, 'Assunto': 'Trabalho Prático com Algoritmos Quânticos'},
-            {'Semana': 14, 'Assunto': 'Estudos de Caso em Computação Quântica'},
-            {'Semana': 15, 'Assunto': 'Projeto Final em Computação Quântica'},
-            {'Semana': 16, 'Assunto': 'Revisão e Preparação para Prova'},
-            {'Semana': 17, 'Assunto': 'Prova Final'},
-            {'Semana': 18, 'Assunto': 'Feedback da Prova'},
-            {'Semana': 19, 'Assunto': 'Discussão de Projetos'},
-            {'Semana': 20, 'Assunto': 'Apresentação de Projetos'}
-        ],
-        'Fundamentos de Projetos 8': [
-            {'Semana': 1, 'Assunto': 'Introdução ao Projeto de TCC'},
-            {'Semana': 2, 'Assunto': 'Escolha de Tema e Problema de Pesquisa'},
-            {'Semana': 3, 'Assunto': 'Revisão Bibliográfica'},
-            {'Semana': 4, 'Assunto': 'Metodologia de Pesquisa'},
-            {'Semana': 5, 'Assunto': 'Elaboração de Hipóteses'},
-            {'Semana': 6, 'Assunto': 'Plano de Trabalho'},
-            {'Semana': 7, 'Assunto': 'Estruturação do Projeto'},
-            {'Semana': 8, 'Assunto': 'Desenvolvimento do Projeto'},
-            {'Semana': 9, 'Assunto': 'Coleta e Análise de Dados'},
-            {'Semana': 10, 'Assunto': 'Resultados Preliminares'},
-            {'Semana': 11, 'Assunto': 'Redação Científica'},
-            {'Semana': 12, 'Assunto': 'Revisão do Projeto'},
-            {'Semana': 13, 'Assunto': 'Ajustes e Melhorias'},
-            {'Semana': 14, 'Assunto': 'Preparação para Apresentação'},
-            {'Semana': 15, 'Assunto': 'Simulação de Apresentação'},
-            {'Semana': 16, 'Assunto': 'Entrega da Versão Final'},
-            {'Semana': 17, 'Assunto': 'Avaliação do Projeto'},
-            {'Semana': 18, 'Assunto': 'Defesa do Projeto'},
-            {'Semana': 19, 'Assunto': 'Feedback da Banca'},
-            {'Semana': 20, 'Assunto': 'Ajustes Finais'}
-        ],
-        'Projeto de Trabalho de Conclusão de Curso': [
-            {'Semana': 1, 'Assunto': 'Definição do Projeto de TCC'},
-            {'Semana': 2, 'Assunto': 'Planejamento e Cronograma'},
-            {'Semana': 3, 'Assunto': 'Revisão de Literatura'},
-            {'Semana': 4, 'Assunto': 'Metodologia Aplicada'},
-            {'Semana': 5, 'Assunto': 'Coleta de Dados'},
-            {'Semana': 6, 'Assunto': 'Análise de Dados'},
-            {'Semana': 7, 'Assunto': 'Desenvolvimento do Projeto'},
-            {'Semana': 8, 'Assunto': 'Resultados e Discussões'},
-            {'Semana': 9, 'Assunto': 'Redação do TCC'},
-            {'Semana': 10, 'Assunto': 'Revisão do Texto'},
-            {'Semana': 11, 'Assunto': 'Ajustes e Correções'},
-            {'Semana': 12, 'Assunto': 'Preparação para Defesa'},
-            {'Semana': 13, 'Assunto': 'Simulação de Defesa'},
-            {'Semana': 14, 'Assunto': 'Entrega do TCC'},
-            {'Semana': 15, 'Assunto': 'Avaliação pela Banca'},
-            {'Semana': 16, 'Assunto': 'Defesa do TCC'},
-            {'Semana': 17, 'Assunto': 'Feedback da Banca'},
-            {'Semana': 18, 'Assunto': 'Correções Finais'},
-            {'Semana': 19, 'Assunto': 'Submissão da Versão Final'},
-            {'Semana': 20, 'Assunto': 'Apresentação dos Resultados'}
         ]
     }
 }
