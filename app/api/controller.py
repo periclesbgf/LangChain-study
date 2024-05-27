@@ -1,8 +1,5 @@
 from chains.chain_setup import CommandChain, SQLChain, AnswerChain, ClassificationChain, SQLSchoolChain, DefaultChain, RetrievalChain
 from database.query import execute_query
-from langchain_core.runnables import RunnableLambda
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import PromptTemplate
 from database.vector_db import DocumentLoader, TextSplitter, Embeddings, QdrantIndex
 
 from fastapi.logger import logger
@@ -50,6 +47,7 @@ def route_chooser(info, isFile):
 def create_embedding(text, file_bytes):
     loader = DocumentLoader(file_bytes=file_bytes)
     documents = loader.load_documents()
+
     print("Type of documents:", type(documents))
     print("First few documents:", documents)
 
@@ -57,18 +55,16 @@ def create_embedding(text, file_bytes):
     text = splitter.split_documents(documents)
 
     if not text:
-        print("No text documents were processed. Please check the format of the input data.")
+        print("No text documents were processed.")
         return
 
     embeddings_obj = Embeddings()
     embeddings = embeddings_obj.get_embeddings()
-    print("Embedding models loaded")
 
     url = "http://localhost:6333"
     collection_name = "gpt_db"
     qdrant_index = QdrantIndex(url=url, collection_name=collection_name, embeddings=embeddings)
     qdrant_index.create_index(text)
-    print("Qdrant Index created")
 
 def query_Qdrant(query):
     embeddings_model = Embeddings()
@@ -92,8 +88,8 @@ def route_request(text, file_bytes=None):
             chain = RetrievalChain(api_key=OPENAI_API_KEY)
             formated_data = chain.format_data_for_prompt(json_response)
             response = chain.setup_chain(text=text, data=formated_data)
-            return response, None
 
+            return response, None
 
         classification_chain = ClassificationChain(api_key=OPENAI_API_KEY)
         route = classification_chain.setup_chain(text=text)
@@ -123,19 +119,25 @@ def route_request(text, file_bytes=None):
                 query=sql_query,
                 importantTables=important_tables
             )
+
             logger.critical(f"Final response: {response}")
+
             return response, sql_query
 
         elif route == "Comando":
             logger.critical("Setting up Language chain.")
+
             command_chain = CommandChain(api_key=OPENAI_API_KEY)
             response = command_chain.setup_chain(text=text)
+
             logger.critical(f"Generated response: {response}")
             return response
         else:
             logger.critical("Setting up Default chain.")
+
             default_chain = DefaultChain(api_key=OPENAI_API_KEY)
             response = default_chain.setup_chain(text=text)
+
             logger.critical(f"Generated response: {response}")
             return response, None
 

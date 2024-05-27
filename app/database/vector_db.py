@@ -1,9 +1,7 @@
 from langchain_community.vectorstores import Qdrant
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
-from io import BytesIO
 from langchain.docstore.document import Document
 
 from qdrant_client import QdrantClient
@@ -28,6 +26,7 @@ class DocumentLoader:
 
         return documents
 
+
 class TextSplitter:
     def __init__(self, chunk_size=500, chunk_overlap=50):
         self.chunk_size = chunk_size
@@ -39,6 +38,7 @@ class TextSplitter:
             chunk_overlap=self.chunk_overlap,
         )
         return text_splitter.split_documents(documents)
+
 
 class Embeddings:
     def __init__(self):
@@ -56,6 +56,7 @@ class Embeddings:
 
     def get_embeddings(self):
         return self.embeddings
+
 
 class QdrantIndex:
     def __init__(self, url, collection_name, embeddings):
@@ -89,4 +90,3 @@ class QdrantIndex:
 
     def similarity_search(self, query, k=5):
         return self.create_db().similarity_search_with_score(query=query, k=k)
-

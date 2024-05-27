@@ -547,18 +547,12 @@ class SQLSchoolChain:
             | output_parser
         )
 
-        fastapi_logger.critical("Dentro do setup_chain")
-        fastapi_logger.critical("text: %s", text)
-
         selec_tables_chain_result = selec_tables_chain.invoke({'pergunta': text})
 
-        fastapi_logger.critical("selec_tables_chain: %s", selec_tables_chain_result)
-
         sql_query_builder_chain_result = sql_query_builder_chain.invoke({
-            'importantTables': selec_tables_chain_result, 
+            'importantTables': selec_tables_chain_result,
             'user_question': text
         })
-        fastapi_logger.critical("sql_query_builder_chain: %s", sql_query_builder_chain_result)
 
         return sql_query_builder_chain_result, selec_tables_chain_result
 
@@ -568,6 +562,7 @@ class SQLSchoolChain:
         llm = ChatOpenAI(model=self.model, api_key=self.api_key, temperature=0.5)
         output_parser = StrOutputParser()
         chain = final_prompt | llm | output_parser
+
         response = chain.invoke({'user_question': user_question, 'importantTables': importantTables, 'data': data, 'query': query})
 
         return response
