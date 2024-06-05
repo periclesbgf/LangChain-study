@@ -13,3 +13,13 @@ pandas
 openpyxl
 sentence-transformers
 qdrant-client
+llama-index
+psycopg2-binary
+streamlit
+llama-index-llms-openai
+hugchat
+cd
+faker
+langchain-anthropic
+langchain-qdrant
+pymupdf

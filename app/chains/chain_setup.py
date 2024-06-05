@@ -16,7 +16,7 @@ class CommandChain:
         3. Diferencie se um texto vindo do usuário é uma pergunta, comando ou afirmação.
         4. Você possui uma lista de comandos disponíveis para serem executados.
         5. Os comandos incluem: "ligar luminária", "desligar luminária", "ligar luz", "desligar luz", "travar porta", "destravar porta",\
-            "checar bomba de água", "checar sensor de temperatura", "ligar válvula", "desligar válvula", "ligar bomba de água", "desligar bomba de água".
+            "checar bomba de água", "ligar válvula", "desligar válvula", "ligar bomba de água", "desligar bomba de água".
         6. Se a entrada do usuário for um comando: Sua tarefa é determinar se a entrada de um usuário é um desses comandos específicos\
             ou algo que se relacione com esses comandos. Se for um comando,\
             retorne exatamente o comando que você entendeu que o usuário quer executar, sem alterar a estrutura e nem adicionar texto a mais.
