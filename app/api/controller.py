@@ -14,9 +14,9 @@ def code_confirmation(code):
     else:
         return False
 
-def build_chain(text):
+def build_chain(text, history):
     chain = CommandChain(api_key=OPENAI_API_KEY)
-    response = chain.setup_chain(text=text)
+    response, updated_history = chain.setup_chain(text=text, history=history)
     return response
 
 def build_sql_chain(text):

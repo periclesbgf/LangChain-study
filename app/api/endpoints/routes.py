@@ -1,7 +1,9 @@
 from api.endpoints.models import Question
 from api.controller import code_confirmation, build_chain, build_sql_chain, route_request
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile
+from agent.chat import ConversationHistory
 
+history = ConversationHistory()
 
 router = APIRouter()
 
@@ -10,15 +12,18 @@ def read_root():
     return {"Hello": "World"}
 
 @router.post("/prompt")
-def read_prompt(question: Question):
-
-    if not code_confirmation(question.code):
+def read_prompt(
+    question: str = Form(...),
+    code: str = Form(...),
+):
+    if not code_confirmation(code):
         raise HTTPException(status_code=400, detail="Invalid code")
 
+    #history = ConversationHistory()
+    print("history: ", history.get_history())
     try:
-        text = question.question
-        response = build_chain(text)
-        return response
+        response = build_chain(question, history)
+        return response, None
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

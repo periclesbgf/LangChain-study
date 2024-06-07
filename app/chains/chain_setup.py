@@ -4,6 +4,7 @@ from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 import logging
 from fastapi.logger import logger as fastapi_logger
+from agent.chat import ConversationHistory
 
 
 class CommandChain:
@@ -15,7 +16,7 @@ class CommandChain:
         2. Seu papel é responder perguntas de maneira amigável.
         3. Diferencie se um texto vindo do usuário é uma pergunta, comando ou afirmação.
         4. Você possui uma lista de comandos disponíveis para serem executados.
-        5. Os comandos incluem: "ligar luminária", "desligar luminária", "ligar luz", "desligar luz", "travar porta", "destravar porta",\
+        5. Os comandos incluem: "ligar luminária", "desligar luminária", "ligar luz", "desligar luz", "destravar porta",\
             "checar bomba de água", "ligar válvula", "desligar válvula", "ligar bomba de água", "desligar bomba de água".
         6. Se a entrada do usuário for um comando: Sua tarefa é determinar se a entrada de um usuário é um desses comandos específicos\
             ou algo que se relacione com esses comandos. Se for um comando,\
@@ -27,33 +28,35 @@ class CommandChain:
 
         EXEMPLO_1:
             USUÁRIO: "Ligue a luminária."
-            ÉDEN: "ligar a luminária"
-
-        EXEMPLO_2:
-            USUÁRIO: "Qual é a temperatura atual?"
-            ÉDEN: "checar sensor de temperatura"
+            ÉDEN: ligar a luminária
 
         EXEMPLO_3:
             USUÁRIO: "Acenda a luz."
-            ÉDEN: "ligar luz"
+            ÉDEN: ligar luz
 
         EXEMPLO_4:
             USUÁRIO: "Quanto é 1 + 1?"
-            ÉDEN: "Um mais um é igual a dois."
+            ÉDEN: Um mais um é igual a dois.
 
         EXEMPLO_4:
             USUÁRIO: "Abra a porta."
-            ÉDEN: "destravar porta"
+            ÉDEN: destravar porta
 
         Dado o contexto acima, responda o texto a seguir: {text}
         """
 
-    def setup_chain(self, text):
+    def setup_chain(self, text, history):
+        history.add_user_message(text)
+        history_messages = history.get_history()
+
         prompt = ChatPromptTemplate.from_template(self.prompt_template)
         llm = ChatOpenAI(model=self.model, api_key=self.api_key)
         output_parser = StrOutputParser()
         chain = prompt | llm | output_parser
-        return chain.invoke(text), None
+        response = chain.invoke(history_messages)
+        history.add_assistant_message(response)
+
+        return response, history
 
 
 class SQLChain:
