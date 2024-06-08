@@ -17,7 +17,6 @@ def code_confirmation(code):
 def build_chain(text, history):
     chain = CommandChain(api_key=OPENAI_API_KEY)
     response, updated_history = chain.setup_chain(text=text, history=history)
-    logger.critical(response)
     if response == "Desculpe, não entendi.":
         updated_history.remove_last_two_messages()
         return None, response

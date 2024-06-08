@@ -20,17 +20,13 @@ async def read_prompt(
     if not code_confirmation(code):
         raise HTTPException(status_code=400, detail="Invalid code")
 
-    print("history: ", history.get_history())
-
     try:
         speech_file_path, prompt_response = build_chain(question, history)
         if not speech_file_path:
             return ResponseModel(response=prompt_response, audio=None)
 
-        print("speech_file_path: ", speech_file_path)
         with open(speech_file_path, 'rb') as f:
             wav_data = f.read()
-        print("response: ", prompt_response)
         return ResponseModel(
             response=prompt_response,
             audio=wav_data.decode("latin1")
