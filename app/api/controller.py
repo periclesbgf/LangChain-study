@@ -1,7 +1,7 @@
 from chains.chain_setup import CommandChain, SQLChain, AnswerChain, ClassificationChain, SQLSchoolChain, DefaultChain, RetrievalChain
 from database.query import execute_query
 from database.vector_db import DocumentLoader, TextSplitter, Embeddings, QdrantIndex
-
+from audio.text_to_speech import AudioService
 from fastapi.logger import logger
 
 
@@ -17,7 +17,17 @@ def code_confirmation(code):
 def build_chain(text, history):
     chain = CommandChain(api_key=OPENAI_API_KEY)
     response, updated_history = chain.setup_chain(text=text, history=history)
-    return response
+    logger.critical(response)
+    if response == "Desculpe, não entendi.":
+        updated_history.remove_last_two_messages()
+        return None, response
+    if response.lower() in ["ligar luminária", "desligar luminária", "ligar luz", "desligar luz", "travar porta", "destravar porta", "checar bomba de água", "ligar válvula", "desligar válvula", "ligar bomba de água", "desligar bomba de água"]:
+        return None, response
+
+    audio_service = AudioService()
+    speech_file_path = audio_service.text_to_speech(response)
+
+    return speech_file_path, response
 
 def build_sql_chain(text):
     chain = SQLChain(api_key=OPENAI_API_KEY)

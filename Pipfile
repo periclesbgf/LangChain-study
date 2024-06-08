@@ -32,6 +32,7 @@ faker = "*"
 langchain-anthropic = "*"
 langchain-qdrant = "*"
 pymupdf = "*"
+pydub = "*"
 
 [dev-packages]
 

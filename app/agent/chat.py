@@ -17,3 +17,8 @@ class ConversationHistory:
 
     def get_history(self):
         return self.history
+
+    def remove_last_two_messages(self):
+        if len(self.history) >= 2:
+            self.history.pop()
+            self.history.pop()
