@@ -10,16 +10,13 @@ import requests
 load_dotenv()
 
 CODE = os.getenv("CODE")
-
+URL = os.getenv("URL")
 import requests
 
 def post_message(prompt, file=None):
-    url = "http://localhost:8000/route"
+    url = URL
     payload = {'question': prompt, 'code': CODE}
-    files = {'file': ('uploaded_file.pdf', file, 'application/pdf')} if file else None
-    r = requests.post(url, data=payload, files=files)
-
-    print(r)
+    r = requests.post(url, data=payload)
     return r.content
 
 
@@ -31,9 +28,8 @@ def decode_response(response_content):
         print("response_list:", response_list)
 
         if isinstance(response_list, list) and len(response_list) == 2:
-            text = response_list[0]
-            sql_query = response_list[1]
-            return text, sql_query
+            text = response_list[1]
+            return text
         else:
             raise ValueError("Formato inesperado de resposta: {}".format(response_list))
     except Exception as e:

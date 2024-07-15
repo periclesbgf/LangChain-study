@@ -9,3 +9,5 @@ venv
 *.csv
 *.sql
 *.txt
+app/certs
+*.wav
