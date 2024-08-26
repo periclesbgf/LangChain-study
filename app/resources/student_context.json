@@ -1,0 +1,85 @@
+{
+    "studentId": "string",
+    "personalInfo": {
+      "name": "string",
+      "age": "number",
+      "grade": "string",
+      "school": "string"
+    },
+    "academicProfile": {
+      "currentCourses": [
+        {
+          "courseId": "string",
+          "courseName": "string",
+          "instructor": "string",
+          "startDate": "date",
+          "endDate": "date"
+        }
+      ],
+      "majorSubjects": ["string"],
+      "academicStrengths": ["string"],
+      "areasNeedingImprovement": ["string"]
+    },
+    "learningPreferences": {
+      "preferredLearningStyle": "string",
+      "preferredStudyTime": "string",
+      "preferredContentTypes": ["string"]
+    },
+    "interactionHistory": {
+      "totalInteractions": "number",
+      "lastInteractionDate": "date",
+      "frequentlyAskedTopics": ["string"],
+      "averageSessionDuration": "number"
+    },
+    "performanceMetrics": {
+      "overallGPA": "number",
+      "subjectGrades": [
+        {
+          "subject": "string",
+          "grade": "string",
+          "lastUpdated": "date"
+        }
+      ],
+      "testScores": [
+        {
+          "testName": "string",
+          "score": "number",
+          "date": "date"
+        }
+      ]
+    },
+    "learningGoals": [
+      {
+        "goalId": "string",
+        "description": "string",
+        "targetDate": "date",
+        "progress": "number"
+      }
+    ],
+    "resourceEngagement": {
+      "booksAccessed": [
+        {
+          "bookId": "string",
+          "title": "string",
+          "lastAccessDate": "date",
+          "timeSpent": "number"
+        }
+      ],
+      "slidesViewed": [
+        {
+          "slideId": "string",
+          "courseName": "string",
+          "lastViewDate": "date",
+          "viewCount": "number"
+        }
+      ]
+    },
+    "tutorFeedback": [
+      {
+        "date": "date",
+        "subject": "string",
+        "feedback": "string",
+        "recommendedActions": ["string"]
+      }
+    ]
+  }
