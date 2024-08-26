@@ -1,10 +1,8 @@
 from chains.chain_setup import CommandChain, SQLChain, AnswerChain, ClassificationChain, SQLSchoolChain, DefaultChain, RetrievalChain
-from database.query import execute_query
+from database.search import execute_query
 from database.vector_db import DocumentLoader, TextSplitter, Embeddings, QdrantIndex
 from audio.text_to_speech import AudioService
 from fastapi.logger import logger
-
-
 
 from utils import OPENAI_API_KEY, CODE
 
@@ -87,8 +85,6 @@ def query_Qdrant(query):
 
     return docs
 
-
-
 def route_request(text, file_bytes=None):
     try:
         if file_bytes:
@@ -154,3 +150,23 @@ def route_request(text, file_bytes=None):
         logger.error(f"An error occurred: {e}", exc_info=True)
         return str(e), None
 
+
+def insertDocsInVectorDatabase(file_bytes):
+    loader = DocumentLoader(file_bytes=file_bytes)
+    documents = loader.load_documents()
+
+    splitter = TextSplitter()
+    text = splitter.split_documents(documents)
+
+    if not text:
+        print("No text documents were processed.")
+        return
+
+    embeddings_obj = Embeddings()
+    embeddings = embeddings_obj.get_embeddings()
+
+    url = "http://localhost:6333"
+    collection_name = "gpt_db"
+    qdrant_index = QdrantIndex(url=url, collection_name=collection_name, embeddings=embeddings)
+    qdrant_index.create_index(text)
+    return "Documentos inseridos com sucesso"

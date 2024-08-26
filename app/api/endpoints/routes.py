@@ -1,5 +1,11 @@
 from api.endpoints.models import Question, ResponseModel
-from api.controller import code_confirmation, build_chain, build_sql_chain, route_request
+from api.controller import (
+    code_confirmation,
+    build_chain,
+    build_sql_chain,
+    route_request,
+    insertDocsInVectorDatabase
+    )
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile
 from agent.chat import ConversationHistory
 from fastapi.logger import logger
@@ -62,6 +68,21 @@ async def read_route(
             return response
         file_bytes = await file.read()
         response = route_request(question, file_bytes)
+        return response
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/upload_file") #incomplete
+async def read_route(
+    question: str = Form(...),
+    code: str = Form(...),
+    file: UploadFile = File()
+):
+    if not code_confirmation(code):
+        raise HTTPException(status_code=400, detail="Invalid code")
+    try:
+        file_bytes = await file.read()
+        response = insertDocsInVectorDatabase(file_bytes)
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

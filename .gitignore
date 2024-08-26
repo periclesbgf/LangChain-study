@@ -11,3 +11,4 @@ venv
 *.txt
 app/certs
 *.wav
+secret/

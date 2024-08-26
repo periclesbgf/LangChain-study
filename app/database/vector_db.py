@@ -3,59 +3,9 @@ from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 from langchain.docstore.document import Document
-
+from langchain_openai import OpenAIEmbeddings
 from qdrant_client import QdrantClient
 import fitz
-
-class DocumentLoader:
-    def __init__(self, file_bytes=None, file_path=None):
-        self.file_bytes = file_bytes
-        self.file_path = file_path
-
-    def load_documents(self):
-        if self.file_bytes:
-            document = fitz.open(stream=self.file_bytes, filetype="pdf")
-        else:
-            document = fitz.open(self.file_path)
-
-        documents = []
-        for page_num in range(len(document)):
-            page = document.load_page(page_num)
-            text = page.get_text()
-            documents.append(Document(page_content=text, metadata={"page_number": page_num}))
-
-        return documents
-
-
-class TextSplitter:
-    def __init__(self, chunk_size=500, chunk_overlap=50):
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
-
-    def split_documents(self, documents):
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=self.chunk_size,
-            chunk_overlap=self.chunk_overlap,
-        )
-        return text_splitter.split_documents(documents)
-
-
-class Embeddings:
-    def __init__(self):
-        self.model_name = "BAAI/bge-large-en"
-        self.model_kwargs = {'device': 'cpu'}
-        self.encode_kwargs = {'normalize_embeddings': False}
-        self.embeddings = self.load_embeddings()
-
-    def load_embeddings(self):
-        return HuggingFaceBgeEmbeddings(
-            model_name=self.model_name,
-            model_kwargs=self.model_kwargs,
-            encode_kwargs=self.encode_kwargs
-        )
-
-    def get_embeddings(self):
-        return self.embeddings
 
 
 class QdrantIndex:
@@ -90,3 +40,61 @@ class QdrantIndex:
 
     def similarity_search(self, query, k=5):
         return self.create_db().similarity_search_with_score(query=query, k=k)
+
+
+class DocumentLoader:
+    def __init__(self, file_bytes=None, file_path=None):
+        self.file_bytes = file_bytes
+        self.file_path = file_path
+
+    def load_documents(self):
+        if self.file_bytes:
+            document = fitz.open(stream=self.file_bytes, filetype="pdf")
+        else:
+            document = fitz.open(self.file_path)
+
+        documents = []
+        for page_num in range(len(document)):
+            page = document.load_page(page_num)
+            text = page.get_text()
+            documents.append(Document(page_content=text, metadata={"page_number": page_num}))
+
+        return documents
+
+
+class TextSplitter:
+    def __init__(self, chunk_size=500, chunk_overlap=50):
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+
+    def split_documents(self, documents):
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+        )
+        return text_splitter.split_documents(documents)
+
+    def recursive_text_splitter(self, documents):
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+        )
+        return text_splitter.split_documents(documents)
+
+
+class Embeddings:
+    def __init__(self):
+        self.model_name = "BAAI/bge-large-en"
+        self.model_kwargs = {'device': 'cpu'}
+        self.encode_kwargs = {'normalize_embeddings': False}
+        self.embeddings = self.load_embeddings()
+
+    def load_embeddings(self):
+        return HuggingFaceBgeEmbeddings(
+            model_name=self.model_name,
+            model_kwargs=self.model_kwargs,
+            encode_kwargs=self.encode_kwargs
+        )
+
+    def get_embeddings(self):
+        return self.embeddings

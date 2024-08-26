@@ -4,7 +4,6 @@ from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 import logging
 from fastapi.logger import logger as fastapi_logger
-from agent.chat import ConversationHistory
 
 
 class CommandChain:
