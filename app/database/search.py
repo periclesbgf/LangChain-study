@@ -33,7 +33,7 @@ def prepare_query(query):
 list_tables()
 
 query = """
-SELECT * FROM "Programa";
+SELECT * FROM "Aluno";
 """
 
 results = execute_query(query)

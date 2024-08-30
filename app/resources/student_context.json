@@ -1,85 +1,84 @@
 {
-    "studentId": "string",
-    "personalInfo": {
-      "name": "string",
-      "age": "number",
-      "grade": "string",
-      "school": "string"
-    },
-    "academicProfile": {
-      "currentCourses": [
-        {
-          "courseId": "string",
-          "courseName": "string",
-          "instructor": "string",
-          "startDate": "date",
-          "endDate": "date"
-        }
-      ],
-      "majorSubjects": ["string"],
-      "academicStrengths": ["string"],
-      "areasNeedingImprovement": ["string"]
-    },
-    "learningPreferences": {
-      "preferredLearningStyle": "string",
-      "preferredStudyTime": "string",
-      "preferredContentTypes": ["string"]
-    },
-    "interactionHistory": {
-      "totalInteractions": "number",
-      "lastInteractionDate": "date",
-      "frequentlyAskedTopics": ["string"],
-      "averageSessionDuration": "number"
-    },
-    "performanceMetrics": {
-      "overallGPA": "number",
-      "subjectGrades": [
-        {
-          "subject": "string",
-          "grade": "string",
-          "lastUpdated": "date"
-        }
-      ],
-      "testScores": [
-        {
-          "testName": "string",
-          "score": "number",
-          "date": "date"
-        }
-      ]
-    },
-    "learningGoals": [
+  "idAluno": "string",
+  "informacoesPessoais": {
+    "nome": "string",
+    "idade": "numero",
+    "serie": "string"
+  },
+  "perfilAcademico": {
+    "cursosAtuais": [
       {
-        "goalId": "string",
-        "description": "string",
-        "targetDate": "date",
-        "progress": "number"
+        "idCurso": "string",
+        "nomeCurso": "string",
+        "instrutor": "string",
+        "dataInicio": "date",
+        "dataFim": "date"
       }
     ],
-    "resourceEngagement": {
-      "booksAccessed": [
-        {
-          "bookId": "string",
-          "title": "string",
-          "lastAccessDate": "date",
-          "timeSpent": "number"
-        }
-      ],
-      "slidesViewed": [
-        {
-          "slideId": "string",
-          "courseName": "string",
-          "lastViewDate": "date",
-          "viewCount": "number"
-        }
-      ]
-    },
-    "tutorFeedback": [
+    "principaisDisciplinas": ["string"],
+    "pontosFortesAcademicos": ["string"],
+    "areasParaMelhoria": ["string"]
+  },
+  "preferenciasDeAprendizagem": {
+    "estiloDeAprendizagemPreferido": "string",
+    "horarioDeEstudoPreferido": "string",
+    "tiposDeConteudoPreferidos": ["string"]
+  },
+  "historicoDeInteracao": {
+    "totalDeInteracoes": "numero",
+    "dataUltimaInteracao": "date",
+    "topicosFrequentementePerguntados": ["string"],
+    "duracaoMediaDasSessoes": "numero"
+  },
+  "metricasDeDesempenho": {
+    "gpaGeral": "numero",
+    "notasPorDisciplina": [
       {
-        "date": "date",
-        "subject": "string",
-        "feedback": "string",
-        "recommendedActions": ["string"]
+        "disciplina": "string",
+        "nota": "string",
+        "ultimaAtualizacao": "date"
+      }
+    ],
+    "notasDeTestes": [
+      {
+        "nomeTeste": "string",
+        "nota": "numero",
+        "data": "date"
       }
     ]
-  }
+  },
+  "objetivosDeAprendizagem": [
+    {
+      "idObjetivo": "string",
+      "descricao": "string",
+      "dataAlvo": "date",
+      "progresso": "numero"
+    }
+  ],
+  "engajamentoComRecursos": {
+    "livrosAcessados": [
+      {
+        "idLivro": "string",
+        "titulo": "string",
+        "dataUltimoAcesso": "date",
+        "tempoGasto": "numero"
+      }
+    ],
+    "slidesVisualizados": [
+      {
+        "idSlide": "string",
+        "nomeCurso": "string",
+        "dataUltimaVisualizacao": "date",
+        "numeroDeVisualizacoes": "numero"
+      }
+    ]
+  },
+  "feedbackDoTutor": [
+    {
+      "data": "date",
+      "disciplina": "string",
+      "feedback": "string",
+      "acoesRecomendadas": ["string"]
+    }
+  ]
+}
