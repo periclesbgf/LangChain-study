@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey, Date, DateTime, Interval
+from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey, Date, DateTime, Boolean, Enum, JSON, TIMESTAMP, text
 from sqlalchemy.orm import sessionmaker
 import os
 from dotenv import load_dotenv
@@ -14,24 +14,40 @@ database = os.getenv("DATABASE")
 engine = create_engine(f'postgresql://{user}:{password}@{host}:{port}/{database}')
 metadata = MetaData()
 
-
-tabela_Aluno = Table('Aluno', metadata,
-    Column('MatriculaAluno', Integer, primary_key=True),
+tabela_usuarios = Table('Usuarios', metadata,
+    Column('IdUsuario', Integer, primary_key=True),
     Column('Nome', String(100), nullable=False),
     Column('Email', String(100), unique=True, nullable=False),
-    Column('CriadoEm', DateTime),
-    Column('UltimoLogin', DateTime),
+    Column('SenhaHash', String(255), nullable=False),
+    Column('TipoUsuario', Enum('student', 'educator', 'admin', name='user_type_enum'), nullable=False),
+    Column('CriadoEm', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP')),
+    Column('AtualizadoEm', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'))
+)
+
+tabela_estudantes = Table('Estudantes', metadata,
+    Column('IdEstudante', Integer, primary_key=True),
+    Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario')),
+    Column('Matricula', String(50)),
+)
+
+tabela_educadores = Table('Educadores', metadata,
+    Column('IdEducador', Integer, primary_key=True),
+    Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario')),
+    Column('Instituicao', String(100)),
+    Column('EspecializacaoDisciplina', String(100))
 )
 
 tabela_cursos = Table('Cursos', metadata,
     Column('IdCurso', Integer, primary_key=True),
+    Column('IdEducador', Integer, ForeignKey('Educadores.IdEducador')),
     Column('NomeCurso', String(100), nullable=False),
     Column('Descricao', String),
+    Column('CriadoEm', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'))
 )
 
 tabela_perfil_aprendizado_aluno = Table('PerfilAprendizadoAluno', metadata,
     Column('IdPerfil', Integer, primary_key=True),
-    Column('MatriculaAluno', Integer, ForeignKey('Aluno.MatriculaAluno')),
+    Column('IdEstudante', Integer, ForeignKey('Estudantes.IdEstudante')),
     Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso')),
     Column('TipoPerfil', String(50), nullable=False),
     Column('PreferenciaEstudo', String(50)),
@@ -63,7 +79,7 @@ tabela_atividades = Table('Atividades', metadata,
 
 tabela_notas_aluno = Table('ProgressoAluno', metadata,
     Column('IdNota', Integer, primary_key=True),
-    Column('MatriculaAluno', Integer, ForeignKey('Aluno.MatriculaAluno')),
+    Column('IdEstudante', Integer, ForeignKey('Estudantes.IdEstudante')),
     Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso')),
     Column('AV1', Float),
     Column('AV2', Float)
@@ -71,7 +87,7 @@ tabela_notas_aluno = Table('ProgressoAluno', metadata,
 
 tabela_sessoes_estudo = Table('SessoesEstudo', metadata,
     Column('IdSessao', Integer, primary_key=True),
-    Column('MatriculaAluno', Integer, ForeignKey('Aluno.MatriculaAluno')),
+    Column('IdEstudante', Integer, ForeignKey('Estudantes.IdEstudante')),
     Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso')),
     Column('Assunto', String(200), nullable=False),
     Column('Inicio', DateTime),
@@ -92,7 +108,7 @@ tabela_recursos_aprendizagem = Table('RecursosAprendizagem', metadata,
 
 tabela_feedback_ia = Table('FeedbackIAPerfil', metadata,
     Column('IdFeedback', Integer, primary_key=True),
-    Column('MatriculaAluno', Integer, ForeignKey('Aluno.MatriculaAluno')),
+    Column('IdEstudante', Integer, ForeignKey('Estudantes.IdEstudante')),
     Column('TipoFeedback', String(50)),
     Column('ConteudoFeedback', String),
     Column('DataAvaliacao', DateTime)

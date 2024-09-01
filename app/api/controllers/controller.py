@@ -1,4 +1,5 @@
 from chains.chain_setup import CommandChain, SQLChain, AnswerChain, ClassificationChain, SQLSchoolChain, DefaultChain, RetrievalChain
+from database.sql_database_manager import DatabaseManager
 from database.search import execute_query
 from database.vector_db import DocumentLoader, TextSplitter, Embeddings, QdrantIndex
 from audio.text_to_speech import AudioService
@@ -170,3 +171,4 @@ def insertDocsInVectorDatabase(file_bytes):
     qdrant_index = QdrantIndex(url=url, collection_name=collection_name, embeddings=embeddings)
     qdrant_index.create_index(text)
     return "Documentos inseridos com sucesso"
+

@@ -12,3 +12,4 @@ venv
 app/certs
 *.wav
 secret/
+__pycache__/

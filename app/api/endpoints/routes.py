@@ -1,18 +1,45 @@
 from api.endpoints.models import Question, ResponseModel
-from api.controller import (
+from api.controllers.controller import (
     code_confirmation,
     build_chain,
     build_sql_chain,
     route_request,
     insertDocsInVectorDatabase
     )
+from api.controllers.database_controller import DatabaseController
+from database.sql_database_manager import DatabaseManager, session, metadata
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile
 from agent.chat import ConversationHistory
 from fastapi.logger import logger
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy import insert
+
 
 history = ConversationHistory()
 
 router = APIRouter()
+
+
+@router.post("/create_account")
+async def create_account(
+    nome: str = Form(...),
+    email: str = Form(...),
+    senha: str = Form(...),
+    tipo_usuario: str = Form(..., regex="^(student|educator)$"),
+):
+    print("Creating account")
+    try:
+        sql_database_manager = DatabaseManager(session, metadata)
+        sql_database_controller = DatabaseController(sql_database_manager)
+        print("connecting to database")
+        sql_database_controller.create_account(nome, email, senha, tipo_usuario)
+
+        return {"message": "Conta criada com sucesso"}
+
+    except IntegrityError as e:
+        raise HTTPException(status_code=400, detail="Email já cadastrado.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/")
 def read_root():

@@ -32,18 +32,18 @@ def prepare_query(query):
 
 list_tables()
 
-query = """
-SELECT * FROM "Aluno";
-"""
+# query = """
+# SELECT * FROM "Usuarios";
+# """
 
-results = execute_query(query)
+# results = execute_query(query)
 
-if results:
-    print("Dados na tabela:")
-    for row in results:
-        print(row)
-else:
-    print("Não foi possível recuperar os dados da tabela.")
+# if results:
+#     print("Dados na tabela:")
+#     for row in results:
+#         print(row)
+# else:
+#     print("Não foi possível recuperar os dados da tabela.")
 
 
 # Quais disciplinas  tem no 5 periodo de design?

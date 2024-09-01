@@ -70,4 +70,3 @@ class DatabaseManager:
             print(f"Erro ao selecionar dados da tabela {tabela.name}: {e}")
             return None
 
-db_manager = DatabaseManager(session, metadata)
