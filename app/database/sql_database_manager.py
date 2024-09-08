@@ -2,6 +2,7 @@ from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, 
 from sqlalchemy.orm import sessionmaker
 import os
 from dotenv import load_dotenv
+from sql_test.sql_test_create import tabela_usuarios
 
 load_dotenv()
 
@@ -70,3 +71,12 @@ class DatabaseManager:
             print(f"Erro ao selecionar dados da tabela {tabela.name}: {e}")
             return None
 
+    def get_user_by_email(self, email: str):
+        try:
+            user = self.session.query(tabela_usuarios).filter(tabela_usuarios.c.Email == email).first()
+            print(f"Usuário encontrado: {user}")
+            return user
+        except Exception as e:
+            self.session.rollback()
+            print(f"Erro ao buscar usuário por email: {e}")
+            return None

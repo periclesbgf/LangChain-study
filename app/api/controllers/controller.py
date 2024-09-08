@@ -22,10 +22,10 @@ def build_chain(text, history):
     if response.lower() in ["ligar luminária", "desligar luminária", "ligar luz", "desligar luz", "travar porta", "destravar porta", "checar bomba de água", "ligar válvula", "desligar válvula", "ligar bomba de água", "desligar bomba de água"]:
         return None, response
 
-    audio_service = AudioService()
-    speech_file_path = audio_service.text_to_speech(response)
+    # audio_service = AudioService() #saida com audio aqui
+    # speech_file_path = audio_service.text_to_speech(response)
 
-    return speech_file_path, response
+    return None, response
 
 def build_sql_chain(text):
     chain = SQLChain(api_key=OPENAI_API_KEY)
@@ -171,4 +171,3 @@ def insertDocsInVectorDatabase(file_bytes):
     qdrant_index = QdrantIndex(url=url, collection_name=collection_name, embeddings=embeddings)
     qdrant_index.create_index(text)
     return "Documentos inseridos com sucesso"
-

@@ -29,6 +29,9 @@ tabela_estudantes = Table('Estudantes', metadata,
     Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario')),
     Column('Matricula', String(50)),
 )
+# Periodo e extrair turma com o email da school utilizando a API do classroom/calendar.
+# Focar no cronograma/organizacao pessoal. Gerar um forms com perguntas para ja ter o perfil de aprendizado do aluno
+# Nivel de produtividade
 
 tabela_educadores = Table('Educadores', metadata,
     Column('IdEducador', Integer, primary_key=True),

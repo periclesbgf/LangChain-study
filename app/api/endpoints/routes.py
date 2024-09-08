@@ -1,4 +1,4 @@
-from api.endpoints.models import Question, ResponseModel
+from api.endpoints.models import Question, ResponseModel, LoginModel, Token
 from api.controllers.controller import (
     code_confirmation,
     build_chain,
@@ -8,12 +8,13 @@ from api.controllers.controller import (
     )
 from api.controllers.database_controller import DatabaseController
 from database.sql_database_manager import DatabaseManager, session, metadata
-from fastapi import APIRouter, HTTPException, File, Form, UploadFile
+from fastapi import APIRouter, HTTPException, File, Form, UploadFile, Depends, HTTPException
 from agent.chat import ConversationHistory
 from fastapi.logger import logger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import insert
-
+from fastapi.security import OAuth2PasswordRequestForm
+from api.controllers.auth import create_access_token, get_current_user
 
 history = ConversationHistory()
 
@@ -41,6 +42,30 @@ async def create_account(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.post("/login")
+async def login(
+    email: str = Form(...),
+    senha: str = Form(...),
+):
+    try:
+        sql_database_manager = DatabaseManager(session, metadata)
+        sql_database_controller = DatabaseController(sql_database_manager)
+        print("Tentando login")
+
+        user = sql_database_controller.login(email, senha)
+
+        access_token = create_access_token(data={"sub": user.Email})
+        print("Login efetuado com sucesso")
+        print(access_token)
+        return {"access_token": access_token, "token_type": "bearer"}
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/")
 def read_root():
     return {"Hello": "World"}
@@ -49,12 +74,15 @@ def read_root():
 async def read_prompt(
     question: str = Form(...),
     code: str = Form(...),
+    current_user: dict = Depends(get_current_user),
 ) -> ResponseModel:
+    print(current_user)
     if not code_confirmation(code):
         raise HTTPException(status_code=400, detail="Invalid code")
 
     try:
         speech_file_path, prompt_response = build_chain(question, history)
+        print("Prompt response: ", prompt_response)
         if not speech_file_path:
             return ResponseModel(response=prompt_response, audio=None)
 
