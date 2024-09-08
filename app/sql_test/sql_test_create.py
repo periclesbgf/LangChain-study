@@ -127,6 +127,17 @@ tabela_historico_perguntas_respostas_llm = Table('HistoricoPerguntasRespostasLLM
     Column('TipoPergunta', String(50))
 )
 
+tabela_eventos_calendario = Table('EventosCalendario', metadata,
+    Column('IdEvento', Integer, primary_key=True),
+    Column('GoogleEventId', String, nullable=False),
+    Column('Titulo', String(200), nullable=False),
+    Column('Descricao', String),
+    Column('Inicio', DateTime),
+    Column('Fim', DateTime),
+    Column('Local', String(200)),
+    Column('CriadoPor', String(100))
+)
+
 tabela_sessoes_estudo_perguntas_respostas = Table('SessoesEstudoPerguntasRespostas', metadata,
     Column('Id', Integer, primary_key=True),
     Column('IdSessao', Integer, ForeignKey('SessoesEstudo.IdSessao')),
