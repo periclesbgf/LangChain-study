@@ -11,7 +11,6 @@ load_dotenv()
 
 CODE = os.getenv("CODE")
 URL = os.getenv("URL")
-import requests
 
 def post_message(prompt, file=None):
     url = URL
@@ -35,12 +34,6 @@ def decode_response(response_content):
     except Exception as e:
         print(f"Erro ao decodificar a resposta: {e}")
         raise
-
-load_dotenv()
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-chat = ChatOpenAI(model_name="gpt-3.5-turbo", api_key=OPENAI_API_KEY, temperature=0.5)
 
 if "messages" not in st.session_state:
     st.session_state["messages"] = [{"role": "assistant", "content": "Olá! Sou Éden, seu assistente virtual. Como posso ajudar hoje?"}]

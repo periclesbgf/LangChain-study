@@ -23,3 +23,6 @@ faker
 langchain-anthropic
 langchain-qdrant
 pymupdf
+pydub
+passlib
+python-multipart

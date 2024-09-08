@@ -1,0 +1,82 @@
+{
+  "idAluno": "string",
+  "informacoesPessoais": {
+    "nome": "string"
+  },
+  "perfilAcademico": {
+    "cursosAtuais": [
+      {
+        "idCurso": "string",
+        "nomeCurso": "string",
+        "instrutor": "string",
+        "dataInicio": "date",
+        "dataFim": "date"
+      }
+    ],
+    "principaisDisciplinas": ["string"],
+    "pontosFortesAcademicos": ["string"],
+    "areasParaMelhoria": ["string"]
+  },
+  "preferenciasDeAprendizagem": {
+    "estiloDeAprendizagemPreferido": "string",
+    "horarioDeEstudoPreferido": "string",
+    "tiposDeConteudoPreferidos": ["string"]
+  },
+  "historicoDeInteracao": {
+    "totalDeInteracoes": "inteiro",
+    "dataUltimaInteracao": "date",
+    "topicosFrequentementePerguntados": ["string"],
+    "duracaoMediaDasSessoes": "float"
+  },
+  "metricasDeDesempenho": {
+    "gpaGeral": "float",
+    "notasPorDisciplina": [
+      {
+        "disciplina": "string",
+        "nota": "string",
+        "ultimaAtualizacao": "date"
+      }
+    ],
+    "notasDeTestes": [
+      {
+        "nomeTeste": "string",
+        "nota": "float",
+        "data": "date"
+      }
+    ]
+  },
+  "engajamentoComRecursos": {
+    "livrosAcessados": [
+      {
+        "idLivro": "string",
+        "titulo": "string",
+        "dataUltimoAcesso": "date",
+        "tempoGasto": "flaot"
+      }
+    ],
+    "slidesVisualizados": [
+      {
+        "idSlide": "string",
+        "nomeCurso": "string",
+        "dataUltimaVisualizacao": "date",
+        "numeroDeVisualizacoes": "inteiro"
+      }
+    ]
+  },
+  "feedbackDoTutor": [
+    {
+      "data": "date",
+      "disciplina": "string",
+      "feedback": "string",
+      "acoesRecomendadas": ["string"]
+    }
+  ],
+  "feedbackDoProfessor": [
+    {
+      "data": "date",
+      "disciplina": "string",
+      "feedback": "string",
+      "acoesRecomendadas": ["string"]
+    }
+  ]
+}
