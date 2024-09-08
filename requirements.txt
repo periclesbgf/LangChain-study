@@ -26,3 +26,8 @@ pymupdf
 pydub
 passlib
 python-multipart
+sqlalchemy
+bcrypt
+python-jose[cryptography]
+pydantic
+email-validator
