@@ -32,7 +32,10 @@ tabela_estudantes = Table('Estudantes', metadata,
 # Periodo e extrair turma com o email da school utilizando a API do classroom/calendar.
 # Focar no cronograma/organizacao pessoal. Gerar um forms com perguntas para ja ter o perfil de aprendizado do aluno
 # Nivel de produtividade
-
+# Pensar em como vai ser a sessao de estudo. Dizer a arquitetura. De que outras funcionalidades iremos buscar dados.
+# pode salvar sessao de estudo, pode salvar atividades, pode salvar notas, pode salvar feedbacks, pode salvar recursos de aprendizagem
+# pode salvar perguntas e respostas, pode salvar eventos do calendario, pode salvar encontros, pode salvar cronograma, pode salvar cursos
+# Construir um workspace para o aluno subir material de estudo e o sistema fazer a analise do material e sugerir conteudo
 tabela_educadores = Table('Educadores', metadata,
     Column('IdEducador', Integer, primary_key=True),
     Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario')),

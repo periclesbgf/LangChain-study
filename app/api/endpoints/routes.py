@@ -1,4 +1,4 @@
-from api.endpoints.models import Question, ResponseModel, LoginModel, Token
+from api.endpoints.models import Question, PromptModel, ResponseModel, RegisterModel, LoginModel, Token
 from api.controllers.controller import (
     code_confirmation,
     build_chain,
@@ -23,17 +23,19 @@ router = APIRouter()
 
 @router.post("/create_account")
 async def create_account(
-    nome: str = Form(...),
-    email: str = Form(...),
-    senha: str = Form(...),
-    tipo_usuario: str = Form(..., regex="^(student|educator)$"),
+    register_model: RegisterModel,
 ):
     print("Creating account")
     try:
         sql_database_manager = DatabaseManager(session, metadata)
         sql_database_controller = DatabaseController(sql_database_manager)
         print("connecting to database")
-        sql_database_controller.create_account(nome, email, senha, tipo_usuario)
+        sql_database_controller.create_account(
+            register_model.nome,
+            register_model.email,
+            register_model.senha,
+            register_model.tipo_usuario
+        )
 
         return {"message": "Conta criada com sucesso"}
 
@@ -45,15 +47,17 @@ async def create_account(
 
 @router.post("/login")
 async def login(
-    email: str = Form(...),
-    senha: str = Form(...),
+    login_model: LoginModel,
 ):
     try:
         sql_database_manager = DatabaseManager(session, metadata)
         sql_database_controller = DatabaseController(sql_database_manager)
         print("Tentando login")
 
-        user = sql_database_controller.login(email, senha)
+        user = sql_database_controller.login(
+            login_model.email,
+            login_model.senha
+        )
 
         access_token = create_access_token(data={"sub": user.Email})
         print("Login efetuado com sucesso")
@@ -72,16 +76,14 @@ def read_root():
 
 @router.post("/prompt", response_model=ResponseModel)
 async def read_prompt(
-    question: str = Form(...),
-    code: str = Form(...),
-    current_user: dict = Depends(get_current_user),
+    prompt_model: PromptModel,
 ) -> ResponseModel:
-    print(current_user)
-    if not code_confirmation(code):
+    print(prompt_model.current_user)
+    if not code_confirmation(prompt_model.code):
         raise HTTPException(status_code=400, detail="Invalid code")
 
     try:
-        speech_file_path, prompt_response = build_chain(question, history)
+        speech_file_path, prompt_response = build_chain(prompt_model.question, history)
         print("Prompt response: ", prompt_response)
         if not speech_file_path:
             return ResponseModel(response=prompt_response, audio=None)
