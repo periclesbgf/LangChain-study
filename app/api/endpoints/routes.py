@@ -1,3 +1,5 @@
+# endpoints/routes.py
+
 from api.endpoints.models import Question, PromptModel, ResponseModel, RegisterModel, LoginModel, Token
 from api.controllers.controller import (
     code_confirmation,
@@ -6,7 +8,7 @@ from api.controllers.controller import (
     route_request,
     insertDocsInVectorDatabase
     )
-from api.controllers.database_controller import DatabaseController
+from api.dispatchers.login_dispatcher import CredentialsDispatcher
 from database.sql_database_manager import DatabaseManager, session, metadata
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile, Depends, HTTPException
 from agent.chat import ConversationHistory
@@ -28,7 +30,7 @@ async def create_account(
     print("Creating account")
     try:
         sql_database_manager = DatabaseManager(session, metadata)
-        sql_database_controller = DatabaseController(sql_database_manager)
+        sql_database_controller = CredentialsDispatcher(sql_database_manager)
         print("connecting to database")
         sql_database_controller.create_account(
             register_model.nome,
@@ -51,7 +53,7 @@ async def login(
 ):
     try:
         sql_database_manager = DatabaseManager(session, metadata)
-        sql_database_controller = DatabaseController(sql_database_manager)
+        sql_database_controller = CredentialsDispatcher(sql_database_manager)
         print("Tentando login")
 
         user = sql_database_controller.login(
@@ -77,9 +79,12 @@ def read_root():
 @router.post("/prompt", response_model=ResponseModel)
 async def read_prompt(
     prompt_model: PromptModel,
+    current_user: dict = Depends(get_current_user),
 ) -> ResponseModel:
-    print(prompt_model.current_user)
+    print(current_user)
     if not code_confirmation(prompt_model.code):
+        print(prompt_model.code)
+        print("Invalid code")
         raise HTTPException(status_code=400, detail="Invalid code")
 
     try:

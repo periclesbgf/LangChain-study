@@ -28,4 +28,3 @@ class Token(BaseModel):
 class PromptModel(BaseModel):
     question: str
     code: str
-    current_user: dict = Depends(get_current_user),

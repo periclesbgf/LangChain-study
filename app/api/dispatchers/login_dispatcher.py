@@ -1,3 +1,5 @@
+# dispatchers/login_dispatcher.py
+
 from sqlalchemy.exc import IntegrityError
 from chains.chain_setup import CommandChain, SQLChain, AnswerChain, ClassificationChain, SQLSchoolChain, DefaultChain, RetrievalChain
 from database.sql_database_manager import DatabaseManager
@@ -7,7 +9,7 @@ from sql_test.sql_test_create import tabela_usuarios
 from datetime import datetime, timezone
 from api.controllers.auth import hash_password, verify_password
 
-class DatabaseController:
+class CredentialsDispatcher:
     def __init__(self, database_manager: DatabaseManager):
         self.database_manager = database_manager
 
