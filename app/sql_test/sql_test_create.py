@@ -1,4 +1,5 @@
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey, Date, DateTime, Boolean, Enum, JSON, TIMESTAMP, text
+from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey, Date, DateTime, Boolean, Enum, JSON, TIMESTAMP, text, Index, Text, LargeBinary
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import sessionmaker
 import os
 from dotenv import load_dotenv
@@ -17,7 +18,7 @@ metadata = MetaData()
 tabela_usuarios = Table('Usuarios', metadata,
     Column('IdUsuario', Integer, primary_key=True),
     Column('Nome', String(100), nullable=False),
-    Column('Email', String(100), unique=True, nullable=False),
+    Column('Email', String(100), unique=True, nullable=False, index=True),
     Column('SenhaHash', String(255), nullable=False),
     Column('TipoUsuario', Enum('student', 'educator', 'admin', name='user_type_enum'), nullable=False),
     Column('CriadoEm', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP')),
@@ -26,125 +27,119 @@ tabela_usuarios = Table('Usuarios', metadata,
 
 tabela_estudantes = Table('Estudantes', metadata,
     Column('IdEstudante', Integer, primary_key=True),
-    Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario')),
-    Column('Matricula', String(50)),
+    Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario'), nullable=False, index=True),
+    Column('Matricula', String(50), nullable=False, unique=True),
 )
-# Periodo e extrair turma com o email da school utilizando a API do classroom/calendar.
-# Focar no cronograma/organizacao pessoal. Gerar um forms com perguntas para ja ter o perfil de aprendizado do aluno
-# Nivel de produtividade
-# Pensar em como vai ser a sessao de estudo. Dizer a arquitetura. De que outras funcionalidades iremos buscar dados.
-# pode salvar sessao de estudo, pode salvar atividades, pode salvar notas, pode salvar feedbacks, pode salvar recursos de aprendizagem
-# pode salvar perguntas e respostas, pode salvar eventos do calendario, pode salvar encontros, pode salvar cronograma, pode salvar cursos
-# Construir um workspace para o aluno subir material de estudo e o sistema fazer a analise do material e sugerir conteudo
+
 tabela_educadores = Table('Educadores', metadata,
     Column('IdEducador', Integer, primary_key=True),
-    Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario')),
-    Column('Instituicao', String(100)),
-    Column('EspecializacaoDisciplina', String(100))
+    Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario'), nullable=False, index=True),
+    Column('Instituicao', String(100), nullable=False),
+    Column('EspecializacaoDisciplina', String(100), nullable=False)
 )
 
 tabela_cursos = Table('Cursos', metadata,
     Column('IdCurso', Integer, primary_key=True),
-    Column('IdEducador', Integer, ForeignKey('Educadores.IdEducador')),
+    Column('IdEducador', Integer, ForeignKey('Educadores.IdEducador'), nullable=False, index=True),
     Column('NomeCurso', String(100), nullable=False),
-    Column('Descricao', String),
+    Column('Descricao', Text),
     Column('CriadoEm', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'))
 )
 
 tabela_perfil_aprendizado_aluno = Table('PerfilAprendizadoAluno', metadata,
     Column('IdPerfil', Integer, primary_key=True),
-    Column('IdEstudante', Integer, ForeignKey('Estudantes.IdEstudante')),
-    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso')),
+    Column('IdEstudante', Integer, ForeignKey('Estudantes.IdEstudante'), nullable=False, index=True),
+    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso'), nullable=False, index=True),
     Column('TipoPerfil', String(50), nullable=False),
     Column('PreferenciaEstudo', String(50)),
-    Column('PerfilAvaliado', String),
+    Column('PerfilAvaliado', Text),
 )
 
 tabela_cronograma = Table('Cronograma', metadata,
     Column('IdCronograma', Integer, primary_key=True),
-    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso')),
+    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso'), nullable=False, index=True),
     Column('NomeCronograma', String(100), nullable=False)
 )
 
 tabela_encontros = Table('Encontros', metadata,
     Column('IdEncontro', Integer, primary_key=True),
-    Column('IdCronograma', Integer, ForeignKey('Cronograma.IdCronograma')),
+    Column('IdCronograma', Integer, ForeignKey('Cronograma.IdCronograma'), nullable=False, index=True),
     Column('NumeroEncontro', Integer, nullable=False),
     Column('DataEncontro', Date, nullable=False),
-    Column('Conteudo', String, nullable=False),
-    Column('Estrategia', String, nullable=False)
+    Column('Conteudo', Text, nullable=False),
+    Column('Estrategia', Text, nullable=False)
 )
 
 tabela_atividades = Table('Atividades', metadata,
     Column('IdAtividade', Integer, primary_key=True),
-    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso')),
+    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso'), nullable=False, index=True),
     Column('Titulo', String(200), nullable=False),
-    Column('Descricao', String),
+    Column('Descricao', Text),
     Column('DataEntrega', Date)
 )
 
 tabela_notas_aluno = Table('ProgressoAluno', metadata,
     Column('IdNota', Integer, primary_key=True),
-    Column('IdEstudante', Integer, ForeignKey('Estudantes.IdEstudante')),
-    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso')),
+    Column('IdEstudante', Integer, ForeignKey('Estudantes.IdEstudante'), nullable=False, index=True),
+    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso'), nullable=False, index=True),
     Column('AV1', Float),
     Column('AV2', Float)
 )
 
 tabela_sessoes_estudo = Table('SessoesEstudo', metadata,
     Column('IdSessao', Integer, primary_key=True),
-    Column('IdEstudante', Integer, ForeignKey('Estudantes.IdEstudante')),
-    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso')),
+    Column('IdEstudante', Integer, ForeignKey('Estudantes.IdEstudante'), nullable=False, index=True),
+    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso'), nullable=False, index=True),
     Column('Assunto', String(200), nullable=False),
-    Column('Inicio', DateTime),
+    Column('Inicio', DateTime, server_default=text('CURRENT_TIMESTAMP')),
     Column('Fim', DateTime),
     Column('Produtividade', Integer),
-    Column('FeedbackDoAluno', String)
+    Column('FeedbackDoAluno', Text)
 )
 
 tabela_recursos_aprendizagem = Table('RecursosAprendizagem', metadata,
     Column('IdRecurso', Integer, primary_key=True),
-    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso')),
+    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso'), nullable=False, index=True),
     Column('Titulo', String(200), nullable=False),
     Column('Tipo', String(50)),
-    Column('URL', String),
-    Column('Conteudo', String),
-    Column('VectorId', String(36), nullable=True)
+    Column('URL', String(500)),
+    Column('Conteudo', Text),
+    Column('VectorId', UUID(as_uuid=True), nullable=True)
 )
 
 tabela_feedback_ia = Table('FeedbackIAPerfil', metadata,
     Column('IdFeedback', Integer, primary_key=True),
-    Column('IdEstudante', Integer, ForeignKey('Estudantes.IdEstudante')),
-    Column('TipoFeedback', String(50)),
-    Column('ConteudoFeedback', String),
-    Column('DataAvaliacao', DateTime)
+    Column('IdEstudante', Integer, ForeignKey('Estudantes.IdEstudante'), nullable=False, index=True),
+    Column('TipoFeedback', String(50), nullable=False),
+    Column('ConteudoFeedback', Text),
+    Column('DataAvaliacao', DateTime, server_default=text('CURRENT_TIMESTAMP'))
 )
 
 tabela_historico_perguntas_respostas_llm = Table('HistoricoPerguntasRespostasLLM', metadata,
     Column('IdPerguntaResposta', Integer, primary_key=True),
-    Column('DataHoraPergunta', DateTime),
-    Column('ConteudoPergunta', String),
+    Column('DataHoraPergunta', DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False),
+    Column('ConteudoPergunta', Text, nullable=False),
     Column('DataHoraResposta', DateTime),
-    Column('ConteudoResposta', String),
+    Column('ConteudoResposta', Text),
     Column('ConfidenciaResposta', Float),
-    Column('TipoPergunta', String(50))
+    Column('TipoPergunta', String(50), nullable=False)
 )
 
 tabela_eventos_calendario = Table('EventosCalendario', metadata,
     Column('IdEvento', Integer, primary_key=True),
-    Column('GoogleEventId', String, nullable=False),
+    Column('GoogleEventId', String(100), nullable=False, unique=True),
     Column('Titulo', String(200), nullable=False),
-    Column('Descricao', String),
-    Column('Inicio', DateTime),
-    Column('Fim', DateTime),
+    Column('Descricao', Text),
+    Column('Inicio', DateTime, nullable=False),
+    Column('Fim', DateTime, nullable=False),
     Column('Local', String(200)),
-    Column('CriadoPor', String(100))
+    Column('CriadoPor', Integer, ForeignKey('Usuarios.IdUsuario'), nullable=False, index=True)
 )
 
 tabela_sessoes_estudo_perguntas_respostas = Table('SessoesEstudoPerguntasRespostas', metadata,
     Column('Id', Integer, primary_key=True),
-    Column('IdSessao', Integer, ForeignKey('SessoesEstudo.IdSessao')),
-    Column('IdPerguntaResposta', Integer, ForeignKey('HistoricoPerguntasRespostasLLM.IdPerguntaResposta'))
+    Column('IdSessao', Integer, ForeignKey('SessoesEstudo.IdSessao'), nullable=False, index=True),
+    Column('IdPerguntaResposta', Integer, ForeignKey('HistoricoPerguntasRespostasLLM.IdPerguntaResposta'), nullable=False, index=True)
 )
 
 metadata.create_all(engine)
