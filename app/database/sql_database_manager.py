@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from sql_test.sql_test_create import tabela_usuarios
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
+from sqlalchemy.sql import text
 
 load_dotenv()
 
@@ -89,3 +90,16 @@ class DatabaseManager:
             self.session.rollback()
             print(f"Erro ao buscar usuário por email: {e}")
             return None
+
+    def get_user_id_by_email(self, user_email: str):
+        """
+        Função para obter o IdUsuario de um usuário com base no e-mail.
+        """
+        try:
+            user_query = text('SELECT "IdUsuario" FROM "Usuarios" WHERE "Email" = :email')
+            user = self.session.execute(user_query, {'email': user_email}).fetchone()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+            return user[0]  # Retorna o IdUsuario
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error fetching user ID: {str(e)}")
