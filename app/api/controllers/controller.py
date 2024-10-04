@@ -15,6 +15,9 @@ def code_confirmation(code):
     else:
         return False
 
+def prepare_query(query):
+    return query.replace('```sql', '').replace('```', '').strip()
+
 def build_chain(text, history):
     chain = CommandChain(api_key=OPENAI_API_KEY)
     response, updated_history = chain.setup_chain(text=text, history=history)
