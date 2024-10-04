@@ -17,6 +17,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import insert
 from fastapi.security import OAuth2PasswordRequestForm
 from api.controllers.auth import create_access_token, get_current_user
+from utils import SECRET_EDUCATOR_CODE
+
 
 history = ConversationHistory()
 
@@ -32,11 +34,16 @@ async def create_account(
         sql_database_manager = DatabaseManager(session, metadata)
         sql_database_controller = CredentialsDispatcher(sql_database_manager)
         print("connecting to database")
+        if register_model.tipo_usuario == "educator":
+            if register_model.special_code != SECRET_EDUCATOR_CODE:
+                raise HTTPException(status_code=400, detail="Invalid special code")
+
         sql_database_controller.create_account(
             register_model.nome,
             register_model.email,
             register_model.senha,
-            register_model.tipo_usuario
+            register_model.tipo_usuario,
+            register_model.instituicao,
         )
 
         return {"message": "Conta criada com sucesso"}

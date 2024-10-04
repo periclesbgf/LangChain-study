@@ -1,3 +1,4 @@
+# app/api/endpoints/study_sessions.py
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile, Depends
 from fastapi.logger import logger
 from sqlalchemy.orm import Session
@@ -80,43 +81,4 @@ async def delete_study_session(session_id: int, current_user: dict = Depends(get
     except Exception as e:
         logger.error(f"Error deleting study session {session_id} for user: {current_user['sub']} - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-@router_study_sessions.post("/create_discipline_from_pdf")
-async def create_discipline_from_pdf(
-    file: UploadFile = File(...),
-    current_user: dict = Depends(get_current_user)
-):
-    try:
-        # Ler o conteúdo do arquivo PDF
-        file_bytes = await file.read()
-
-        # Utilizar pdfplumber para extrair o texto
-        with pdfplumber.open(file.file) as pdf:
-            text = ""
-            for page in pdf.pages:
-                text += page.extract_text()
-
-        # Instanciar o dispatcher e passar para o controlador
-        sql_database_manager = DatabaseManager(session, metadata)
-        print("SQL Database Manager: ", sql_database_manager)
-        dispatcher = StudySessionsDispatcher(sql_database_manager)
-        print("Dispatcher: ", dispatcher)
-        disciplin_chain = DisciplinChain(OPENAI_API_KEY)
-        controller = StudySessionsController(dispatcher, disciplin_chain)
-
-        # Chamar o controlador para processar a lógica e salvar os dados
-        controller.create_discipline_from_pdf(text, current_user['sub'])
-
-        return {"message": "Disciplina e sessões de estudo criadas com sucesso"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-
-
-
-
-
-
-
 

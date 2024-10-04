@@ -47,7 +47,7 @@ class CalendarDispatcher:
             event_data['CriadoPor'] = user_id
 
             # Criar um novo evento no banco de dados
-            self.database_manager.inserir_dado(tabela_eventos_calendario, event_data)
+            self.database_manager.inserir_dado_evento(tabela_eventos_calendario, event_data)
             return True
         except IntegrityError:
             self.database_manager.session.rollback()

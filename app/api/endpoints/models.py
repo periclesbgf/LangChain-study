@@ -18,6 +18,8 @@ class RegisterModel(BaseModel):
     email: str
     senha: str
     tipo_usuario: str
+    instituicao: Optional[str] = None
+    special_code: Optional[str] = None
 
 class LoginModel(BaseModel):
     email: str
@@ -52,3 +54,62 @@ class CalendarEventUpdate(BaseModel):
     start_time: datetime
     end_time: datetime
     location: str
+
+class DisciplineCreate(BaseModel):
+    nome_curso: str
+    ementa: Optional[str] = None
+    objetivos: Optional[str] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "nome_curso": "Computer Science 101",
+                "ementa": "Introduction to Computer Science fundamentals",
+                "objetivos": "Teach students the basics of computer programming, algorithms, and data structures."
+            }
+        }
+
+class DisciplineUpdate(BaseModel):
+    nome_curso: Optional[str] = None
+    ementa: Optional[str] = None
+    objetivos: Optional[str] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "nome_curso": "Advanced Computer Science",
+                "ementa": "Advanced topics in Computer Science including algorithms, AI, and networking.",
+                "objetivos": "Provide a deeper understanding of complex computer science concepts."
+            }
+        }
+
+class StudentCreate(BaseModel):
+    name: str
+    matricula: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class StudentUpdate(BaseModel):
+    name: Optional[str] = None
+    matricula: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class EducatorCreate(BaseModel):
+    name: str
+    instituicao: str
+    especializacao_disciplina: str
+
+    class Config:
+        from_attributes = True
+
+
+class EducatorUpdate(BaseModel):
+    name: Optional[str] = None
+    instituicao: Optional[str] = None
+    especializacao_disciplina: Optional[str] = None
+
+    class Config:
+        from_attributes = True

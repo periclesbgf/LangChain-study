@@ -6,6 +6,7 @@ import os
 from api.endpoints.routes import router
 from api.endpoints.study_sessions import router_study_sessions
 from api.endpoints.calendar import router_calendar
+from api.endpoints.discipline import router_disciplines
 
 load_dotenv()
 
@@ -22,6 +23,7 @@ app.add_middleware(
 app.include_router(router)
 app.include_router(router_study_sessions)
 app.include_router(router_calendar)
+app.include_router(router_disciplines)
 
 if __name__ == '__main__':
     uvicorn.run(app, host="127.0.0.1", port=8000)

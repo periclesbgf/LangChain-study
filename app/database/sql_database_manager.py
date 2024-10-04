@@ -39,6 +39,48 @@ class DatabaseManager:
     def inserir_dado(self, tabela, dados):
         try:
             # Execute a inserção e capture o resultado correto para a tabela de eventos
+            result = self.session.execute(tabela.insert().returning(tabela.c.IdUsuario).values(dados))
+            self.session.commit()
+            print(f"Dado inserido com sucesso na tabela {tabela.name}")
+            # Retorne o ID recém-inserido (IdEvento neste caso)
+            return result.fetchone()
+        except IntegrityError as e:
+            self.session.rollback()
+            raise HTTPException(status_code=400, detail="Duplicated entry.")
+        except Exception as e:
+            self.session.rollback()
+            print(f"Erro ao inserir dado na tabela {tabela.name}: {e}")
+            raise HTTPException(status_code=500, detail="Internal server error.")
+
+    def inserir_dado_retorna_id(self, tabela, dados, id_column_name):
+        """
+        Método para inserir um novo registro em uma tabela e retornar o ID recém-criado.
+        :param tabela: A tabela onde o dado será inserido.
+        :param dados: Dicionário com os dados a serem inseridos.
+        :param id_column_name: Nome da coluna do ID que será retornado.
+        :return: O ID do registro recém-criado.
+        """
+        try:
+            # Realiza a inserção e retorna o ID do novo registro
+            result = self.session.execute(
+                tabela.insert().returning(getattr(tabela.c, id_column_name)).values(dados)
+            )
+            self.session.commit()
+            inserted_id = result.fetchone()[0]  # O ID recém-inserido é retornado
+            print(f"Inserted record with ID: {inserted_id}")
+            return inserted_id
+        except IntegrityError as e:
+            self.session.rollback()
+            print(f"IntegrityError during insertion: {e}")
+            raise HTTPException(status_code=400, detail="Duplicated entry.")
+        except Exception as e:
+            self.session.rollback()
+            print(f"Error during insertion: {e}")
+            raise HTTPException(status_code=500, detail="Internal server error.")
+
+    def inserir_dado_evento(self, tabela, dados):
+        try:
+            # Execute a inserção e capture o resultado correto para a tabela de eventos
             result = self.session.execute(tabela.insert().returning(tabela.c.IdEvento).values(dados))
             self.session.commit()
             print(f"Dado inserido com sucesso na tabela {tabela.name}")
@@ -103,3 +145,27 @@ class DatabaseManager:
             return user[0]  # Retorna o IdUsuario
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error fetching user ID: {str(e)}")
+
+    def get_educator_id_by_email(self, user_email: str):
+        """
+        Function to fetch the educator's ID based on the user's email.
+        """
+        try:
+            # First, get the user ID by email
+            user_query = text('SELECT "IdUsuario" FROM "Usuarios" WHERE "Email" = :email')
+            user = self.session.execute(user_query, {'email': user_email}).fetchone()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            user_id = user[0]
+
+            # Now, get the educator ID based on the user ID
+            educator_query = text('SELECT "IdEducador" FROM "Educadores" WHERE "IdUsuario" = :user_id')
+            educator = self.session.execute(educator_query, {'user_id': user_id}).fetchone()
+            if not educator:
+                raise HTTPException(status_code=404, detail="Educator not found")
+            return educator[0]
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error fetching educator ID: {str(e)}")
+

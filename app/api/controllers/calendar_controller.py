@@ -39,7 +39,7 @@ class CalendarController:
             updated_data['Fim'] = end_time
         if location:
             updated_data['Local'] = location
-        
+
         # Chama o dispatcher para atualizar o evento e passa o current_user
         return self.dispatcher.update_event(event_id, updated_data, current_user)
 

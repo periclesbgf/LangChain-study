@@ -50,22 +50,3 @@ class StudySessionsController:
             self.dispatcher.delete_study_session(session_id)
         except Exception as e:
             raise Exception(f"Error deleting study session: {e}")
-
-    def create_discipline_from_pdf(self, text: str, user_email: str):
-        try:
-            #response = self.Disciplin_chain.create_discipline_from_pdf(text, user_email)
-            #print(response)
-
-            # Ler o arquivo disciplin.json, economizando chamadas de API
-            with open('disciplin.json', 'r') as f:
-                data = json.load(f)
-
-            # Obtenha o nome do curso diretamente do JSON
-            discipline_name = data['curso']['nome']
-
-            # Chamar a função create_discipline_from_pdf no dispatcher para inserir os dados no banco de dados
-            self.dispatcher.create_discipline_from_pdf(data, user_email)
-            print(f"Disciplina '{discipline_name}' e sessões foram salvas com sucesso no banco de dados.")
-
-        except Exception as e:
-            print(f"Erro ao criar disciplina a partir do PDF: {e}")

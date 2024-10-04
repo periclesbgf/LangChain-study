@@ -13,41 +13,37 @@ class CredentialsDispatcher:
     def __init__(self, database_manager: DatabaseManager):
         self.database_manager = database_manager
 
-    def create_account(self, name: str, email: str, password: str, user_type: str, matricula: str = None, instituicao: str = None, especializacao: str = None):
-        password_hash = hash_password(password)
+    def create_account(self, name: str, email: str, password: str, user_type: str, matricula: str = None, instituicao: str = None):
+        password_hash = hash_password(password)  # Assumindo que há uma função para gerar o hash da senha
         try:
             print("Inserting user into database")
 
-            # Inserir o usuário na tabela Usuarios
-            user_id = self.database_manager.inserir_dado(tabela_usuarios, {
+            # Inserir o usuário na tabela Usuarios e obter o ID gerado
+            user_id = self.database_manager.inserir_dado_retorna_id(tabela_usuarios, {
                 'Nome': name,
                 'Email': email,
                 'SenhaHash': password_hash,
                 'TipoUsuario': user_type,
                 'CriadoEm': datetime.now(timezone.utc),
                 'AtualizadoEm': datetime.now(timezone.utc),
-            })[0]  # user_id é retornado
+            }, 'IdUsuario')  # Retorna o IdUsuario recém-criado
+
+            print(f"User inserted with ID: {user_id}")
 
             # Verificar o tipo de usuário e inserir nas tabelas apropriadas
             if user_type == 'student':
                 print("Inserting student into database")
-                # Inserir o estudante na tabela Estudantes
-                self.database_manager.inserir_dado(tabela_estudantes, {
+                self.database_manager.inserir_dado_retorna_id(tabela_estudantes, {
                     'IdUsuario': user_id,
-                    'Matricula': matricula  # Matricula pode ser None (nulo)
-                })
+                    'Matricula': matricula
+                }, 'IdEstudante')
 
             elif user_type == 'educator':
-                if not instituicao or not especializacao:
-                    raise HTTPException(status_code=400, detail="Instituição e Especialização são obrigatórias para educadores.")
-
                 print("Inserting educator into database")
-                # Inserir o educador na tabela Educadores
-                self.database_manager.inserir_dado(tabela_educadores, {
+                self.database_manager.inserir_dado_retorna_id(tabela_educadores, {
                     'IdUsuario': user_id,
-                    'Instituicao': instituicao,
-                    'EspecializacaoDisciplina': especializacao
-                })
+                    'Instituicao': instituicao or "CESAR School",
+                }, 'IdEducador')
 
             else:
                 raise HTTPException(status_code=400, detail="Tipo de usuário inválido.")
