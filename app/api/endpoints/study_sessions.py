@@ -1,43 +1,122 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException, File, Form, UploadFile, Depends
+from fastapi.logger import logger
 from sqlalchemy.orm import Session
-from api.controllers.auth import get_current_user
 from api.controllers.study_sessions_controller import StudySessionsController
-from database.sql_database_manager import session
+from api.dispatchers.study_sessions_dispatcher import StudySessionsDispatcher
+from database.sql_database_manager import DatabaseManager, session, metadata
+from pdfminer.high_level import extract_text
+from api.controllers.auth import get_current_user
+from chains.chain_setup import DisciplinChain
+import pdfplumber
+from utils import OPENAI_API_KEY
+
 
 router_study_sessions = APIRouter()
 
 @router_study_sessions.get("/study_sessions")
 async def get_study_sessions(current_user: dict = Depends(get_current_user)):
+    logger.info(f"Fetching study sessions for user: {current_user['sub']}")
     try:
-        controller = StudySessionsController(session)
+        # Instanciar o dispatcher e controlador
+        sql_database_manager = DatabaseManager(session, metadata)
+        dispatcher = StudySessionsDispatcher(sql_database_manager)
+        controller = StudySessionsController(dispatcher)
+
+        # Chamar o controlador para buscar as sessões de estudo
         study_sessions = controller.get_all_study_sessions(current_user['sub'])
+        logger.info(f"Study sessions fetched successfully for user: {current_user['sub']}")
         return {"study_sessions": study_sessions}
     except Exception as e:
+        logger.error(f"Error fetching study sessions for user: {current_user['sub']} - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router_study_sessions.post("/study_sessions")
 async def create_study_session(discipline_name: str, current_user: dict = Depends(get_current_user)):
+    logger.info(f"Creating new study session for user: {current_user['sub']} and discipline: {discipline_name}")
     try:
-        controller = StudySessionsController(session)
+        # Instanciar o dispatcher e controlador
+        sql_database_manager = DatabaseManager(session, metadata)
+        dispatcher = StudySessionsDispatcher(sql_database_manager)
+        controller = StudySessionsController(dispatcher)
+
+        # Chamar o controlador para criar uma nova sessão de estudo
         new_session = controller.create_study_session(current_user['sub'], discipline_name)
+        logger.info(f"New study session created successfully for user: {current_user['sub']}, discipline: {discipline_name}")
         return {"new_session": new_session}
     except Exception as e:
+        logger.error(f"Error creating study session for user: {current_user['sub']}, discipline: {discipline_name} - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router_study_sessions.put("/study_sessions/{session_id}")
 async def update_study_session(session_id: int, session_data: dict, current_user: dict = Depends(get_current_user)):
+    logger.info(f"Updating study session {session_id} for user: {current_user['sub']}")
     try:
-        controller = StudySessionsController(session)
+        # Instanciar o dispatcher e controlador
+        sql_database_manager = DatabaseManager(session, metadata)
+        dispatcher = StudySessionsDispatcher(sql_database_manager)
+        controller = StudySessionsController(dispatcher)
+
+        # Chamar o controlador para atualizar a sessão de estudo
         updated_session = controller.update_study_session(session_id, session_data)
+        logger.info(f"Study session {session_id} updated successfully for user: {current_user['sub']}")
         return {"updated_session": updated_session}
     except Exception as e:
+        logger.error(f"Error updating study session {session_id} for user: {current_user['sub']} - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router_study_sessions.delete("/study_sessions/{session_id}")
 async def delete_study_session(session_id: int, current_user: dict = Depends(get_current_user)):
+    logger.info(f"Deleting study session {session_id} for user: {current_user['sub']}")
     try:
-        controller = StudySessionsController(session)
+        # Instanciar o dispatcher e controlador
+        sql_database_manager = DatabaseManager(session, metadata)
+        dispatcher = StudySessionsDispatcher(sql_database_manager)
+        controller = StudySessionsController(dispatcher)
+
+        # Chamar o controlador para deletar a sessão de estudo
         controller.delete_study_session(session_id)
+        logger.info(f"Study session {session_id} deleted successfully for user: {current_user['sub']}")
         return {"message": "Study session deleted successfully"}
     except Exception as e:
+        logger.error(f"Error deleting study session {session_id} for user: {current_user['sub']} - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router_study_sessions.post("/create_discipline_from_pdf")
+async def create_discipline_from_pdf(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    try:
+        # Ler o conteúdo do arquivo PDF
+        file_bytes = await file.read()
+
+        # Utilizar pdfplumber para extrair o texto
+        with pdfplumber.open(file.file) as pdf:
+            text = ""
+            for page in pdf.pages:
+                text += page.extract_text()
+
+        # Instanciar o dispatcher e passar para o controlador
+        sql_database_manager = DatabaseManager(session, metadata)
+        print("SQL Database Manager: ", sql_database_manager)
+        dispatcher = StudySessionsDispatcher(sql_database_manager)
+        print("Dispatcher: ", dispatcher)
+        disciplin_chain = DisciplinChain(OPENAI_API_KEY)
+        controller = StudySessionsController(dispatcher, disciplin_chain)
+
+        # Chamar o controlador para processar a lógica e salvar os dados
+        controller.create_discipline_from_pdf(text, current_user['sub'])
+
+        return {"message": "Disciplina e sessões de estudo criadas com sucesso"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+
+
+
+
+

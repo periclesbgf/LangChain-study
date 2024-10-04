@@ -4,6 +4,32 @@ from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 import logging
 from fastapi.logger import logger as fastapi_logger
+from pydantic import BaseModel
+from typing import List, Optional
+from openai import OpenAI
+from langchain.output_parsers import PydanticOutputParser
+
+class Curso(BaseModel):
+    nome: str
+    professores: List[str]
+    ementa: str
+    objetivos: List[str]
+
+class CronogramaItem(BaseModel):
+    numero_encontro: int
+    data: str
+    conteudo: str
+    estrategia: Optional[str] = None
+    avaliacao: Optional[str] = None
+
+class Discipline(BaseModel):
+    curso: Curso
+    cronograma: List[CronogramaItem]
+
+    class Config:
+        json_encoders = {
+            set: list
+        }
 
 
 class CommandChain:
@@ -761,3 +787,96 @@ class RetrievalChain:
         })
         print("response: ", response)
         return response
+
+
+class DisciplinChain:
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.model = "gpt-4o"
+        self.client = OpenAI(api_key=self.api_key)
+        self.prompt_template = """
+        Você recebeu o conteúdo de uma disciplina acadêmica em formato de texto extraido de um PDF
+        e precisa extrair informações organizadas para alimentar um sistema de gerenciamento de cursos. 
+        A partir do PDF, extraia os seguintes dados com base no conteúdo fornecido:
+
+        Nome do Curso: Identifique o nome completo da disciplina.
+        Professores: Liste o(s) nome(s) completo(s) dos professores responsáveis pela disciplina.
+        Ementa: Extraia a ementa do curso, que detalha os tópicos abordados durante o semestre.
+        Objetivos: Liste os objetivos gerais e específicos da disciplina.
+        Cronograma de Encontros: Para cada encontro (ou aula), extraia os seguintes detalhes:
+        Número do encontro
+        Data
+        Conteúdo programático (exemplo: tópicos abordados na aula)
+        Estratégia de ensino (exemplo: método utilizado na aula, como 'aula expositiva', 'exercícios', 'miniprova', etc.)
+        Tipo de avaliação (se houver, por exemplo: 'miniprova', 'prova final', 'projeto')
+        Esses dados devem ser estruturados no seguinte formato JSON:
+        O recurso nao precisa ser retornado.
+
+        {
+            "curso": {
+                "nome": "Programação Imperativa e Funcional - Turma A",
+                "professores": ["Pamela Bezerra", "Tiago Barros"],
+                "ementa": "Conceituação e introdução a paradigmas de programação. Introdução ao paradigma imperativo através de programação em C...",
+                "objetivos": [
+                "Introduzir o conceito de paradigmas de programação.",
+                "Introduzir a linguagem de programação C.",
+                "Estudar os conceitos básicos para desenvolvimento de projetos em C..."
+                ]
+            },
+            "cronograma": [
+                {
+                "numero_encontro": 1,
+                "data": "13/08/2024",
+                "conteudo": "Introdução a Programação Imperativa e Funcional, revisão de estruturas de decisão e repetição.",
+                "estrategia": "Introdução aos conceitos básicos de paradigmas de programação, das linguagens C e Haskell.",
+                "avaliacao": null
+                },
+                {
+                "numero_encontro": 2,
+                "data": "15/08/2024",
+                "conteudo": "Revisão das estruturas de repetição e matrizes.",
+                "estrategia": "Aula Expositiva: revisão de blocos de repetição (for, while, do-while).",
+                "avaliacao": null
+                },
+                ...
+            ]
+        }
+
+        Certifique-se de que os dados extraídos estejam no formato JSON para fácil integração com um banco de dados SQL.
+        """
+
+    def setup_chain(self, text):
+        try:
+            # Limpando o histórico de mensagens
+            self.client.beta.chat.clear_history()
+
+            # Usando a API da OpenAI com response_format
+            print("Enviando prompt ao modelo com o formato específico...")
+            completion = self.client.beta.chat.completions.parse(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self.prompt_template},
+                    {"role": "user", "content": text}
+                ],
+                response_format=Discipline  # Usamos o modelo Discipline aqui
+            )
+            discipline_data = completion.choices[0].message.parsed
+
+            # Transformando a saída do modelo em JSON com model_dump_json()
+            discipline_json = discipline_data.model_dump_json(indent=4)
+            print("Dados extraídos com sucesso:", discipline_json)
+
+            return discipline_json
+        except Exception as e:
+            print(f"Erro durante o processamento: {e}")
+            return None
+
+    def create_discipline_from_pdf(self, text: str, user_email: str):
+        print("Extraindo dados do PDF...")
+        discipline_data = self.setup_chain(text)
+        if discipline_data:
+            print("Dados extraídos com sucesso:")
+            print(discipline_data)  # Aqui já estamos com a string JSON do setup_chain
+        else:
+            print("Falha ao extrair os dados.")
+        return discipline_data

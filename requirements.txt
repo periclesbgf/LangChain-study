@@ -31,3 +31,4 @@ bcrypt
 python-jose[cryptography]
 pydantic
 email-validator
+pdfplumber

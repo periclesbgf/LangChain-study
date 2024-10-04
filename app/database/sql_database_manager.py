@@ -3,6 +3,8 @@ from sqlalchemy.orm import sessionmaker
 import os
 from dotenv import load_dotenv
 from sql_test.sql_test_create import tabela_usuarios
+from sqlalchemy.exc import IntegrityError
+from fastapi import HTTPException
 
 load_dotenv()
 
@@ -35,12 +37,19 @@ class DatabaseManager:
 
     def inserir_dado(self, tabela, dados):
         try:
-            self.session.execute(tabela.insert().values(dados))
+            # Execute a inserção e capture o resultado
+            result = self.session.execute(tabela.insert().returning(tabela.c.IdUsuario).values(dados))
             self.session.commit()
             print(f"Dado inserido com sucesso na tabela {tabela.name}")
+            # Retorne o ID recém-inserido
+            return result.fetchone()
+        except IntegrityError as e:
+            self.session.rollback()
+            raise HTTPException(status_code=400, detail="Duplicated entry.")
         except Exception as e:
             self.session.rollback()
             print(f"Erro ao inserir dado na tabela {tabela.name}: {e}")
+            raise HTTPException(status_code=500, detail="Internal server error.")
 
     def deletar_dado(self, tabela, condicao):
         try:

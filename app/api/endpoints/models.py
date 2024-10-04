@@ -2,6 +2,8 @@ from pydantic import BaseModel
 from typing import Optional
 from fastapi import Depends
 from api.controllers.auth import get_current_user
+from datetime import datetime
+
 
 class Question(BaseModel):
     question: str
@@ -28,3 +30,11 @@ class Token(BaseModel):
 class PromptModel(BaseModel):
     question: str
     code: str
+
+class StudySessionCreate(BaseModel):
+    IdCurso: int
+    Assunto: str
+    Inicio: Optional[datetime] = None
+    Fim: Optional[datetime] = None
+    Produtividade: Optional[int] = None
+    FeedbackDoAluno: Optional[str] = None

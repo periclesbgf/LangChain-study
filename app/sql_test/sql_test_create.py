@@ -28,7 +28,7 @@ tabela_usuarios = Table('Usuarios', metadata,
 tabela_estudantes = Table('Estudantes', metadata,
     Column('IdEstudante', Integer, primary_key=True),
     Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario'), nullable=False, index=True),
-    Column('Matricula', String(50), nullable=False, unique=True),
+    Column('Matricula', String(50), nullable=True, unique=True),
 )
 
 tabela_educadores = Table('Educadores', metadata,
@@ -40,9 +40,10 @@ tabela_educadores = Table('Educadores', metadata,
 
 tabela_cursos = Table('Cursos', metadata,
     Column('IdCurso', Integer, primary_key=True),
-    Column('IdEducador', Integer, ForeignKey('Educadores.IdEducador'), nullable=False, index=True),
+    Column('IdEducador', Integer, ForeignKey('Educadores.IdEducador'), nullable=True, index=True),
     Column('NomeCurso', String(100), nullable=False),
-    Column('Descricao', Text),
+    Column('Ementa', Text),
+    Column('Objetivos', Text),
     Column('CriadoEm', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'))
 )
 
@@ -67,7 +68,8 @@ tabela_encontros = Table('Encontros', metadata,
     Column('NumeroEncontro', Integer, nullable=False),
     Column('DataEncontro', Date, nullable=False),
     Column('Conteudo', Text, nullable=False),
-    Column('Estrategia', Text, nullable=False)
+    Column('Estrategia', Text, nullable=True),
+    Column('Avaliacao', String(100), nullable=True)  # Pode ser nulo
 )
 
 tabela_atividades = Table('Atividades', metadata,
@@ -140,6 +142,13 @@ tabela_sessoes_estudo_perguntas_respostas = Table('SessoesEstudoPerguntasRespost
     Column('Id', Integer, primary_key=True),
     Column('IdSessao', Integer, ForeignKey('SessoesEstudo.IdSessao'), nullable=False, index=True),
     Column('IdPerguntaResposta', Integer, ForeignKey('HistoricoPerguntasRespostasLLM.IdPerguntaResposta'), nullable=False, index=True)
+)
+
+tabela_perfis_felder_silverman = Table('PerfisFelderSilverman', metadata,
+    Column('IdPerfil', Integer, primary_key=True),
+    Column('NomePerfil', String(50), nullable=False, unique=True),
+    Column('Descricao', Text, nullable=False),
+    Column('Recomendacoes', Text)
 )
 
 metadata.create_all(engine)
