@@ -38,11 +38,11 @@ class DatabaseManager:
 
     def inserir_dado(self, tabela, dados):
         try:
-            # Execute a inserção e capture o resultado
-            result = self.session.execute(tabela.insert().returning(tabela.c.IdUsuario).values(dados))
+            # Execute a inserção e capture o resultado correto para a tabela de eventos
+            result = self.session.execute(tabela.insert().returning(tabela.c.IdEvento).values(dados))
             self.session.commit()
             print(f"Dado inserido com sucesso na tabela {tabela.name}")
-            # Retorne o ID recém-inserido
+            # Retorne o ID recém-inserido (IdEvento neste caso)
             return result.fetchone()
         except IntegrityError as e:
             self.session.rollback()

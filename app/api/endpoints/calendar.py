@@ -6,6 +6,7 @@ from api.controllers.auth import get_current_user
 from api.controllers.calendar_controller import CalendarController
 from api.dispatchers.calendar_dispatcher import CalendarDispatcher
 from datetime import datetime
+from api.endpoints.models import CalendarEvent, CalendarEventUpdate
 
 
 router_calendar = APIRouter()
@@ -33,11 +34,7 @@ async def get_calendar_events(current_user: dict = Depends(get_current_user)):
 
 @router_calendar.post("/calendar/events")
 async def create_calendar_event(
-    title: str,
-    description: str,
-    start_time: datetime,
-    end_time: datetime,
-    location: str,
+    event: CalendarEvent,
     current_user: dict = Depends(get_current_user)
 ):
     logger.info(f"Creating new calendar event for user: {current_user['sub']}")
@@ -50,7 +47,7 @@ async def create_calendar_event(
         controller = CalendarController(dispatcher)
 
         # Criar novo evento de calendário via controller, passando o e-mail do usuário (sub)
-        controller.create_event(title, description, start_time, end_time, location, current_user['sub'])
+        controller.create_event(event.title, event.description, event.start_time, event.end_time, event.location, current_user['sub'])
 
         logger.info(f"New calendar event created successfully for user: {current_user['sub']}")
         return {"message": "Event created successfully"}
@@ -61,14 +58,11 @@ async def create_calendar_event(
 
 @router_calendar.put("/calendar/events/{event_id}")
 async def update_calendar_event(
-    event_id: int, 
-    title: str = None, 
-    description: str = None, 
-    start_time: datetime = None, 
-    end_time: datetime = None, 
-    location: str = None, 
+    event_id: int,
+    event_data: CalendarEventUpdate,
     current_user: dict = Depends(get_current_user)
 ):
+    print(f"Updating event {event_id} for user: {current_user['sub']}")
     logger.info(f"Updating calendar event {event_id} for user: {current_user['sub']}")
     try:
         # Instanciar o DatabaseManager
@@ -79,7 +73,15 @@ async def update_calendar_event(
         controller = CalendarController(dispatcher)
 
         # Atualizar evento via controller, passando o e-mail do usuário (sub)
-        controller.update_event(event_id, title, description, start_time, end_time, location)
+        controller.update_event(
+            event_id,
+            title=event_data.title,
+            description=event_data.description,
+            start_time=event_data.start_time,
+            end_time=event_data.end_time,
+            location=event_data.location,
+            current_user=current_user['sub'],
+        )
 
         logger.info(f"Calendar event {event_id} updated successfully for user: {current_user['sub']}")
         return {"message": "Event updated successfully"}
@@ -89,7 +91,11 @@ async def update_calendar_event(
 
 
 @router_calendar.delete("/calendar/events/{event_id}")
-async def delete_calendar_event(event_id: int, current_user: dict = Depends(get_current_user)):
+async def delete_calendar_event(
+    event_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    print(current_user)
     logger.info(f"Deleting calendar event {event_id} for user: {current_user['sub']}")
     try:
         # Instanciar o DatabaseManager
@@ -99,11 +105,12 @@ async def delete_calendar_event(event_id: int, current_user: dict = Depends(get_
         dispatcher = CalendarDispatcher(sql_database_manager)
         controller = CalendarController(dispatcher)
 
-        # Deletar o evento via controller, passando o e-mail do usuário (sub)
-        controller.delete_event(event_id)
+        # Deletar evento via controller, passando o ID do evento e o e-mail do usuário (sub)
+        controller.delete_event(event_id, current_user['sub'])
 
         logger.info(f"Calendar event {event_id} deleted successfully for user: {current_user['sub']}")
         return {"message": "Event deleted successfully"}
     except Exception as e:
         logger.error(f"Error deleting calendar event {event_id} for user: {current_user['sub']} - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+

@@ -13,6 +13,7 @@ class CalendarController:
 
     def create_event(self, title: str, description: str, start_time, end_time, location: str, current_user: str):
         # Organizar os dados do evento
+        print(f"Creating event for user: {current_user}")
         event_data = {
             'GoogleEventId': f"event-{current_user}-{title}",  # ID único com base no e-mail
             'Titulo': title,

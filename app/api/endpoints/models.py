@@ -38,3 +38,17 @@ class StudySessionCreate(BaseModel):
     Fim: Optional[datetime] = None
     Produtividade: Optional[int] = None
     FeedbackDoAluno: Optional[str] = None
+
+class CalendarEvent(BaseModel):
+    title: str
+    description: str
+    start_time: datetime
+    end_time: datetime
+    location: str
+
+class CalendarEventUpdate(BaseModel):
+    title: str
+    description: str
+    start_time: datetime
+    end_time: datetime
+    location: str
