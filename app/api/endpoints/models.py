@@ -59,6 +59,7 @@ class DisciplineCreate(BaseModel):
     nome_curso: str
     ementa: Optional[str] = None
     objetivos: Optional[str] = None
+    educator: Optional[str] = None
 
     class Config:
         json_schema_extra = {

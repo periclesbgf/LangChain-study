@@ -1,6 +1,5 @@
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey, Date, DateTime, Boolean, Enum, JSON, TIMESTAMP, text, Index, Text, LargeBinary
+from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey, Date, DateTime, Boolean, Enum, JSON, TIMESTAMP, text, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import sessionmaker
 import os
 from dotenv import load_dotenv
 
@@ -51,9 +50,9 @@ tabela_perfil_aprendizado_aluno = Table('PerfilAprendizadoAluno', metadata,
     Column('IdPerfil', Integer, primary_key=True),
     Column('IdEstudante', Integer, ForeignKey('Estudantes.IdEstudante'), nullable=False, index=True),
     Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso'), nullable=False, index=True),
-    Column('TipoPerfil', String(50), nullable=False),
-    Column('PreferenciaEstudo', String(50)),
-    Column('PerfilAvaliado', Text),
+    Column('DadosPerfil', JSON, nullable=False),  # Armazenando o perfil completo em JSON
+    Column('IdPerfilFelderSilverman', Integer, ForeignKey('PerfisFelderSilverman.IdPerfil'), nullable=True),
+    Column('DataUltimaAtualizacao', DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'))  # Rastreando a última atualização
 )
 
 tabela_cronograma = Table('Cronograma', metadata,
@@ -96,17 +95,23 @@ tabela_sessoes_estudo = Table('SessoesEstudo', metadata,
     Column('Inicio', DateTime, server_default=text('CURRENT_TIMESTAMP')),
     Column('Fim', DateTime),
     Column('Produtividade', Integer),
-    Column('FeedbackDoAluno', Text)
+    Column('FeedbackDoAluno', Text),
+    Column('HistoricoConversa', JSON, nullable=True)  # Armazenando o histórico da conversa em JSON
 )
 
 tabela_recursos_aprendizagem = Table('RecursosAprendizagem', metadata,
     Column('IdRecurso', Integer, primary_key=True),
-    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso'), nullable=False, index=True),
+    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso'), nullable=True, index=True),  # Recurso pode ser compartilhado
     Column('Titulo', String(200), nullable=False),
-    Column('Tipo', String(50)),
+    Column('Tipo', Enum('video', 'documento', 'link', 'outro', name='recurso_tipo_enum'), nullable=False),
     Column('URL', String(500)),
-    Column('Conteudo', Text),
-    Column('VectorId', UUID(as_uuid=True), nullable=True)
+    Column('CaminhoArquivo', String(500), nullable=True),  # Caminho para o arquivo armazenado
+    Column('EnviadoPor', Integer, ForeignKey('Usuarios.IdUsuario'), nullable=True),  # Quem enviou
+    Column('FonteAutomatica', Boolean, default=False),  # Carregado automaticamente, ex: via Classroom
+    Column('Descricao', Text),
+    Column('VectorId', UUID(as_uuid=True), nullable=True),  # Integração com o banco vetorial
+    Column('CriadoEm', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP')),
+    Column('AtualizadoEm', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'))
 )
 
 tabela_feedback_ia = Table('FeedbackIAPerfil', metadata,
@@ -115,16 +120,6 @@ tabela_feedback_ia = Table('FeedbackIAPerfil', metadata,
     Column('TipoFeedback', String(50), nullable=False),
     Column('ConteudoFeedback', Text),
     Column('DataAvaliacao', DateTime, server_default=text('CURRENT_TIMESTAMP'))
-)
-
-tabela_historico_perguntas_respostas_llm = Table('HistoricoPerguntasRespostasLLM', metadata,
-    Column('IdPerguntaResposta', Integer, primary_key=True),
-    Column('DataHoraPergunta', DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False),
-    Column('ConteudoPergunta', Text, nullable=False),
-    Column('DataHoraResposta', DateTime),
-    Column('ConteudoResposta', Text),
-    Column('ConfidenciaResposta', Float),
-    Column('TipoPergunta', String(50), nullable=False)
 )
 
 tabela_eventos_calendario = Table('EventosCalendario', metadata,
@@ -136,12 +131,6 @@ tabela_eventos_calendario = Table('EventosCalendario', metadata,
     Column('Fim', DateTime, nullable=False),
     Column('Local', String(200)),
     Column('CriadoPor', Integer, ForeignKey('Usuarios.IdUsuario'), nullable=False, index=True)
-)
-
-tabela_sessoes_estudo_perguntas_respostas = Table('SessoesEstudoPerguntasRespostas', metadata,
-    Column('Id', Integer, primary_key=True),
-    Column('IdSessao', Integer, ForeignKey('SessoesEstudo.IdSessao'), nullable=False, index=True),
-    Column('IdPerguntaResposta', Integer, ForeignKey('HistoricoPerguntasRespostasLLM.IdPerguntaResposta'), nullable=False, index=True)
 )
 
 tabela_perfis_felder_silverman = Table('PerfisFelderSilverman', metadata,

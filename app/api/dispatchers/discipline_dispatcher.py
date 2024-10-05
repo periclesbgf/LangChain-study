@@ -17,13 +17,13 @@ class DisciplineDispatcher:
 
     def get_all_disciplines(self, current_user: str):
         # Get the educator's ID based on the user email
-        educator_id = self.database_manager.get_educator_id_by_email(current_user)
+        #educator_id = self.database_manager.get_educator_id_by_email(current_user)
         try:
             # Fetch all disciplines created by the educator
             disciplines = self.database_manager.selecionar_dados(
-                tabela_cursos,
-                tabela_cursos.c.IdEducador == educator_id
+                tabela_cursos
             )
+            print(disciplines)
             return disciplines
 
         except Exception as e:
@@ -31,12 +31,8 @@ class DisciplineDispatcher:
 
     def create_discipline(self, discipline_data: dict, current_user: str):
         try:
-            # Get the educator's ID
-            educator_id = self.database_manager.get_educator_id_by_email(current_user)
-
-            # Assign the correct educator ID to the discipline data
-            discipline_data['IdEducador'] = educator_id
-
+            # Get the user's ID based on the email
+            user_id = self.database_manager.get_user_id_by_email(current_user)
             # Insert the discipline into the database
             self.database_manager.inserir_dado(tabela_cursos, discipline_data)
             return True
