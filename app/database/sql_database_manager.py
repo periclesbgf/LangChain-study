@@ -171,15 +171,19 @@ class DatabaseManager:
 
     def get_all_events_by_user(self, tabela_eventos, user_id: int):
         """
-        Função para buscar todos os eventos de um usuário específico na tabela de eventos.
+        Função para buscar todos os eventos de um usuário específico na tabela de eventos,
+        sem filtro de curso.
         """
         try:
+            # Criar a consulta para selecionar eventos criados pelo usuário específico
             query = select(tabela_eventos).where(tabela_eventos.c.CriadoPor == user_id)
+
             result = self.session.execute(query).fetchall()
             return result
         except Exception as e:
             print(f"Erro ao selecionar eventos do usuário {user_id}: {e}")
             return None
+
 
     def get_student_by_user_email(self, user_email: str):
         try:
@@ -296,3 +300,4 @@ class DatabaseManager:
             self.session.rollback()
             print(f"Erro ao associar aluno {estudante_id} ao curso {curso_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Erro ao associar aluno ao curso: {e}")
+

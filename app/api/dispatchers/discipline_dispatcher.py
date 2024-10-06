@@ -128,7 +128,7 @@ class DisciplineDispatcher:
             print("Extraindo dados do JSON...")
             curso_data = discipline_json.get('curso', {})
             cronograma_data = discipline_json.get('cronograma', [])
-            professores = curso_data.get('professores', [])  # Pegando os professores do JSON
+            professores = curso_data.get('professores', [])
             print(f"Curso: {curso_data}")
             print(f"Cronograma: {cronograma_data}")
             print(f"Professores: {professores}")
@@ -165,7 +165,7 @@ class DisciplineDispatcher:
             cronograma_id = cronograma_result.inserted_primary_key[0]
             print(f"Cronograma criado com ID: {cronograma_id} para o curso {course_id}")
 
-            # 5. Inserir cada encontro no banco de dados
+            # 5. Inserir cada encontro no banco de dados e no calendário
             for encontro in cronograma_data:
                 session_date = datetime.strptime(encontro['data'], "%d/%m/%Y")
                 session_number = encontro['numero_encontro']
@@ -179,10 +179,23 @@ class DisciplineDispatcher:
                 )
                 self.database_manager.session.execute(new_session)
 
-            self.database_manager.session.commit()
-            print(f"Encontros do cronograma inseridos com sucesso para o curso {course_id}.")
+                # 6. Inserir o encontro como evento no calendário
+                print(f"Inserindo evento no calendário para o encontro {session_number}...")
+                new_event = tabela_eventos_calendario.insert().values(
+                    GoogleEventId=f"event-{course_id}-{session_number}",  # ID único para o evento
+                    Titulo=f"Encontro {session_number} - {curso_data.get('nome', 'Sem Nome')}",
+                    Descricao=encontro['conteudo'].strip(),
+                    Inicio=session_date,
+                    Fim=session_date + timedelta(hours=2),  # Supondo que o encontro dure 2 horas
+                    Local="Sala de Aula Física",  # Local pode ser ajustado ou extraído do JSON
+                    CriadoPor=user_id  # Criado pelo aluno
+                )
+                self.database_manager.session.execute(new_event)
 
-            # 6. Associar o curso ao aluno na tabela EstudanteCurso
+            self.database_manager.session.commit()
+            print(f"Encontros do cronograma inseridos com sucesso para o curso {course_id} e eventos de calendário criados.")
+
+            # 7. Associar o curso ao aluno na tabela EstudanteCurso
             print(f"Associando o curso {course_id} ao aluno {user_email}...")
             self.database_manager.session.execute(
                 tabela_estudante_curso.insert().values(

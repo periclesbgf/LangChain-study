@@ -11,19 +11,17 @@ class CalendarController:
     def get_all_events(self, current_user: str):
         return self.dispatcher.get_all_events(current_user)
 
-    def create_event(self, title: str, description: str, start_time, end_time, location: str, current_user: str):
-        # Organizar os dados do evento
+    def create_event(self, title: str, description: str, start_time, end_time, location: str, current_user: str, course_id: int = None):
         print(f"Creating event for user: {current_user}")
         event_data = {
-            'GoogleEventId': f"event-{current_user}-{title}",  # ID único com base no e-mail
+            'GoogleEventId': f"event-{current_user}-{title}",
             'Titulo': title,
             'Descricao': description,
             'Inicio': start_time,
             'Fim': end_time,
             'Local': location,
-            # O 'CriadoPor' será definido no dispatcher com o user_id obtido
+            'IdCurso': course_id  # Associar o curso ao evento, se fornecido
         }
-        # Chamar o dispatcher para criar o evento
         return self.dispatcher.create_event(event_data, current_user)
 
     def update_event(self, event_id: int, title: str = None, description: str = None, start_time = None, end_time = None, location: str = None, current_user: str = None):

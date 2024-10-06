@@ -24,7 +24,7 @@ async def get_calendar_events(current_user: dict = Depends(get_current_user)):
         dispatcher = CalendarDispatcher(sql_database_manager)
         controller = CalendarController(dispatcher)
 
-        # Obter os eventos do usuário atual via controller
+        # Obter os eventos do usuário atual via controller, filtrando por curso se fornecido
         events = controller.get_all_events(current_user['sub'])
         print(events)
 
@@ -37,6 +37,7 @@ async def get_calendar_events(current_user: dict = Depends(get_current_user)):
 @router_calendar.post("/calendar/events")
 async def create_calendar_event(
     event: CalendarEvent,
+    course_id: int = None,  # Novo parâmetro opcional para associar o evento a um curso
     current_user: dict = Depends(get_current_user)
 ):
     logger.info(f"Creating new calendar event for user: {current_user['sub']}")
@@ -49,13 +50,22 @@ async def create_calendar_event(
         controller = CalendarController(dispatcher)
 
         # Criar novo evento de calendário via controller, passando o e-mail do usuário (sub)
-        controller.create_event(event.title, event.description, event.start_time, event.end_time, event.location, current_user['sub'])
+        controller.create_event(
+            event.title, 
+            event.description, 
+            event.start_time, 
+            event.end_time, 
+            event.location, 
+            current_user['sub'], 
+            course_id  # Associar o curso ao evento
+        )
 
         logger.info(f"New calendar event created successfully for user: {current_user['sub']}")
         return {"message": "Event created successfully"}
     except Exception as e:
         logger.error(f"Error creating calendar event for user: {current_user['sub']} - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @router_calendar.put("/calendar/events/{event_id}")
