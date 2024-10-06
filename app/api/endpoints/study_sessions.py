@@ -1,5 +1,5 @@
 # app/api/endpoints/study_sessions.py
-from fastapi import APIRouter, HTTPException, File, Form, UploadFile, Depends
+from fastapi import APIRouter, HTTPException, File, Form, UploadFile, Depends, Query
 from fastapi.logger import logger
 from sqlalchemy.orm import Session
 from api.controllers.study_sessions_controller import StudySessionsController
@@ -83,7 +83,10 @@ async def delete_study_session(session_id: int, current_user: dict = Depends(get
         raise HTTPException(status_code=500, detail=str(e))
 
 @router_study_sessions.get("/study_sessions/discipline")
-async def get_study_session_from_discipline(discipline_name: str, current_user: dict = Depends(get_current_user)):
+async def get_study_session_from_discipline(
+    discipline_name: str = Query(...),  # Query parameter
+    current_user: dict = Depends(get_current_user)  # Current authenticated user
+):
     logger.info(f"Fetching study sessions for user: {current_user['sub']} and discipline: {discipline_name}")
     try:
         # Instanciar o dispatcher e controlador

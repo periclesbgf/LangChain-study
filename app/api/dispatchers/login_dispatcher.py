@@ -62,7 +62,6 @@ class CredentialsDispatcher:
                     tabela_perfil_aprendizado_aluno,
                     {
                         'IdUsuario': student_id,
-                        'IdCurso': None,
                         'DadosPerfil': {},  # Inicialmente vazio, você pode atualizar depois
                         'IdPerfilFelderSilverman': None
                     }

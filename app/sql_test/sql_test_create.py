@@ -1,3 +1,5 @@
+# app/sql_test/sql_test_create.py
+
 from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey, Date, DateTime, Boolean, Enum, JSON, TIMESTAMP, text, Text
 from sqlalchemy.dialects.postgresql import UUID
 import os
@@ -37,7 +39,12 @@ tabela_educadores = Table('Educadores', metadata,
     Column('EspecializacaoDisciplina', String(100), nullable=False)
 )
 
-
+tabela_estudante_curso = Table('EstudanteCurso', metadata,
+    Column('Id', Integer, primary_key=True),
+    Column('IdEstudante', Integer, ForeignKey('Estudantes.IdEstudante'), nullable=False, index=True),
+    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso'), nullable=False, index=True),
+    Column('CriadoEm', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'))
+)
 
 tabela_cursos = Table('Cursos', metadata,
     Column('IdCurso', Integer, primary_key=True),
@@ -52,7 +59,6 @@ tabela_cursos = Table('Cursos', metadata,
 tabela_perfil_aprendizado_aluno = Table('PerfilAprendizadoAluno', metadata,
     Column('IdPerfil', Integer, primary_key=True),
     Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario'), nullable=False, index=True),
-    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso'), nullable=True, index=True),
     Column('DadosPerfil', JSON, nullable=False),  # Armazenando o perfil completo em JSON
     Column('IdPerfilFelderSilverman', Integer, ForeignKey('PerfisFelderSilverman.IdPerfil'), nullable=True),
     Column('DataUltimaAtualizacao', DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'))  # Rastreando a última atualização
