@@ -848,7 +848,6 @@ class DisciplinChain:
     def setup_chain(self, text):
         try:
             # Limpando o histórico de mensagens
-            self.client.beta.chat.clear_history()
 
             # Usando a API da OpenAI com response_format
             print("Enviando prompt ao modelo com o formato específico...")

@@ -2,10 +2,12 @@ from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, 
 from sqlalchemy.orm import sessionmaker
 import os
 from dotenv import load_dotenv
-from sql_test.sql_test_create import tabela_usuarios
+from sql_test.sql_test_create import tabela_usuarios, tabela_educadores
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from sqlalchemy.sql import text
+import json
+from sqlalchemy.sql import select
 
 load_dotenv()
 
@@ -83,11 +85,12 @@ class DatabaseManager:
             # Execute a inserção e capture o resultado correto para a tabela de eventos
             result = self.session.execute(tabela.insert().returning(tabela.c.IdEvento).values(dados))
             self.session.commit()
-            print(f"Dado inserido com sucesso na tabela {tabela.name}")
-            # Retorne o ID recém-inserido (IdEvento neste caso)
-            return result.fetchone()
+            inserted_id = result.fetchone()[0]  # Obter o ID do evento recém-inserido
+            print(f"Dado inserido com sucesso na tabela {tabela.name} com IdEvento: {inserted_id}")
+            return inserted_id
         except IntegrityError as e:
             self.session.rollback()
+            print(f"IntegrityError during event insertion: {e}")
             raise HTTPException(status_code=400, detail="Duplicated entry.")
         except Exception as e:
             self.session.rollback()
@@ -169,3 +172,41 @@ class DatabaseManager:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error fetching educator ID: {str(e)}")
 
+    def get_all_educator_names(self):
+        """
+        Função para recuperar todos os nomes dos educadores da tabela Usuarios e Educadores.
+        """
+        try:
+            # Correção: Usar select direto, sem colchetes
+            query = select(tabela_usuarios.c.Nome).select_from(
+                tabela_usuarios.join(tabela_educadores, tabela_usuarios.c.IdUsuario == tabela_educadores.c.IdUsuario)
+            )
+
+            result = self.session.execute(query).fetchall()
+
+            # Transformar o resultado em uma lista de nomes
+            educator_names = [row[0] for row in result]  # Acessa o primeiro campo de cada linha (Nome)
+            return educator_names
+
+        except Exception as e:
+            print(f"Erro ao buscar os nomes dos educadores: {e}")
+            raise HTTPException(status_code=500, detail="Error fetching educator names.")
+
+    def get_all_events_by_user(self, tabela_eventos, user_id: int):
+        """
+        Função para buscar todos os eventos de um usuário específico na tabela de eventos.
+        :param tabela_eventos: A tabela onde os eventos estão armazenados.
+        :param user_id: O ID do usuário criador dos eventos.
+        :return: Uma lista de eventos criados pelo usuário.
+        """
+        try:
+            # Criar a consulta para selecionar eventos criados pelo usuário específico
+            query = select(tabela_eventos).where(tabela_eventos.c.CriadoPor == user_id)
+            print(f"Executing query: {query}")  # Log para depuração da consulta
+
+            # Executar a consulta e buscar todos os eventos
+            result = self.session.execute(query).fetchall()
+            return result
+        except Exception as e:
+            print(f"Erro ao selecionar eventos do usuário {user_id}: {e}")
+            return None

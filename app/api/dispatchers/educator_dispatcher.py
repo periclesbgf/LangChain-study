@@ -10,19 +10,7 @@ class EducatorDispatcher:
     def get_all_educators(self, current_user: str):
         try:
             # Buscar todos os educadores
-            educators = self.database_manager.selecionar_dados(tabela_educadores)
-
-            # Transformar o resultado em uma lista de dicionários
-            educator_list = [
-                {
-                    "IdEducador": educator.IdEducador,
-                    "Nome": educator.Nome,
-                    "Instituicao": educator.Instituicao,
-                    "EspecializacaoDisciplina": educator.EspecializacaoDisciplina,
-                    "IdUsuario": educator.IdUsuario
-                }
-                for educator in educators
-            ]
+            educator_list = self.database_manager.get_all_educator_names()
             return educator_list
 
         except Exception as e:

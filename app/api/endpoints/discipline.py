@@ -16,7 +16,7 @@ router_disciplines = APIRouter()
 
 # GET - List all disciplines
 @router_disciplines.get("/disciplines")
-async def get_all_disciplines(current_user: dict = Depends(get_current_user)):
+async def get_all_user_disciplines(current_user: dict = Depends(get_current_user)):
     logger.info(f"Buscando todas as disciplinas para o usuário: {current_user['sub']}")
     try:
         sql_database_manager = DatabaseManager(session, metadata)
@@ -24,7 +24,7 @@ async def get_all_disciplines(current_user: dict = Depends(get_current_user)):
         controller = DisciplineController(dispatcher)
 
         # Fetch all disciplines for the current user
-        disciplines = controller.get_all_disciplines(current_user['sub'])
+        disciplines = controller.get_all_user_disciplines(current_user['sub'])
 
         logger.info(f"Disciplinas obtidas com sucesso para o usuário: {current_user['sub']}")
         return {"disciplines": disciplines}

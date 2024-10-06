@@ -11,12 +11,11 @@ class CalendarDispatcher:
 
     def get_all_events(self, current_user: str):
         user_id = self.database_manager.get_user_id_by_email(current_user)
+        print(f"Fetching calendar events for user: {current_user} (ID: {user_id})")
+
         try:
             # Buscar todos os eventos de calendário criados pelo usuário
-            events = self.database_manager.selecionar_dados(
-                tabela_eventos_calendario,
-                tabela_eventos_calendario.c.CriadoPor == user_id
-            )
+            events = self.database_manager.get_all_events_by_user(tabela_eventos_calendario, user_id)
 
             # Transformar o resultado em uma lista de dicionários
             event_list = [
@@ -43,12 +42,16 @@ class CalendarDispatcher:
             # Obter o IdUsuario do current_user (email)
             user_id = self.database_manager.get_user_id_by_email(current_user)
 
+            if not user_id:
+                raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+
             # Atualizar o 'CriadoPor' no event_data com o user_id correto
             event_data['CriadoPor'] = user_id
+            print(f"User ID for event creation: {user_id}")
 
             # Criar um novo evento no banco de dados
-            self.database_manager.inserir_dado_evento(tabela_eventos_calendario, event_data)
-            return True
+            evento_id = self.database_manager.inserir_dado_evento(tabela_eventos_calendario, event_data)
+            return {"message": "Evento criado com sucesso", "IdEvento": evento_id}
         except IntegrityError:
             self.database_manager.session.rollback()
             raise HTTPException(status_code=400, detail="Event already exists.")

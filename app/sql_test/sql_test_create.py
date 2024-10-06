@@ -48,8 +48,8 @@ tabela_cursos = Table('Cursos', metadata,
 
 tabela_perfil_aprendizado_aluno = Table('PerfilAprendizadoAluno', metadata,
     Column('IdPerfil', Integer, primary_key=True),
-    Column('IdEstudante', Integer, ForeignKey('Estudantes.IdEstudante'), nullable=False, index=True),
-    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso'), nullable=False, index=True),
+    Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario'), nullable=False, index=True),
+    Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso'), nullable=True, index=True),
     Column('DadosPerfil', JSON, nullable=False),  # Armazenando o perfil completo em JSON
     Column('IdPerfilFelderSilverman', Integer, ForeignKey('PerfisFelderSilverman.IdPerfil'), nullable=True),
     Column('DataUltimaAtualizacao', DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'))  # Rastreando a última atualização

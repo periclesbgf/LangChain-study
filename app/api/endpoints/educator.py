@@ -5,7 +5,7 @@ from database.sql_database_manager import DatabaseManager, session, metadata
 from api.controllers.auth import get_current_user
 from api.controllers.educator_controller import EducatorController
 from api.dispatchers.educator_dispatcher import EducatorDispatcher
-from models import EducatorCreate, EducatorUpdate
+from api.endpoints.models import EducatorCreate, EducatorUpdate
 
 router_educator = APIRouter()
 

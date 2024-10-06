@@ -11,8 +11,8 @@ class DisciplineController:
         self.dispatcher = dispatcher
         self.disciplin_chain = disciplin_chain
 
-    def get_all_disciplines(self, current_user: str):
-        return self.dispatcher.get_all_disciplines(current_user)
+    def get_all_user_disciplines(self, current_user: str):
+        return self.dispatcher.get_all_disciplines_for_student(current_user)
 
     def create_discipline(self, nome_curso: str, ementa: str, objetivos: str, current_user: str):
         # Organize discipline data
@@ -42,8 +42,8 @@ class DisciplineController:
 
     def create_discipline_from_pdf(self, text: str, user_email: str):
         try:
-            #response = self.Disciplin_chain.create_discipline_from_pdf(text, user_email)
-            #print(response)
+            # data = self.disciplin_chain.create_discipline_from_pdf(text, user_email)
+            # print(data)
 
             # Ler o arquivo disciplin.json, economizando chamadas de API
             with open('disciplin.json', 'r') as f:

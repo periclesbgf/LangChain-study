@@ -5,7 +5,7 @@ from database.sql_database_manager import DatabaseManager, session, metadata
 from api.controllers.auth import get_current_user
 from api.controllers.student_controller import StudentController
 from api.dispatchers.student_dispatcher import StudentDispatcher
-from models import StudentCreate, StudentUpdate
+from api.endpoints.models import StudentCreate, StudentUpdate
 
 router_student = APIRouter()
 

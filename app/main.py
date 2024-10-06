@@ -7,6 +7,9 @@ from api.endpoints.routes import router
 from api.endpoints.study_sessions import router_study_sessions
 from api.endpoints.calendar import router_calendar
 from api.endpoints.discipline import router_disciplines
+from api.endpoints.educator import router_educator
+from api.endpoints.student import router_student
+
 
 load_dotenv()
 
@@ -24,6 +27,8 @@ app.include_router(router)
 app.include_router(router_study_sessions)
 app.include_router(router_calendar)
 app.include_router(router_disciplines)
+app.include_router(router_educator)
+app.include_router(router_student)
 
 if __name__ == '__main__':
     uvicorn.run(app, host="127.0.0.1", port=8000)
