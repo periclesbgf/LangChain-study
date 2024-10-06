@@ -22,7 +22,7 @@ async def get_all_educators(current_user: dict = Depends(get_current_user)):
 
         # Obter todos os educadores
         educators = controller.get_all_educators(current_user['sub'])
-
+        print("Educators: ", educators)
         logger.info(f"Educators fetched successfully for user: {current_user['sub']}")
         return {"educators": educators}
     except Exception as e:

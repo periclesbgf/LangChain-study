@@ -37,9 +37,12 @@ tabela_educadores = Table('Educadores', metadata,
     Column('EspecializacaoDisciplina', String(100), nullable=False)
 )
 
+
+
 tabela_cursos = Table('Cursos', metadata,
     Column('IdCurso', Integer, primary_key=True),
     Column('IdEducador', Integer, ForeignKey('Educadores.IdEducador'), nullable=True, index=True),
+    Column('NomeEducador', String(100), nullable=True),
     Column('NomeCurso', String(100), nullable=False),
     Column('Ementa', Text),
     Column('Objetivos', Text),

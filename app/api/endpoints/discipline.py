@@ -25,8 +25,7 @@ async def get_all_user_disciplines(current_user: dict = Depends(get_current_user
 
         # Fetch all disciplines for the current user
         disciplines = controller.get_all_user_disciplines(current_user['sub'])
-
-        logger.info(f"Disciplinas obtidas com sucesso para o usuário: {current_user['sub']}")
+        print("Disciplinas: ", disciplines)
         return {"disciplines": disciplines}
     except Exception as e:
         logger.error(f"Erro ao buscar disciplinas para o usuário: {current_user['sub']} - {str(e)}")

@@ -5,7 +5,7 @@ from chains.chain_setup import CommandChain, SQLChain, AnswerChain, Classificati
 from database.sql_database_manager import DatabaseManager
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile
 from passlib.context import CryptContext
-from sql_test.sql_test_create import tabela_cursos, tabela_encontros, tabela_eventos_calendario, tabela_sessoes_estudo, tabela_cronograma, tabela_usuarios
+from sql_test.sql_test_create import tabela_cursos, tabela_encontros, tabela_eventos_calendario, tabela_sessoes_estudo, tabela_cronograma, tabela_usuarios, tabela_estudantes
 from datetime import datetime, timedelta
 from api.controllers.auth import hash_password, verify_password
 from sqlalchemy import text
@@ -103,3 +103,17 @@ class StudySessionsDispatcher:
             self.session.rollback()
             raise HTTPException(status_code=500, detail=f"Error deleting study session: {e}")
 
+    def get_study_session_from_discipline(self, discipline_name: str, user_email: str):
+        try:
+            # 1. Obter o IdEstudante com base no e-mail do usuário
+            student_id = self.database_manager.get_student_by_user_email(user_email)
+
+            # 2. Obter o IdCurso com base no nome da disciplina
+            course_id = self.database_manager.get_course_by_name(discipline_name)
+
+            # 3. Obter as sessões de estudo para o estudante e o curso
+            study_sessions = self.database_manager.get_study_sessions_by_course_and_student(course_id, student_id)
+
+            return study_sessions
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Erro ao buscar sessões de estudo para a disciplina '{discipline_name}': {e}")

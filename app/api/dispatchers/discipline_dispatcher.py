@@ -22,39 +22,24 @@ class DisciplineDispatcher:
             user = self.database_manager.get_user_by_email(current_user)
             if not user:
                 raise HTTPException(status_code=404, detail="Usuário não encontrado.")
-            
-            # Obtenha o IdEstudante do usuário
-            student = self.database_manager.selecionar_dados(
-                tabela_estudantes,
-                condicao=tabela_estudantes.c.IdUsuario == user.IdUsuario
-            )
-            
-            if not student:
-                raise HTTPException(status_code=404, detail="Estudante não encontrado.")
-            
-            # Use o IdEstudante para buscar os perfis de aprendizado, que vinculam os cursos ao estudante
-            profiles = self.database_manager.selecionar_dados(
-                tabela_perfil_aprendizado_aluno,
-                condicao=tabela_perfil_aprendizado_aluno.c.IdUsuario == student[0].IdEstudante
-            )
-            
+
+            # Use o IdUsuario para buscar os perfis de aprendizado
+            profiles = self.database_manager.get_learning_profiles_by_user_id(user.IdUsuario)
             if not profiles:
-                raise HTTPException(status_code=404, detail="Nenhuma disciplina encontrada para o estudante.")
-            
+                return {"message": "Nenhuma disciplina encontrada para o estudante."}
+            print(f"Perfis de aprendizado encontrados para o estudante {current_user}: {profiles}")
+
             # Obtenha as disciplinas (cursos) associadas aos perfis de aprendizado
             courses = []
             for profile in profiles:
-                course = self.database_manager.selecionar_dados(
-                    tabela_cursos,
-                    condicao=tabela_cursos.c.IdCurso == profile.IdCurso
-                )
+                course = self.database_manager.get_course_by_id(profile.IdCurso)
                 if course:
-                    courses.append(course[0])
+                    courses.append(course)
 
             return courses
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error fetching student disciplines: {e}")
+            raise HTTPException(status_code=500, detail=f"Erro ao buscar disciplinas do estudante: {e}")
 
 
     def create_discipline(self, discipline_data: dict, current_user: str):
@@ -108,57 +93,48 @@ class DisciplineDispatcher:
             print("Extraindo dados do JSON...")
             curso_data = discipline_json.get('curso', {})
             cronograma_data = discipline_json.get('cronograma', [])
+            professores = curso_data.get('professores', [])  # Pegando os professores do JSON
             print(f"Curso: {curso_data}")
             print(f"Cronograma: {cronograma_data}")
+            print(f"Professores: {professores}")
 
             # 2. Buscar o ID do usuário com base no e-mail
             print(f"Buscando ID do usuário com e-mail: {user_email}")
-            user_query = self.database_manager.session.execute(
-                tabela_usuarios.select().where(tabela_usuarios.c.Email == user_email)
-            )
-            user = user_query.fetchone()
-
-            if user is None:
+            user = self.database_manager.get_user_by_email(user_email)
+            if not user:
                 raise Exception(f"Usuário com e-mail {user_email} não encontrado.")
-
-            # Certifique-se de que 'user' é uma tupla e obtenha o ID pelo índice
-            user_id = user[0]  # 'IdUsuario' é provavelmente o primeiro campo retornado
+            user_id = user.IdUsuario
             print(f"ID do usuário: {user_id}")
 
-            # 3. Verificar se o usuário está registrado como educador
-            educator_query = self.database_manager.session.execute(
-                tabela_educadores.select().where(tabela_educadores.c.IdUsuario == user_id)
-            )
-            educator = educator_query.fetchone()
+            # 3. Verificar ou criar os educadores
+            educator_ids = []
+            nome_educadores = []
+            for professor in professores:
+                # Verificar se o educador já existe na tabela Usuarios
+                print(f"Buscando educador {professor}...")
+                educator = self.database_manager.get_educator_by_name(professor)
 
-            if educator is None:
-                # Inserir o usuário como educador se ele ainda não estiver registrado
-                print(f"Usuário com ID {user_id} não está registrado como educador. Registrando agora...")
-                new_educator = tabela_educadores.insert().values(
-                    IdUsuario=user_id,
-                    Instituicao="CESAR School",  # Instituição padrão, pode ser alterada conforme necessário
-                    EspecializacaoDisciplina=curso_data.get('especializacao', 'Programação')  # Valor padrão para EspecializacaoDisciplina
-                )
-                result_educator = self.database_manager.session.execute(new_educator)
-                self.database_manager.session.commit()
-                educator_id = result_educator.inserted_primary_key[0]
-                print(f"Educador criado com ID: {educator_id} para o usuário {user_id}")
-            else:
-                educator_id = educator[0]
-                print(f"Usuário já registrado como educador com ID: {educator_id}")
+                if educator is None:
+                    # Se o educador não for encontrado, associar apenas o nome
+                    nome_educadores.append(professor)
+                    print(f"Educador {professor} não encontrado. Associando o nome na coluna NomeEducador.")
+                else:
+                    educator_id = educator.IdUsuario  # Usando o ID do usuário como educador
+                    educator_ids.append(educator_id)
+                    print(f"Educador {professor} encontrado com ID: {educator_id}")
 
-            # 4. Verificar se o curso já existe para o usuário
+            # 4. Verificar se o curso já existe
             existing_course_query = self.database_manager.session.execute(
                 tabela_cursos.select().where(
                     (tabela_cursos.c.NomeCurso == curso_data.get('nome', 'Sem Nome')) &
-                    (tabela_cursos.c.IdEducador == educator_id)
+                    (tabela_cursos.c.IdEducador.in_(educator_ids) if educator_ids else True)
                 )
             )
             existing_course = existing_course_query.fetchone()
 
             if existing_course:
                 course_id = existing_course[0]
-                print(f"Curso já existe com ID: {course_id} para o usuário {user_id}")
+                print(f"Curso já existe com ID: {course_id}.")
             else:
                 # Inserir o curso na tabela Cursos se não existir
                 print("Inserindo nova disciplina no banco de dados...")
@@ -166,15 +142,16 @@ class DisciplineDispatcher:
                     NomeCurso=curso_data.get('nome', 'Sem Nome'),
                     Ementa=curso_data.get('ementa', 'Sem Ementa'),
                     Objetivos=json.dumps(curso_data.get('objetivos', [])),
-                    IdEducador=educator_id,  # Atribuir o curso ao educador que o criou
+                    IdEducador=educator_ids[0] if educator_ids else None,  # Usar o primeiro ID de educador ou None
+                    NomeEducador=', '.join(nome_educadores) if nome_educadores else None,  # Inserir nomes dos educadores se não houver ID
                     CriadoEm=datetime.now()
                 )
                 result = self.database_manager.session.execute(new_course)
                 self.database_manager.session.commit()
                 course_id = result.inserted_primary_key[0]
-                print(f"Curso criado com ID: {course_id} para o usuário {user_id}")
+                print(f"Curso criado com ID: {course_id}")
 
-            # 5. Verificar se o cronograma já existe para o curso e o usuário
+            # 5. Verificar ou criar o cronograma
             existing_cronograma_query = self.database_manager.session.execute(
                 tabela_cronograma.select().where(
                     (tabela_cronograma.c.IdCurso == course_id) &
@@ -198,9 +175,8 @@ class DisciplineDispatcher:
                 cronograma_id = result_cronograma.inserted_primary_key[0]
                 print(f"Cronograma criado com ID: {cronograma_id} para o curso {course_id}")
 
-            # 6. Criar as sessões de estudo e adicionar eventos no calendário
+            # 6. Criar sessões de estudo e adicionar eventos no calendário
             for encontro in cronograma_data:
-                # Parse da data do encontro
                 session_date = datetime.strptime(encontro['data'], "%d/%m/%Y")
                 session_number = encontro['numero_encontro']
 
@@ -214,37 +190,21 @@ class DisciplineDispatcher:
                 existing_session = existing_session_query.fetchone()
 
                 if existing_session:
-                    print(f"Sessão {session_number} já existe para o cronograma {cronograma_id}. Pulando inserção.")
-                    continue  # Pula a criação desta sessão se já existir
+                    print(f"Sessão {session_number} já existe. Pulando inserção.")
+                    continue
 
-                print(f"Inserindo sessão {session_number} para o cronograma {cronograma_id}...")
-
-                # Inserir o encontro na tabela Encontros
+                # Inserir a sessão
                 new_session = tabela_encontros.insert().values(
                     IdCronograma=cronograma_id,
                     NumeroEncontro=session_number,
                     DataEncontro=session_date,
                     Conteudo=encontro['conteudo'].strip(),
-                    Estrategia=encontro.get('estrategia', "Não especificada"),
-                    Avaliacao=encontro.get('avaliacao')  # Campo opcional de avaliação
+                    Estrategia=encontro.get('estrategia', 'Não especificada'),
+                    Avaliacao=encontro.get('avaliacao')
                 )
                 self.database_manager.session.execute(new_session)
 
-                # Verificar se o evento do calendário já existe
-                existing_event_query = self.database_manager.session.execute(
-                    tabela_eventos_calendario.select().where(
-                        (tabela_eventos_calendario.c.GoogleEventId == f"event-{course_id}-{session_number}") &
-                        (tabela_eventos_calendario.c.CriadoPor == user_id)
-                    )
-                )
-                existing_event = existing_event_query.fetchone()
-
-                if existing_event:
-                    print(f"Evento para a sessão {session_number} já existe no calendário. Pulando inserção.")
-                    continue  # Pula a criação deste evento se já existir
-
-                # Adicionar evento no calendário
-                print(f"Adicionando evento no calendário para a sessão {session_number}...")
+                # Adicionar evento ao calendário
                 new_event = tabela_eventos_calendario.insert().values(
                     GoogleEventId=f"event-{course_id}-{session_number}",
                     Titulo=f"Encontro {session_number} - {curso_data.get('nome', 'Sem Nome')}",
@@ -252,11 +212,20 @@ class DisciplineDispatcher:
                     Inicio=session_date,
                     Fim=session_date + timedelta(hours=2),
                     Local="Sala de Aula Física",
-                    CriadoPor=user_id  # Usar o ID do usuário em vez do e-mail
+                    CriadoPor=user_id
                 )
                 self.database_manager.session.execute(new_event)
 
-            # 7. Commit para salvar os encontros e eventos
+            # 7. Adicionar o curso ao perfil de aprendizado do aluno
+            print(f"Associando o curso {course_id} ao perfil de aprendizado do aluno {user_id}...")
+            new_profile = tabela_perfil_aprendizado_aluno.insert().values(
+                IdUsuario=user_id,
+                IdCurso=course_id,
+                DadosPerfil=json.dumps({"progresso": "iniciado"})  # Pode-se ajustar o JSON conforme necessário
+            )
+            self.database_manager.session.execute(new_profile)
+
+            # Commit para salvar todos os dados
             self.database_manager.session.commit()
             print(f"Curso '{curso_data.get('nome', 'Sem Nome')}' e sessões criadas com sucesso.")
 

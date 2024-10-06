@@ -2,7 +2,7 @@ from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, 
 from sqlalchemy.orm import sessionmaker
 import os
 from dotenv import load_dotenv
-from sql_test.sql_test_create import tabela_usuarios, tabela_educadores
+from sql_test.sql_test_create import tabela_usuarios, tabela_educadores, tabela_cursos, tabela_sessoes_estudo, tabela_eventos_calendario, tabela_estudantes, tabela_perfil_aprendizado_aluno
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from sqlalchemy.sql import text
@@ -210,3 +210,123 @@ class DatabaseManager:
         except Exception as e:
             print(f"Erro ao selecionar eventos do usuário {user_id}: {e}")
             return None
+
+    def get_student_by_user_email(self, user_email: str):
+        """
+        Função para obter o IdEstudante com base no e-mail do usuário.
+        :param user_email: O e-mail do usuário.
+        :return: O IdEstudante associado ao usuário ou None se não existir.
+        """
+        try:
+            # Obtenha o IdUsuario com base no e-mail do usuário
+            user = self.get_user_by_email(user_email)
+            if not user:
+                raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+
+            # Busque o estudante com base no IdUsuario
+            query = select(tabela_estudantes.c.IdEstudante).where(tabela_estudantes.c.IdUsuario == user.IdUsuario)
+            student = self.session.execute(query).fetchone()
+            
+            if not student:
+                print(f"Estudante não encontrado para o usuário {user_email}.")
+                return None
+            
+            return student[0]  # Retorna o IdEstudante
+        except Exception as e:
+            print(f"Erro ao buscar estudante para o e-mail {user_email}: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao buscar estudante.")
+
+
+    def get_course_by_name(self, discipline_name: str):
+        """
+        Função para obter o curso com base no nome da disciplina.
+        :param discipline_name: O nome da disciplina.
+        :return: O IdCurso associado à disciplina.
+        """
+        try:
+            # Buscar o curso com base no nome da disciplina
+            query = select(tabela_cursos.c.IdCurso).where(tabela_cursos.c.NomeCurso == discipline_name)
+            course = self.session.execute(query).fetchone()
+
+            if not course:
+                raise HTTPException(status_code=404, detail=f"Disciplina '{discipline_name}' não encontrada.")
+            
+            return course[0]  # Retorna o IdCurso
+        except Exception as e:
+            print(f"Erro ao buscar curso para a disciplina {discipline_name}: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao buscar curso.")
+
+    def get_study_sessions_by_course_and_student(self, course_id: int, student_id: int):
+        """
+        Função para buscar todas as sessões de estudo de um estudante para um curso específico.
+        :param course_id: O ID do curso.
+        :param student_id: O ID do estudante.
+        :return: Todas as sessões de estudo do estudante para o curso.
+        """
+        try:
+            # Buscar as sessões de estudo com base no IdCurso e IdEstudante
+            query = select(tabela_sessoes_estudo).where(
+                (tabela_sessoes_estudo.c.IdCurso == course_id) &
+                (tabela_sessoes_estudo.c.IdEstudante == student_id)
+            )
+            sessions = self.session.execute(query).fetchall()
+
+            if not sessions:
+                raise HTTPException(status_code=404, detail="Nenhuma sessão de estudo encontrada.")
+
+            return sessions
+        except Exception as e:
+            print(f"Erro ao buscar sessões de estudo para o curso {course_id} e estudante {student_id}: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao buscar sessões de estudo.")
+
+    def get_learning_profiles_by_user_id(self, user_id: int):
+        """
+        Função para obter todos os perfis de aprendizado do aluno com base no IdUsuario.
+        """
+        try:
+            query = select(tabela_perfil_aprendizado_aluno).where(tabela_perfil_aprendizado_aluno.c.IdUsuario == user_id)
+            profiles = self.session.execute(query).fetchall()
+            
+            if not profiles:
+                print(f"Nenhum perfil de aprendizado encontrado para o usuário {user_id}")
+                return []  # Retorna uma lista vazia ao invés de levantar exceção
+                
+            return profiles
+        except Exception as e:
+            print(f"Erro ao buscar perfis de aprendizado para o usuário {user_id}: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao buscar perfis de aprendizado.")
+
+
+    # Método para buscar curso pelo IdCurso
+    def get_course_by_id(self, course_id: int):
+        """
+        Função para buscar curso pelo IdCurso.
+        """
+        try:
+            query = select(tabela_cursos).where(tabela_cursos.c.IdCurso == course_id)
+            course = self.session.execute(query).fetchone()
+            if not course:
+                raise HTTPException(status_code=404, detail="Curso não encontrado.")
+            return course
+        except Exception as e:
+            print(f"Erro ao buscar curso {course_id}: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao buscar curso.")
+        
+    def get_educator_by_name(self, nome_educador: str):
+        """
+        Função para buscar o educador pelo nome na tabela Usuarios.
+        :param nome_educador: Nome do educador.
+        :return: O educador encontrado ou None se não existir.
+        """
+        try:
+            # Busca o educador pelo nome na tabela Usuarios
+            query = select(tabela_usuarios).where(tabela_usuarios.c.Nome == nome_educador)
+            educator = self.session.execute(query).fetchone()
+            
+            # Verifica se o educador foi encontrado
+            if educator is None:
+                print(f"Educador {nome_educador} não encontrado.")
+            return educator
+        except Exception as e:
+            print(f"Erro ao buscar educador {nome_educador}: {e}")
+            raise HTTPException(status_code=500, detail=f"Erro ao buscar educador {nome_educador}: {e}")

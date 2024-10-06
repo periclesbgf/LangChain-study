@@ -82,3 +82,19 @@ async def delete_study_session(session_id: int, current_user: dict = Depends(get
         logger.error(f"Error deleting study session {session_id} for user: {current_user['sub']} - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router_study_sessions.get("/study_sessions/discipline")
+async def get_study_session_from_discipline(discipline_name: str, current_user: dict = Depends(get_current_user)):
+    logger.info(f"Fetching study sessions for user: {current_user['sub']} and discipline: {discipline_name}")
+    try:
+        # Instanciar o dispatcher e controlador
+        sql_database_manager = DatabaseManager(session, metadata)
+        dispatcher = StudySessionsDispatcher(sql_database_manager)
+        controller = StudySessionsController(dispatcher)
+
+        # Chamar o controlador para buscar sessões de estudo pela disciplina
+        study_sessions = controller.get_study_session_from_discipline(discipline_name, current_user['sub'])
+        print(study_sessions)
+        return {"study_sessions": study_sessions}
+    except Exception as e:
+        logger.error(f"Error fetching study sessions for discipline '{discipline_name}' for user: {current_user['sub']} - {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

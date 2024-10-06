@@ -10,13 +10,14 @@ from fastapi.logger import logger
 from datetime import datetime
 import re
 from api.dispatchers.study_sessions_dispatcher import StudySessionsDispatcher
+from api.dispatchers.discipline_dispatcher import DisciplineDispatcher
 import json
 
 from utils import OPENAI_API_KEY, CODE
 
 
 class StudySessionsController:
-    def __init__(self, dispatcher: StudySessionsDispatcher, disciplin_chain: DisciplinChain = None):
+    def __init__(self, dispatcher: StudySessionsDispatcher, disciplin_chain: DisciplinChain = None, discipline_dispatcher:DisciplineDispatcher=None):
         self.dispatcher = dispatcher
         self.disciplin_chain = disciplin_chain
 
@@ -50,3 +51,11 @@ class StudySessionsController:
             self.dispatcher.delete_study_session(session_id)
         except Exception as e:
             raise Exception(f"Error deleting study session: {e}")
+
+    def get_study_session_from_discipline(self, discipline_name: str, user_email: str):
+        try:
+            # Usar o dispatcher para buscar as sessões de estudo com base no nome da disciplina e no usuário
+            study_sessions = self.dispatcher.get_study_session_from_discipline(discipline_name, user_email)
+            return study_sessions
+        except Exception as e:
+            raise Exception(f"Error fetching study session from discipline: {e}")

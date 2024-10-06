@@ -85,6 +85,7 @@ class CredentialsDispatcher:
 
             # Commit da transação ao final de todas as operações bem-sucedidas
             session.commit()
+            session.close()
             return {"message": "Conta criada com sucesso"}
 
         except IntegrityError as e:
@@ -95,8 +96,6 @@ class CredentialsDispatcher:
             session.rollback()  # Reverter a transação em caso de erro geral
             print(f"General exception encountered: {e}")
             raise HTTPException(status_code=500, detail="Internal server error.")
-        finally:
-            session.close()  # Certifique-se de fechar a sessão ao final, independentemente do resultado
 
 
     def login(self, email: str, password: str):
