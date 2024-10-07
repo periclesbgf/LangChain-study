@@ -107,21 +107,29 @@ class StudySessionsDispatcher:
         try:
             # 1. Obter o IdEstudante com base no e-mail do usuário
             student_id = self.database_manager.get_student_by_user_email(user_email)
-            if not student_id:
-                raise HTTPException(status_code=404, detail="Estudante não encontrado.")
 
             # 2. Obter o IdCurso com base no nome da disciplina
             course_id = self.database_manager.get_course_by_name(discipline_name)
-            if not course_id:
-                raise HTTPException(status_code=404, detail=f"Disciplina '{discipline_name}' não encontrada.")
 
             # 3. Obter as sessões de estudo para o estudante e o curso
             study_sessions = self.database_manager.get_study_sessions_by_course_and_student(course_id, student_id)
-            if not study_sessions:
-                raise HTTPException(status_code=404, detail=f"Nenhuma sessão de estudo encontrada para o curso '{discipline_name}'.")
 
-            return study_sessions
-        except HTTPException as e:
-            raise e
+            # 4. Converter as sessões em dicionários serializáveis para JSON
+            session_list = [
+                {
+                    "IdSessao": session.IdSessao,
+                    "IdEstudante": session.IdEstudante,
+                    "IdCurso": session.IdCurso,
+                    "Assunto": session.Assunto,
+                    "Inicio": session.Inicio.isoformat(),  # Garantir que o datetime seja serializado
+                    "Fim": session.Fim.isoformat() if session.Fim else None,
+                    "Produtividade": session.Produtividade,
+                    "FeedbackDoAluno": session.FeedbackDoAluno,
+                    "HistoricoConversa": session.HistoricoConversa
+                }
+                for session in study_sessions
+            ]
+
+            return session_list
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Erro ao buscar sessões de estudo para a disciplina '{discipline_name}': {e}")

@@ -217,10 +217,11 @@ class DatabaseManager:
                 (tabela_sessoes_estudo.c.IdEstudante == student_id)
             )
             sessions = self.session.execute(query).fetchall()
-            if not sessions:
-                return None
+
+            # Certifique-se de que as sessões sejam retornadas como dicionários
             return sessions
         except Exception as e:
+            print(f"Erro ao buscar sessões de estudo: {e}")
             raise HTTPException(status_code=500, detail="Erro ao buscar sessões de estudo.")
 
     def get_learning_profiles_by_user_id(self, user_id: int):

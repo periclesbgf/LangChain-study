@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from database.sql_database_manager import DatabaseManager
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile
 from passlib.context import CryptContext
-from sql_test.sql_test_create import tabela_cursos, tabela_encontros, tabela_educadores, tabela_eventos_calendario, tabela_estudantes, tabela_cronograma, tabela_usuarios, tabela_perfil_aprendizado_aluno, tabela_estudante_curso
+from sql_test.sql_test_create import tabela_cursos, tabela_encontros, tabela_sessoes_estudo, tabela_eventos_calendario, tabela_estudantes, tabela_cronograma, tabela_usuarios, tabela_perfil_aprendizado_aluno, tabela_estudante_curso
 from datetime import datetime, timedelta
 from api.controllers.auth import hash_password, verify_password
 from sqlalchemy import text
@@ -165,26 +165,29 @@ class DisciplineDispatcher:
             cronograma_id = cronograma_result.inserted_primary_key[0]
             print(f"Cronograma criado com ID: {cronograma_id} para o curso {course_id}")
 
-            # 5. Inserir cada encontro no banco de dados e no calendário
+            # 5. Inserir cada encontro no banco de dados e no calendário, e criar sessões de estudo
             for encontro in cronograma_data:
                 session_date = datetime.strptime(encontro['data'], "%d/%m/%Y")
                 session_number = encontro['numero_encontro']
+                conteudo = encontro['conteudo'].strip()
+                
+                # Inserir o encontro no banco de dados
                 new_session = tabela_encontros.insert().values(
                     IdCronograma=cronograma_id,
                     NumeroEncontro=session_number,
                     DataEncontro=session_date,
-                    Conteudo=encontro['conteudo'].strip(),
+                    Conteudo=conteudo,
                     Estrategia=encontro.get('estrategia', 'Não especificada'),
                     Avaliacao=encontro.get('avaliacao')
                 )
                 self.database_manager.session.execute(new_session)
 
-                # 6. Inserir o encontro como evento no calendário
+                # Inserir o encontro como evento no calendário
                 print(f"Inserindo evento no calendário para o encontro {session_number}...")
                 new_event = tabela_eventos_calendario.insert().values(
                     GoogleEventId=f"event-{course_id}-{session_number}",  # ID único para o evento
                     Titulo=f"Encontro {session_number} - {curso_data.get('nome', 'Sem Nome')}",
-                    Descricao=encontro['conteudo'].strip(),
+                    Descricao=conteudo,
                     Inicio=session_date,
                     Fim=session_date + timedelta(hours=2),  # Supondo que o encontro dure 2 horas
                     Local="Sala de Aula Física",  # Local pode ser ajustado ou extraído do JSON
@@ -192,10 +195,24 @@ class DisciplineDispatcher:
                 )
                 self.database_manager.session.execute(new_event)
 
+                # Inserir a sessão de estudo
+                print(f"Inserindo sessão de estudo para o encontro {session_number}...")
+                new_study_session = tabela_sessoes_estudo.insert().values(
+                    IdEstudante=user_id,
+                    IdCurso=course_id,
+                    Assunto=conteudo,
+                    Inicio=session_date,  # Definindo o início da sessão como a data do encontro
+                    Fim=session_date + timedelta(hours=2),  # Supondo que a sessão dure 2 horas
+                    Produtividade=0,  # Inicialmente sem produtividade
+                    FeedbackDoAluno=None,
+                    HistoricoConversa=None
+                )
+                self.database_manager.session.execute(new_study_session)
+
             self.database_manager.session.commit()
             print(f"Encontros do cronograma inseridos com sucesso para o curso {course_id} e eventos de calendário criados.")
 
-            # 7. Associar o curso ao aluno na tabela EstudanteCurso
+            # 6. Associar o curso ao aluno na tabela EstudanteCurso
             print(f"Associando o curso {course_id} ao aluno {user_email}...")
             self.database_manager.session.execute(
                 tabela_estudante_curso.insert().values(
