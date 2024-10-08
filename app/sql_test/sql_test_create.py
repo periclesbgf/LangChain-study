@@ -111,6 +111,7 @@ tabela_sessoes_estudo = Table('SessoesEstudo', metadata,
 tabela_recursos_aprendizagem = Table('RecursosAprendizagem', metadata,
     Column('IdRecurso', Integer, primary_key=True),
     Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso'), nullable=True, index=True),  # Recurso pode ser compartilhado
+    Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario'), nullable=False, index=True),
     Column('Titulo', String(200), nullable=False),
     Column('Tipo', Enum('video', 'documento', 'link', 'outro', name='recurso_tipo_enum'), nullable=False),
     Column('URL', String(500)),

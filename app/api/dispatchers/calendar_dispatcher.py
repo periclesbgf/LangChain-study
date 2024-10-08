@@ -24,8 +24,8 @@ class CalendarDispatcher:
                     "GoogleEventId": event.GoogleEventId,
                     "Titulo": event.Titulo,
                     "Descricao": event.Descricao,
-                    "Inicio": event.Inicio,
-                    "Fim": event.Fim,
+                    "Inicio": event.Inicio.isoformat() if event.Inicio else None,
+                    "Fim": event.Fim.isoformat() if event.Fim else None,
                     "Local": event.Local,
                     "CriadoPor": event.CriadoPor
                 }
@@ -71,6 +71,9 @@ class CalendarDispatcher:
                 updated_data
             )
             return True
+        except HTTPException as e:
+            # Repassar exceções HTTP
+            raise e
         except Exception as e:
             self.database_manager.session.rollback()
             raise HTTPException(status_code=500, detail=f"Error updating calendar event: {e}")
@@ -86,6 +89,9 @@ class CalendarDispatcher:
                 (tabela_eventos_calendario.c.IdEvento == event_id) & (tabela_eventos_calendario.c.CriadoPor == user_id)
             )
             return True
+        except HTTPException as e:
+            # Repassar exceções HTTP
+            raise e
         except Exception as e:
             self.database_manager.session.rollback()
             raise HTTPException(status_code=500, detail=f"Error deleting calendar event: {e}")

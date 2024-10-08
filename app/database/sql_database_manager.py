@@ -182,7 +182,8 @@ class DatabaseManager:
             return result
         except Exception as e:
             print(f"Erro ao selecionar eventos do usuário {user_id}: {e}")
-            return None
+            raise HTTPException(status_code=500, detail=f"Erro ao selecionar eventos: {e}")
+
 
 
     def get_student_by_user_email(self, user_email: str):
@@ -302,3 +303,104 @@ class DatabaseManager:
             print(f"Erro ao associar aluno {estudante_id} ao curso {curso_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Erro ao associar aluno ao curso: {e}")
 
+    def inserir_dado_evento(self, tabela_eventos, dados_evento: dict):
+        """
+        Método para inserir um novo evento na tabela de eventos e retornar o ID recém-criado.
+        :param tabela_eventos: A tabela de eventos onde o dado será inserido.
+        :param dados_evento: Dicionário com os dados do evento a serem inseridos.
+        :return: O ID do evento recém-criado.
+        """
+        try:
+            result = self.session.execute(
+                tabela_eventos.insert().returning(tabela_eventos.c.IdEvento).values(dados_evento)
+            )
+            self.session.commit()
+            inserted_id = result.fetchone()[0]  # O ID recém-inserido é retornado
+            print(f"Evento inserido com ID: {inserted_id}")
+            return inserted_id
+        except IntegrityError as e:
+            self.session.rollback()
+            print(f"IntegrityError durante inserção de evento: {e}")
+            raise HTTPException(status_code=400, detail="Evento duplicado ou dados inválidos.")
+        except Exception as e:
+            self.session.rollback()
+            print(f"Erro ao inserir evento: {e}")
+            raise HTTPException(status_code=500, detail="Erro interno do servidor ao inserir evento.")
+
+
+    def get_calendar_events_by_user_id(self, user_id: int):
+        """
+        Obtém todos os eventos de calendário para um usuário específico.
+        :param user_id: ID do usuário.
+        :return: Lista de eventos.
+        """
+        try:
+            query = select(tabela_eventos_calendario).where(tabela_eventos_calendario.c.CriadoPor == user_id)
+            result = self.session.execute(query).fetchall()
+            events = [dict(event) for event in result]
+            return events
+        except Exception as e:
+            print(f"Erro ao buscar eventos para o usuário {user_id}: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao buscar eventos do calendário.")
+
+    def create_calendar_event(self, event_data: dict):
+        """
+        Cria um novo evento de calendário.
+        :param event_data: Dicionário com os dados do evento.
+        :return: ID do evento recém-criado.
+        """
+        try:
+            result = self.session.execute(
+                tabela_eventos_calendario.insert().returning(tabela_eventos_calendario.c.IdEvento).values(event_data)
+            )
+            self.session.commit()
+            inserted_id = result.fetchone()[0]
+            print(f"Evento inserido com ID: {inserted_id}")
+            return inserted_id
+        except IntegrityError as e:
+            self.session.rollback()
+            print(f"IntegrityError ao criar evento: {e}")
+            raise HTTPException(status_code=400, detail="Erro de integridade ao criar evento.")
+        except Exception as e:
+            self.session.rollback()
+            print(f"Erro ao criar evento de calendário: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao criar evento de calendário.")
+
+    def update_calendar_event(self, event_id: int, updated_data: dict):
+        """
+        Atualiza um evento de calendário existente.
+        :param event_id: ID do evento a ser atualizado.
+        :param updated_data: Dicionário com os dados atualizados do evento.
+        """
+        try:
+            result = self.session.execute(
+                tabela_eventos_calendario.update()
+                .where(tabela_eventos_calendario.c.IdEvento == event_id)
+                .values(updated_data)
+            )
+            self.session.commit()
+            if result.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Evento não encontrado.")
+            print(f"Evento com ID {event_id} atualizado com sucesso.")
+        except Exception as e:
+            self.session.rollback()
+            print(f"Erro ao atualizar evento de calendário {event_id}: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao atualizar evento de calendário.")
+
+    def delete_calendar_event(self, event_id: int):
+        """
+        Deleta um evento de calendário.
+        :param event_id: ID do evento a ser deletado.
+        """
+        try:
+            result = self.session.execute(
+                tabela_eventos_calendario.delete().where(tabela_eventos_calendario.c.IdEvento == event_id)
+            )
+            self.session.commit()
+            if result.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Evento não encontrado.")
+            print(f"Evento com ID {event_id} deletado com sucesso.")
+        except Exception as e:
+            self.session.rollback()
+            print(f"Erro ao deletar evento de calendário {event_id}: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao deletar evento de calendário.")

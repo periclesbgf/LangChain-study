@@ -20,7 +20,7 @@ class CalendarController:
             'Inicio': start_time,
             'Fim': end_time,
             'Local': location,
-            'IdCurso': course_id  # Associar o curso ao evento, se fornecido
+            # 'IdCurso': course_id  # Descomente se o campo 'IdCurso' existir na tabela
         }
         return self.dispatcher.create_event(event_data, current_user)
 
