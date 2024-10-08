@@ -124,7 +124,8 @@ async def endpoint_create_discipline_from_pdf(
             text = ""
             for page in pdf.pages:
                 text += page.extract_text()
-
+        print("Texto extraído do PDF")
+        print(text)
         # Instanciar o dispatcher e passar para o controlador
         sql_database_manager = DatabaseManager(session, metadata)
         print("SQL Database Manager: ", sql_database_manager)

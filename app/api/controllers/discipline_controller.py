@@ -45,16 +45,24 @@ class DisciplineController:
             # data = self.disciplin_chain.create_discipline_from_pdf(text, user_email)
             # print(data)
 
+            # saving data into json
+            # with open('output_disciplina.json', 'w') as f:
+            #     json.dump(data, f)
             # Ler o arquivo disciplin.json, economizando chamadas de API
-            with open('disciplin.json', 'r') as f:
+            with open('output_disciplina.json', 'r') as f:
                 data = json.load(f)
+            print("Arquivo JSON lido com sucesso.")
+            print(data)
 
+            print("Tentando converter o texto do PDF em JSON...")
+            data = json.loads(data)
+            print("Conversão bem-sucedida.")
             # Obtenha o nome do curso diretamente do JSON
-            discipline_name = data['curso']['nome']
-
+            #discipline_name = data['curso']['nome']
+            #print(f"Disciplina '{discipline_name}' encontrada no PDF.")
             # Chamar a função create_discipline_from_pdf no dispatcher para inserir os dados no banco de dados
             self.dispatcher.create_discipline_from_pdf(data, user_email)
-            print(f"Disciplina '{discipline_name}' e sessões foram salvas com sucesso no banco de dados.")
+            #print(f"Disciplina '{discipline_name}' e sessões foram salvas com sucesso no banco de dados.")
 
         except Exception as e:
             print(f"Erro ao criar disciplina a partir do PDF: {e}")

@@ -52,10 +52,11 @@ class StudySessionsController:
         except Exception as e:
             raise Exception(f"Error deleting study session: {e}")
 
-    def get_study_session_from_discipline(self, discipline_name: str, user_email: str):
+    def get_study_session_from_discipline(self, discipline_id: int, user_email: str):
         try:
-            # Usar o dispatcher para buscar as sessões de estudo com base no nome da disciplina e no usuário
-            study_sessions = self.dispatcher.get_study_session_from_discipline(discipline_name, user_email)
+            # Usar o dispatcher para buscar as sessões de estudo com base no ID da disciplina e no usuário
+            study_sessions = self.dispatcher.get_study_session_from_discipline_id(discipline_id, user_email)
             return study_sessions
         except Exception as e:
             raise Exception(f"Error fetching study session from discipline: {e}")
+

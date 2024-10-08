@@ -19,7 +19,7 @@ class CredentialsDispatcher:
             # Iniciando uma transação explícita
             print("Iniciando transação para criação da conta.")
             session = self.database_manager.session
-            session.begin()  # Iniciando uma transação
+            #session.begin()  # Iniciando uma transação
 
             print("Inserting user into database")
 

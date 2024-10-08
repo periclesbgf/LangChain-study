@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 from api.controllers.auth import hash_password, verify_password
 from sqlalchemy import text
 import json
+from fastapi.encoders import jsonable_encoder
+
 
 
 class StudySessionsDispatcher:
@@ -103,33 +105,31 @@ class StudySessionsDispatcher:
             self.session.rollback()
             raise HTTPException(status_code=500, detail=f"Error deleting study session: {e}")
 
-    def get_study_session_from_discipline(self, discipline_name: str, user_email: str):
+    def get_study_session_from_discipline_id(self, discipline_id: int, user_email: str):
         try:
-            # 1. Obter o IdEstudante com base no e-mail do usuário
-            student_id = self.database_manager.get_student_by_user_email(user_email)
+            student_id = self.get_student_id_by_email(user_email)
+            course_id = discipline_id  # Já temos o ID da disciplina
 
-            # 2. Obter o IdCurso com base no nome da disciplina
-            course_id = self.database_manager.get_course_by_name(discipline_name)
-
-            # 3. Obter as sessões de estudo para o estudante e o curso
+            # Buscar as sessões de estudo do banco de dados
             study_sessions = self.database_manager.get_study_sessions_by_course_and_student(course_id, student_id)
 
-            # 4. Converter as sessões em dicionários serializáveis para JSON
+            # Converter as sessões para dicionários
             session_list = [
                 {
                     "IdSessao": session.IdSessao,
                     "IdEstudante": session.IdEstudante,
                     "IdCurso": session.IdCurso,
                     "Assunto": session.Assunto,
-                    "Inicio": session.Inicio.isoformat(),  # Garantir que o datetime seja serializado
+                    "Inicio": session.Inicio.isoformat() if session.Inicio else None,
                     "Fim": session.Fim.isoformat() if session.Fim else None,
                     "Produtividade": session.Produtividade,
                     "FeedbackDoAluno": session.FeedbackDoAluno,
-                    "HistoricoConversa": session.HistoricoConversa
                 }
                 for session in study_sessions
             ]
 
-            return session_list
+            # Retornar um dicionário JSON serializável
+            return jsonable_encoder({"study_sessions": session_list})
+
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Erro ao buscar sessões de estudo para a disciplina '{discipline_name}': {e}")
+            raise HTTPException(status_code=500, detail=f"Erro ao buscar sessões de estudo para a disciplina com ID '{discipline_id}': {e}")

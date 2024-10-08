@@ -795,23 +795,46 @@ class DisciplinChain:
         self.model = "gpt-4o"
         self.client = OpenAI(api_key=self.api_key)
         self.prompt_template = """
-        Você recebeu o conteúdo de uma disciplina acadêmica em formato de texto extraido de um PDF
-        e precisa extrair informações organizadas para alimentar um sistema de gerenciamento de cursos. 
-        A partir do PDF, extraia os seguintes dados com base no conteúdo fornecido:
+        Por favor, extraia as informações do texto fornecido e converta-as no seguinte formato Pydantic:
 
-        Nome do Curso: Identifique o nome completo da disciplina.
-        Professores: Liste o(s) nome(s) completo(s) dos professores responsáveis pela disciplina.
-        Ementa: Extraia a ementa do curso, que detalha os tópicos abordados durante o semestre.
-        Objetivos: Liste os objetivos gerais e específicos da disciplina.
-        Cronograma de Encontros: Para cada encontro (ou aula), extraia os seguintes detalhes:
-        Número do encontro
-        Data
-        Conteúdo programático (exemplo: tópicos abordados na aula)
-        Estratégia de ensino (exemplo: método utilizado na aula, como 'aula expositiva', 'exercícios', 'miniprova', etc.)
-        Tipo de avaliação (se houver, por exemplo: 'miniprova', 'prova final', 'projeto')
-        Esses dados devem ser estruturados no seguinte formato JSON:
-        O recurso nao precisa ser retornado.
+        from typing import List, Optional
+        from pydantic import BaseModel
 
+        class Curso(BaseModel):
+            nome: str
+            professores: List[str]
+            ementa: str
+            objetivos: List[str]
+
+        class CronogramaItem(BaseModel):
+            numero_encontro: int
+            data: str
+            conteudo: str
+            estrategia: Optional[str] = None
+            avaliacao: Optional[str] = None
+
+        class Discipline(BaseModel):
+            curso: Curso
+            cronograma: List[CronogramaItem]
+
+            class Config:
+                json_encoders = {
+                    set: list
+                }
+
+        [Instruções]:
+
+        1. Converta a seção "DISCIPLINA" para preencher o campo nome do objeto Curso.
+        2. Extraia os nomes dos professores e converta-os em uma lista para o campo professores.
+        3. Extraia a "EMENTA" e adicione ao campo ementa.
+        4. Para os objetivos, divida-os em uma lista de strings e preencha o campo objetivos.
+        5. Para cada encontro do cronograma (como detalhado na seção "PROGRAMA"), crie um objeto CronogramaItem com os seguintes campos preenchidos:
+        6. numero_encontro: Número do encontro (e.g., 1, 2, 3, ...).
+        7. data: Data do encontro.
+        8. conteudo: Conteúdo da aula.
+        9. estrategia e avaliacao: Quando aplicável, preencher com a estratégia de ensino ou detalhes de avaliação.
+
+        [Formato do json final]:
         {
             "curso": {
                 "nome": "Programação Imperativa e Funcional - Turma A",
@@ -842,7 +865,6 @@ class DisciplinChain:
             ]
         }
 
-        Certifique-se de que os dados extraídos estejam no formato JSON para fácil integração com um banco de dados SQL.
         """
 
     def setup_chain(self, text):
