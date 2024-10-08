@@ -404,3 +404,15 @@ class DatabaseManager:
             self.session.rollback()
             print(f"Erro ao deletar evento de calendário {event_id}: {e}")
             raise HTTPException(status_code=500, detail="Erro ao deletar evento de calendário.")
+
+    def get_study_session_by_id_and_student(self, session_id: int, student_id: int):
+        try:
+            query = select(tabela_sessoes_estudo).where(
+                (tabela_sessoes_estudo.c.IdSessao == session_id) &
+                (tabela_sessoes_estudo.c.IdEstudante == student_id)
+            )
+            session = self.session.execute(query).fetchone()
+            return session
+        except Exception as e:
+            print(f"Erro ao buscar sessão de estudo: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao buscar sessão de estudo.")

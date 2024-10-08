@@ -102,3 +102,26 @@ async def get_study_session_from_discipline(
     except Exception as e:
         logger.error(f"Error fetching study sessions for discipline '{discipline_id}' for user: {current_user['sub']} - {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro ao buscar sessões de estudo: {str(e)}")
+
+@router_study_sessions.get("/study_sessions/session/{session_id}")
+async def get_study_session_by_id(
+    session_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    logger.info(f"Fetching study session with ID {session_id} for user: {current_user['sub']}")
+    try:
+        # Instanciar o dispatcher e controlador
+        sql_database_manager = DatabaseManager(session, metadata)
+        dispatcher = StudySessionsDispatcher(sql_database_manager)
+        controller = StudySessionsController(dispatcher)
+
+        # Chamar o controlador para buscar a sessão de estudo pelo ID
+        study_session = controller.get_study_session_by_id(session_id, current_user['sub'])
+        if not study_session:
+            raise HTTPException(status_code=404, detail="Sessão de estudo não encontrada.")
+        # Retornar o resultado no formato correto
+        print(study_session)
+        return {"study_session": study_session}
+    except Exception as e:
+        logger.error(f"Error fetching study session ID '{session_id}' for user: {current_user['sub']} - {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar sessão de estudo: {str(e)}")

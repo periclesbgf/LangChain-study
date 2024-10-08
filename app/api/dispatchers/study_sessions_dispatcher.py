@@ -133,3 +133,25 @@ class StudySessionsDispatcher:
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Erro ao buscar sessões de estudo para a disciplina com ID '{discipline_id}': {e}")
+
+    def get_study_session_by_id(self, session_id: int, user_email: str):
+        try:
+            student_id = self.get_student_id_by_email(user_email)
+            study_session = self.database_manager.get_study_session_by_id_and_student(session_id, student_id)
+            if not study_session:
+                return None
+            # Converter a sessão para dicionário
+            session_data = {
+                "IdSessao": study_session.IdSessao,
+                "IdEstudante": study_session.IdEstudante,
+                "IdCurso": study_session.IdCurso,
+                "Assunto": study_session.Assunto,
+                "Inicio": study_session.Inicio.isoformat() if study_session.Inicio else None,
+                "Fim": study_session.Fim.isoformat() if study_session.Fim else None,
+                "Produtividade": study_session.Produtividade,
+                "FeedbackDoAluno": study_session.FeedbackDoAluno,
+                "HistoricoConversa": study_session.HistoricoConversa
+            }
+            return session_data
+        except Exception as e:
+            raise Exception(f"Error fetching study session by ID: {e}")

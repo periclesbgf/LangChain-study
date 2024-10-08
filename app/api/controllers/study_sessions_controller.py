@@ -60,3 +60,9 @@ class StudySessionsController:
         except Exception as e:
             raise Exception(f"Error fetching study session from discipline: {e}")
 
+    def get_study_session_by_id(self, session_id: int, user_email: str):
+        try:
+            study_session = self.dispatcher.get_study_session_by_id(session_id, user_email)
+            return study_session
+        except Exception as e:
+            raise Exception(f"Error fetching study session by ID: {e}")
