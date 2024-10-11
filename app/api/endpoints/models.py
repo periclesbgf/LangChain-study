@@ -114,3 +114,7 @@ class EducatorUpdate(BaseModel):
 
     class Config:
         from_attributes = True
+
+class MessageRequest(BaseModel):
+    session_id: int
+    message: str
