@@ -118,3 +118,4 @@ class EducatorUpdate(BaseModel):
 class MessageRequest(BaseModel):
     session_id: int
     message: str
+    discipline_id: int

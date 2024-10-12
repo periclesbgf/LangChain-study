@@ -35,7 +35,7 @@ class Discipline(BaseModel):
 class CommandChain:
     def __init__(self, api_key):
         self.api_key = api_key
-        self.model = "gpt-4o"
+        self.model = "gpt-4o-mini"
         self.prompt_template = """
         1. Você é um assistente virtual chamado Éden, você é capaz de receber perguntas, comandos ou afirmações.
         2. Seu papel é responder perguntas de maneira amigável.
@@ -792,7 +792,7 @@ class RetrievalChain:
 class DisciplinChain:
     def __init__(self, api_key):
         self.api_key = api_key
-        self.model = "gpt-4o"
+        self.model = "gpt-4o-mini"
         self.client = OpenAI(api_key=self.api_key)
         self.prompt_template = """
         Por favor, extraia as informações do texto fornecido e converta-as no seguinte formato Pydantic:

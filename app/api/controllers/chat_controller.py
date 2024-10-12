@@ -20,7 +20,11 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_openai import ChatOpenAI
 from agent.prompt import CONTEXTUALIZE_SYSTEM_PROMPT
-from langchain.schema import AIMessage
+from langchain.schema import BaseMessage, message_to_dict, messages_from_dict, AIMessage
+from datetime import datetime, timezone
+from typing import List
+import json
+from pymongo import MongoClient, errors
 
 from utils import (
     OPENAI_API_KEY,
@@ -28,11 +32,79 @@ from utils import (
     MONGO_URI,
     )
 
+
+class CustomMongoDBChatMessageHistory(MongoDBChatMessageHistory):
+    def __init__(self, user_email: str, disciplina: str, *args, **kwargs):
+        self.user_email = user_email
+        self.disciplina = disciplina
+        super().__init__(*args, **kwargs)
+        # Cria um índice em (session_id, user_email, timestamp) para otimizar consultas
+        self.collection.create_index(
+            [
+                (self.session_id_key, 1),
+                ("user_email", 1),
+                ("timestamp", 1)
+            ],
+            name="session_user_timestamp_index",
+            unique=False
+        )
+
+    def add_message(self, message: BaseMessage) -> None:
+        """Append the message to MongoDB with user_email, disciplina, and timestamp."""
+        try:
+            self.collection.insert_one(
+                {
+                    self.session_id_key: self.session_id,
+                    self.history_key: json.dumps(message_to_dict(message)),
+                    "user_email": self.user_email,
+                    "disciplina": self.disciplina,
+                    "timestamp": datetime.now(timezone.utc)
+                }
+            )
+        except errors.WriteError as err:
+            print(f"Error adding message: {err}")
+
+    def add_messages(self, messages: List[BaseMessage]) -> None:
+        """Append multiple messages to MongoDB with user_email, disciplina, and timestamp."""
+        try:
+            documents = [
+                {
+                    self.session_id_key: self.session_id,
+                    self.history_key: json.dumps(message_to_dict(message)),
+                    "user_email": self.user_email,
+                    "disciplina": self.disciplina,
+                    "timestamp": datetime.now(timezone.utc)
+                }
+                for message in messages
+            ]
+            self.collection.insert_many(documents)
+        except errors.WriteError as err:
+            print(f"Error adding messages: {err}")
+
+    @property
+    def messages(self) -> List[BaseMessage]:
+        """Retrieve messages filtered by session_id and user_email, sorted by timestamp."""
+        try:
+            cursor = self.collection.find(
+                {
+                    self.session_id_key: self.session_id,
+                    "user_email": self.user_email
+                }
+            ).sort("timestamp", 1)
+        except errors.OperationFailure as error:
+            print(f"Error retrieving messages: {error}")
+            return []
+
+        items = [json.loads(document[self.history_key]) for document in cursor]
+        messages = messages_from_dict(items)
+        return messages
+
 class ChatController:
-    def __init__(self, session_id: str, student_email: str):
+    def __init__(self, session_id: str, student_email: str, disciplina: str):
         print("Initializing ChatController")
         self.session_id = session_id
         self.student_email = student_email
+        self.disciplina = disciplina
         self.llm = ChatOpenAI(
             model_name="gpt-4o-mini",
             temperature=0,
@@ -60,9 +132,11 @@ class ChatController:
     def __setup_chat_history(self):
         chain_with_history = RunnableWithMessageHistory(
             self.chain,
-            lambda session_id: MongoDBChatMessageHistory(
-                session_id=session_id,
+            lambda session_id: CustomMongoDBChatMessageHistory(
+                user_email=self.student_email,
+                disciplina=self.disciplina,
                 connection_string=MONGO_URI,
+                session_id=session_id,
                 database_name=MONGO_DB_NAME,
                 collection_name="chat_history",
                 session_id_key="session_id",
@@ -77,7 +151,7 @@ class ChatController:
         print("Answering user message")
 
         # Configure the session ID
-        config = {"configurable": {"session_id": self.session_id, "user_email": self.student_email}}
+        config = {"configurable": {"session_id": self.session_id}}
 
         try:
             # Invoke the chain with the user's input and session ID
@@ -99,19 +173,29 @@ class ChatController:
             print(f"Error handling message: {e}")
             return "An error occurred while processing your message."
 
+    def summarize_messages(self, chain_input):
+        stored_messages = self.chain_with_history.get_session_history
+        print("Stored messages:", stored_messages)
+        if len(stored_messages) == 0:
+            return False
+        summarization_prompt = ChatPromptTemplate.from_messages(
+            [
+                MessagesPlaceholder(variable_name="chat_history"),
+                (
+                    "user",
+                    "Distill the above chat messages into a single summary message. Include as many specific details as you can.",
+                ),
+            ]
+        )
+        summarization_chain = summarization_prompt | self.llm
 
+        summary_message = summarization_chain.invoke({"chat_history": stored_messages})
+        print("Summary message:", summary_message)
+        # self.chain_with_history.runnable.
 
+        # self.chain_with_history.add_message(summary_message)
 
-
-
-
-
-
-
-
-
-
-
+        return True
 
 
 
@@ -196,3 +280,6 @@ class ChatController:
     #     await self.db_manager.save_message(session_id, "assistant", response)
 
     #     return response
+
+
+

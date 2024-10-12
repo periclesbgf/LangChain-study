@@ -32,3 +32,13 @@ python-jose[cryptography]
 pydantic
 email-validator
 pdfplumber
+llama-index-llms-openai
+chromadb
+llama-index-vector-stores-qdrant
+llama-index-embeddings-huggingface
+llama-index-vector-stores-chroma
+llama-index
+langchain_chroma
+motor
+pymongo
+langchain-mongodb
