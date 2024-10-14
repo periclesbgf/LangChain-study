@@ -198,88 +198,81 @@ class ChatController:
         return True
 
 
+    def _setup_retriever(self):
+        print("Setting up retriever")
 
-    # def _setup_retriever(self):
-    #     print("Setting up retriever")
-    #     # Carregar documentos (exemplo com WebBaseLoader)
-    #     loader = WebBaseLoader(
-    #         web_path="https://lilianweng.github.io/posts/2023-06-23-agent/",
-    #         bs_kwargs={"features": "html.parser"}
-    #     )
-    #     docs = loader.load()
-    #     print("Documents loaded")
-    #     # Dividir os documentos
-    #     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    #     splits = text_splitter.split_documents(docs)
-    #     print("Documents split")
-    #     # Criar o vetor de embeddings
-    #     vectorstore = Chroma.from_documents(documents=splits, embedding=OpenAIEmbeddings())
-    #     retriever = vectorstore.as_retriever()
-    #     print("Retriever created")
-    #     return retriever
+        # Dividir os documentos
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1024, chunk_overlap=200)
+        splits = text_splitter.split_documents(docs)
+        print("Documents split")
+        # Criar o vetor de embeddings
+        vectorstore = Chroma.from_documents(documents=splits, embedding=OpenAIEmbeddings())
+        retriever = vectorstore.as_retriever()
+        print("Retriever created")
+        return retriever
 
-    # def _setup_qa_chain(self):
-    #     print("Setting up QA chain")
-    #     # Prompt para contextualizar a pergunta
-    #     contextualize_q_system_prompt = """Given a chat history and the latest user question \
-    #     which might reference context in the chat history, formulate a standalone question \
-    #     which can be understood without the chat history. Do NOT answer the question, \
-    #     just reformulate it if needed and otherwise return it as is."""
-    #     contextualize_q_prompt = ChatPromptTemplate.from_messages(
-    #         [
-    #             ("system", contextualize_q_system_prompt),
-    #             MessagesPlaceholder("chat_history"),
-    #             ("human", "{input}"),
-    #         ]
-    #     )
-    #     print("Contextualize prompt created")
-    #     # Prompt para responder a pergunta
-    #     qa_system_prompt = """Você é um tutor educacional que ajuda os estudantes a desenvolver pensamento crítico \
-    #     e resolver problemas por conta própria. Use os seguintes trechos de contexto recuperados para responder à pergunta. \
-    #     Se não souber a resposta, diga que não sabe. Use no máximo três frases e mantenha a resposta concisa.
+    def _setup_qa_chain(self):
+        print("Setting up QA chain")
+        # Prompt para contextualizar a pergunta
+        contextualize_q_system_prompt = """Given a chat history and the latest user question \
+        which might reference context in the chat history, formulate a standalone question \
+        which can be understood without the chat history. Do NOT answer the question, \
+        just reformulate it if needed and otherwise return it as is."""
+        contextualize_q_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", contextualize_q_system_prompt),
+                MessagesPlaceholder("chat_history"),
+                ("human", "{input}"),
+            ]
+        )
+        print("Contextualize prompt created")
+        # Prompt para responder a pergunta
+        qa_system_prompt = """Você é um tutor educacional que ajuda os estudantes a desenvolver pensamento crítico \
+        e resolver problemas por conta própria. Use os seguintes trechos de contexto recuperados para responder à pergunta. \
+        Se não souber a resposta, diga que não sabe. Use no máximo três frases e mantenha a resposta concisa.
 
-    #     {context}"""
-    #     print("QA system prompt created")
-    #     qa_prompt = ChatPromptTemplate.from_messages(
-    #         [
-    #             ("system", qa_system_prompt),
-    #             MessagesPlaceholder("chat_history"),
-    #             ("human", "{input}"),
-    #         ]
-    #     )
-    #     print("QA prompt created")
-    #     # Criar a cadeia de perguntas e respostas com recuperação
-    #     qa_chain = ConversationalRetrievalChain.from_llm(
-    #         llm=self.llm,
-    #         retriever=self.retriever,
-    #         condense_question_prompt=contextualize_q_prompt,
-    #         combine_docs_chain_kwargs={"prompt": qa_prompt}
-    #     )
-    #     print("QA chain created")
-    #     return qa_chain
+        {context}"""
+        print("QA system prompt created")
+        qa_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", qa_system_prompt),
+                MessagesPlaceholder("chat_history"),
+                ("human", "{input}"),
+            ]
+        )
+        print("QA prompt created")
+        # Criar a cadeia de perguntas e respostas com recuperação
+        qa_chain = ConversationalRetrievalChain.from_llm(
+            llm=self.llm,
+            retriever=self.retriever,
+            condense_question_prompt=contextualize_q_prompt,
+            combine_docs_chain_kwargs={"prompt": qa_prompt}
+        )
+        print("QA chain created")
+        return qa_chain
 
-    # async def handle_user_message(self, session_id: str, user_input: str):
-    #     print("Handling user message")
-    #     # Recuperar o histórico de conversa
-    #     chat_history = await self.db_manager.get_chat_history(session_id)
-    #     print(chat_history)
-    #     # Converter o histórico para o formato necessário
-    #     history = []
-    #     for msg in chat_history:
-    #         history.append(msg)
+    async def handle_user_message(self, session_id: str, user_input: str):
+        print("Handling user message")
+        # Recuperar o histórico de conversa
+        chat_history = await self.db_manager.get_chat_history(session_id)
+        print(chat_history)
+        # Converter o histórico para o formato necessário
+        history = []
+        for msg in chat_history:
+            history.append(msg)
 
-    #     # Obter a resposta do modelo
-    #     result = self.qa_chain(
-    #         {"question": user_input, "chat_history": history}
-    #     )
+        # Obter a resposta do modelo
+        result = self.qa_chain(
+            {"question": user_input, "chat_history": history}
+        )
 
-    #     response = result["answer"]
-    #     print(response)
-    #     # Salvar a mensagem do usuário e a resposta do assistente
-    #     await self.db_manager.save_message(session_id, "user", user_input)
-    #     await self.db_manager.save_message(session_id, "assistant", response)
+        response = result["answer"]
+        print(response)
+        # Salvar a mensagem do usuário e a resposta do assistente
+        await self.db_manager.save_message(session_id, "user", user_input)
+        await self.db_manager.save_message(session_id, "assistant", response)
 
-    #     return response
+        return response
 
 
 

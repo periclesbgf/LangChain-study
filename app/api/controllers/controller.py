@@ -3,7 +3,7 @@
 from chains.chain_setup import CommandChain, SQLChain, AnswerChain, ClassificationChain, SQLSchoolChain, DefaultChain, RetrievalChain
 from database.sql_database_manager import DatabaseManager
 from database.search import execute_query
-from database.vector_db import DocumentLoader, TextSplitter, Embeddings, QdrantIndex
+from database.vector_db import DocumentLoader, TextSplitter, Embeddings, QdrantHandler
 from audio.text_to_speech import AudioService
 from fastapi.logger import logger
 
@@ -76,14 +76,14 @@ def create_embedding(text, file_bytes):
 
     url = "http://localhost:6333"
     collection_name = "gpt_db"
-    qdrant_index = QdrantIndex(url=url, collection_name=collection_name, embeddings=embeddings)
+    qdrant_index = QdrantHandler(url=url, collection_name=collection_name, embeddings=embeddings)
     qdrant_index.create_index(text)
 
 def query_Qdrant(query):
     embeddings_model = Embeddings()
     embeddings = embeddings_model.get_embeddings()
 
-    qdrant_db = QdrantIndex(url="http://localhost:6333", collection_name="gpt_db", embeddings=embeddings)
+    qdrant_db = QdrantHandler(url="http://localhost:6333", collection_name="gpt_db", embeddings=embeddings)
     docs = qdrant_db.similarity_search(query=query, k=5)
 
     for doc, score in docs:
@@ -173,6 +173,6 @@ def insertDocsInVectorDatabase(file_bytes):
 
     url = "http://localhost:6333"
     collection_name = "gpt_db"
-    qdrant_index = QdrantIndex(url=url, collection_name=collection_name, embeddings=embeddings)
+    qdrant_index = QdrantHandler(url=url, collection_name=collection_name, embeddings=embeddings)
     qdrant_index.create_index(text)
     return "Documentos inseridos com sucesso"
