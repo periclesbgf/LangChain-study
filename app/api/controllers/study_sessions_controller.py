@@ -4,7 +4,7 @@ from chains.chain_setup import DisciplinChain
 from database.sql_database_manager import DatabaseManager
 from sql_test.sql_test_create import tabela_cursos, tabela_sessoes_estudo, tabela_encontros, tabela_eventos_calendario
 from database.search import execute_query
-from database.vector_db import DocumentLoader, TextSplitter, Embeddings, QdrantHandler
+from database.vector_db import TextSplitter, Embeddings, QdrantHandler
 from audio.text_to_speech import AudioService
 from fastapi.logger import logger
 from datetime import datetime

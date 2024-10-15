@@ -3,7 +3,7 @@
 from chains.chain_setup import CommandChain, SQLChain, AnswerChain, ClassificationChain, SQLSchoolChain, DefaultChain, RetrievalChain
 from database.sql_database_manager import DatabaseManager
 from database.search import execute_query
-from database.vector_db import DocumentLoader, TextSplitter, Embeddings, QdrantHandler
+from database.vector_db import Embeddings, QdrantHandler
 from audio.text_to_speech import AudioService
 from fastapi.logger import logger
 
@@ -57,27 +57,27 @@ def route_chooser(info, isFile):
         default_chain = DefaultChain(api_key=OPENAI_API_KEY)
         return default_chain
 
-def create_embedding(text, file_bytes):
-    loader = DocumentLoader(file_bytes=file_bytes)
-    documents = loader.load_documents()
+# def create_embedding(text, file_bytes):
+#     loader = DocumentLoader(file_bytes=file_bytes)
+#     documents = loader.load_documents()
 
-    print("Type of documents:", type(documents))
-    print("First few documents:", documents)
+#     print("Type of documents:", type(documents))
+#     print("First few documents:", documents)
 
-    splitter = TextSplitter()
-    text = splitter.split_documents(documents)
+#     splitter = TextSplitter()
+#     text = splitter.split_documents(documents)
 
-    if not text:
-        print("No text documents were processed.")
-        return
+#     if not text:
+#         print("No text documents were processed.")
+#         return
 
-    embeddings_obj = Embeddings()
-    embeddings = embeddings_obj.get_embeddings()
+#     embeddings_obj = Embeddings()
+#     embeddings = embeddings_obj.get_embeddings()
 
-    url = "http://localhost:6333"
-    collection_name = "gpt_db"
-    qdrant_index = QdrantHandler(url=url, collection_name=collection_name, embeddings=embeddings)
-    qdrant_index.create_index(text)
+#     url = "http://localhost:6333"
+#     collection_name = "gpt_db"
+#     qdrant_index = QdrantHandler(url=url, collection_name=collection_name, embeddings=embeddings)
+#     qdrant_index.create_index(text)
 
 def query_Qdrant(query):
     embeddings_model = Embeddings()
@@ -157,22 +157,22 @@ def route_request(text, file_bytes=None):
         return str(e), None
 
 
-def insertDocsInVectorDatabase(file_bytes):
-    loader = DocumentLoader(file_bytes=file_bytes)
-    documents = loader.load_documents()
+# def insertDocsInVectorDatabase(file_bytes):
+#     loader = DocumentLoader(file_bytes=file_bytes)
+#     documents = loader.load_documents()
 
-    splitter = TextSplitter()
-    text = splitter.split_documents(documents)
+#     splitter = TextSplitter()
+#     text = splitter.split_documents(documents)
 
-    if not text:
-        print("No text documents were processed.")
-        return
+#     if not text:
+#         print("No text documents were processed.")
+#         return
 
-    embeddings_obj = Embeddings()
-    embeddings = embeddings_obj.get_embeddings()
+#     embeddings_obj = Embeddings()
+#     embeddings = embeddings_obj.get_embeddings()
 
-    url = "http://localhost:6333"
-    collection_name = "gpt_db"
-    qdrant_index = QdrantHandler(url=url, collection_name=collection_name, embeddings=embeddings)
-    qdrant_index.create_index(text)
-    return "Documentos inseridos com sucesso"
+#     url = "http://localhost:6333"
+#     collection_name = "gpt_db"
+#     qdrant_index = QdrantHandler(url=url, collection_name=collection_name, embeddings=embeddings)
+#     qdrant_index.create_index(text)
+#     return "Documentos inseridos com sucesso"
