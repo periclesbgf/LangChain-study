@@ -48,84 +48,6 @@ from utils import (
     MONGO_URI,
     )
 
-contextualize_q_system_prompt = """Given a chat history and the latest user question \
-which might reference context in the chat history, formulate a standalone question \
-which can be understood without the chat history. Do NOT answer the question, \
-just reformulate it if needed and otherwise return it as is."""
-
-contextualize_q_prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", contextualize_q_system_prompt),
-        MessagesPlaceholder("chat_history"),
-        ("human", "{input}"),
-    ]
-)
-
-class CustomMongoDBChatMessageHistory(MongoDBChatMessageHistory):
-    def __init__(self, user_email: str, disciplina: str, *args, **kwargs):
-        self.user_email = user_email
-        self.disciplina = disciplina
-        super().__init__(*args, **kwargs)
-        # Cria um índice em (session_id, user_email, timestamp) para otimizar consultas
-        self.collection.create_index(
-            [
-                (self.session_id_key, 1),
-                ("user_email", 1),
-                ("timestamp", 1)
-            ],
-            name="session_user_timestamp_index",
-            unique=False
-        )
-
-    def add_message(self, message: BaseMessage) -> None:
-        """Append the message to MongoDB with user_email, disciplina, and timestamp."""
-        try:
-            self.collection.insert_one(
-                {
-                    self.session_id_key: self.session_id,
-                    self.history_key: json.dumps(message_to_dict(message)),
-                    "user_email": self.user_email,
-                    "disciplina": self.disciplina,
-                    "timestamp": datetime.now(timezone.utc)
-                }
-            )
-        except errors.WriteError as err:
-            print(f"Error adding message: {err}")
-
-    def add_messages(self, messages: List[BaseMessage]) -> None:
-        """Append multiple messages to MongoDB with user_email, disciplina, and timestamp."""
-        try:
-            documents = [
-                {
-                    self.session_id_key: self.session_id,
-                    self.history_key: json.dumps(message_to_dict(message)),
-                    "user_email": self.user_email,
-                    "disciplina": self.disciplina,
-                    "timestamp": datetime.now(timezone.utc)
-                }
-                for message in messages
-            ]
-            self.collection.insert_many(documents)
-        except errors.WriteError as err:
-            print(f"Error adding messages: {err}")
-
-    @property
-    def messages(self) -> List[BaseMessage]:
-        """Retrieve messages filtered by session_id and user_email, sorted by timestamp."""
-        try:
-            cursor = self.collection.find(
-                {
-                    self.session_id_key: self.session_id,
-                    "user_email": self.user_email
-                }
-            ).sort("timestamp", 1)
-        except errors.OperationFailure as error:
-            print(f"Error retrieving messages: {error}")
-            return []
-
-        items = [json.loads(document[self.history_key]) for document in cursor]
-        messages = messages_from_dict(items)
-        return messages
 
 class ChatController:
     def __init__(
@@ -153,20 +75,73 @@ class ChatController:
         self.chain = self._setup_chain()
         self.chain_with_history = self.__setup_chat_history()
         print("Histórico de chat inicializado")
+        print("Histórico de chat inicializado")
 
     def _setup_chain(self):
+        # Prompt para reformular a pergunta para o estilo pirata
+        contextualize_q_system_prompt = """You are given a chat history and the latest user question.
+        Your task is to always reformulate the question as if it were being asked by a pirate. 
+        Use pirate phrases, such as 'Arrr', 'Ahoy', 'Matey', and similar expressions.
+        For every question, no matter the subject, you must change the tone to pirate-speak.
+
+        For example:
+        - Original: 'What is the weather today?'
+        - Pirate: 'Arrr, what be the weather today, matey?'
+
+        - Original: 'Who discovered America?'
+        - Pirate: 'Arrr, who be discoverin' the lands across the sea, ye landlubber?'
+
+        - Original: 'Where is the library?'
+        - Pirate: 'Ahoy, where be the library, matey?'
+
+        Now, reformulate the user's question in pirate speak."""
+        
+        # Primeira parte: contextualizar a pergunta
+        contextualize_q_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", contextualize_q_system_prompt),
+                ("ai", "{chat_history}"),
+                ("human", "{input}"),
+            ]
+        )
+        print("Contextualize prompt", contextualize_q_prompt)
+
+        # Segunda parte: responder à pergunta reformulada
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
-                    "You are a tutor who helps students develop critical thinking and solve problems on their own.",
+                    """You are a tutor who helps students develop critical thinking and solve problems on their own. 
+                    The following is the reformulated version of the user question based on the chat history:""",
                 ),
-                MessagesPlaceholder(variable_name="history"),
-                ("human", "{input}"),
+                ("ai", "{contextualized_question}"),  # Output da pergunta reformulada
+                MessagesPlaceholder(variable_name="history"),  # Passa o histórico de chat
+                ("human", "Now answer the reformulated question: {contextualized_question}"),  # IA responde à pergunta reformulada
             ]
         )
-        chain = prompt | self.llm
+        print("Prompt", prompt)
+
+        # Função para depuração: imprime o output da pergunta reformulada
+        def debug_output(output):
+            # Imprime a mensagem reformulada
+            reformulated_question = output.messages[-1].content
+            print(f"Reformulated question: {reformulated_question}")
+
+            # Retorna os valores para continuar o processamento
+            return {
+                "contextualized_question": reformulated_question,  # Extrai a pergunta reformulada
+                "history": output.messages  # Passa o histórico de mensagens
+            }
+
+        # Criar uma cadeia que processa a pergunta reformulada e passa ao próximo prompt
+        chain = (
+            contextualize_q_prompt
+            | debug_output  # Função que imprime e retorna o output
+            | prompt
+            | self.llm  # Passa para o LLM responder
+        )
         return chain
+
 
     def __setup_chat_history(self):
         chain_with_history = RunnableWithMessageHistory(
@@ -186,31 +161,60 @@ class ChatController:
         )
         return chain_with_history
 
-    async def handle_user_message(self, user_input: str, file = None):
+    async def handle_user_message(self, user_input: str, files=None):
         print("Answering user message")
 
-        # Configure the session ID
+        # Prepare the session ID configuration
         config = {"configurable": {"session_id": self.session_id}}
 
         try:
-            # Invoke the chain with the user's input and session ID
-            result = await self.chain_with_history.ainvoke(
-                {"input": user_input},
-                config=config,
-            )
-            print("Result:", result)
+            # Retrieve the chat history for the session from MongoDB
+            chat_history = self.chain_with_history.get_session_history(self.session_id)
 
-            # Check if the result is an AIMessage
-            if isinstance(result, AIMessage):
-                response = result.content
-            else:
-                response = str(result)  # Convert to string if necessary
+            # Prepare input for the chain (user input and history)
+            inputs = {
+                "input": user_input,
+                "chat_history": chat_history  # Ensure this is properly formatted and passed
+            }
+
+            # Invoke the chain asynchronously with the user's input and session history
+            result = await self.chain_with_history.ainvoke(inputs, config=config)
+            print("Result:", result)
+            response = result.content
+            # Extract the AI response
+            # if isinstance(result, AIMessage):
+            #     response = result.content
+            # else:
+            #     response = str(result)  # Convert to string if necessary
 
             return response
 
         except Exception as e:
             print(f"Error handling message: {e}")
             return "An error occurred while processing your message."
+
+
+
+    def _contextualize_question(self, question, chat_history):
+        contextualize_q_system_prompt = """Given a chat history and the latest user question \
+        which might reference context in the chat history, formulate a standalone question \
+        which can be understood without the chat history. Do NOT answer the question, \
+        just reformulate it if needed and otherwise return it as is."""
+
+        contextualize_q_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", contextualize_q_system_prompt),
+                MessagesPlaceholder("history"),
+                ("human", "{input}"),
+            ]
+        )
+
+        chain = contextualize_q_prompt | self.llm
+        return chain
+
+    def _does_need_context(self, user_input):
+        # Verifica se dado uma pergunta, precisa de contexto a ser recuperado
+        pass
 
     async def _process_files(self, files):
         """
@@ -354,81 +358,118 @@ class ChatController:
         self.chat_history.add_message(message)
 
 
-    # def _setup_retriever(self):
-    #     print("Setting up retriever")
 
-    #     # Dividir os documentos
-    #     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1024, chunk_overlap=200)
-    #     splits = text_splitter.split_documents(docs)
-    #     print("Documents split")
-    #     # Criar o vetor de embeddings
-    #     vectorstore = Chroma.from_documents(documents=splits, embedding=OpenAIEmbeddings())
-    #     retriever = vectorstore.as_retriever()
-    #     print("Retriever created")
-    #     return retriever
+META_PROMPT = """
+Dada uma descrição de tarefa ou um prompt existente, produza um prompt de sistema detalhado para guiar um modelo de linguagem a completar a tarefa de maneira eficaz.
 
-    # def _setup_qa_chain(self):
-    #     print("Setting up QA chain")
-    #     # Prompt para contextualizar a pergunta
-    #     contextualize_q_system_prompt = """Given a chat history and the latest user question \
-    #     which might reference context in the chat history, formulate a standalone question \
-    #     which can be understood without the chat history. Do NOT answer the question, \
-    #     just reformulate it if needed and otherwise return it as is."""
-    #     contextualize_q_prompt = ChatPromptTemplate.from_messages(
-    #         [
-    #             ("system", contextualize_q_system_prompt),
-    #             MessagesPlaceholder("chat_history"),
-    #             ("human", "{input}"),
-    #         ]
-    #     )
-    #     print("Contextualize prompt created")
-    #     # Prompt para responder a pergunta
-    #     qa_system_prompt = """Você é um tutor educacional que ajuda os estudantes a desenvolver pensamento crítico \
-    #     e resolver problemas por conta própria. Use os seguintes trechos de contexto recuperados para responder à pergunta. \
-    #     Se não souber a resposta, diga que não sabe. Use no máximo três frases e mantenha a resposta concisa.
+# Diretrizes
 
-    #     {context}"""
-    #     print("QA system prompt created")
-    #     qa_prompt = ChatPromptTemplate.from_messages(
-    #         [
-    #             ("system", qa_system_prompt),
-    #             MessagesPlaceholder("chat_history"),
-    #             ("human", "{input}"),
-    #         ]
-    #     )
-    #     print("QA prompt created")
-    #     # Criar a cadeia de perguntas e respostas com recuperação
-    #     qa_chain = ConversationalRetrievalChain.from_llm(
-    #         llm=self.llm,
-    #         retriever=self.retriever,
-    #         condense_question_prompt=contextualize_q_prompt,
-    #         combine_docs_chain_kwargs={"prompt": qa_prompt}
-    #     )
-    #     print("QA chain created")
-    #     return qa_chain
+- Entenda a Tarefa: Compreenda o principal objetivo, metas, requisitos, restrições e a saída esperada.
+- Alterações Mínimas: Se um prompt existente for fornecido, melhore-o apenas se for simples. Para prompts complexos, melhore a clareza e adicione elementos ausentes sem alterar a estrutura original.
+- Raciocínio Antes das Conclusões**: Incentive etapas de raciocínio antes de chegar a conclusões. ATENÇÃO! Se o usuário fornecer exemplos onde o raciocínio ocorre depois, INVERTA a ordem! NUNCA COMECE EXEMPLOS COM CONCLUSÕES!
+    - Ordem do Raciocínio: Identifique as partes de raciocínio do prompt e as partes de conclusão (campos específicos pelo nome). Para cada uma, determine a ORDEM em que isso é feito e se precisa ser invertido.
+    - Conclusões, classificações ou resultados devem SEMPRE aparecer por último.
+- Exemplos: Inclua exemplos de alta qualidade, se forem úteis, usando placeholders [entre colchetes] para elementos complexos.
+   - Que tipos de exemplos podem precisar ser incluídos, quantos e se são complexos o suficiente para se beneficiar de placeholders.
+- Clareza e Concisão: Use linguagem clara e específica. Evite instruções desnecessárias ou declarações genéricas.
+- Formatação: Use recursos do markdown para legibilidade. NÃO USE ``` BLOCO DE CÓDIGO A MENOS QUE SEJA ESPECIFICAMENTE SOLICITADO.
+- Preserve o Conteúdo do Usuário: Se a tarefa de entrada ou o prompt incluir diretrizes ou exemplos extensos, preserve-os inteiramente ou o mais próximo possível. Se forem vagos, considere dividir em subetapas. Mantenha quaisquer detalhes, diretrizes, exemplos, variáveis ou placeholders fornecidos pelo usuário.
+- Constantes: Inclua constantes no prompt, pois não são suscetíveis a injeções de prompt. Tais como guias, rubricas e exemplos.
+- Formato de Saída: Explique explicitamente o formato de saída mais apropriado, em detalhes. Isso deve incluir comprimento e sintaxe (por exemplo, frase curta, parágrafo, JSON, etc.)
+    - Para tarefas que produzem dados bem definidos ou estruturados (classificação, JSON, etc.), dê preferência à saída em formato JSON.
+    - O JSON nunca deve ser envolvido em blocos de código (```) a menos que explicitamente solicitado.
 
-    # async def handle_user_message(self, session_id: str, user_input: str):
-    #     print("Handling user message")
-    #     # Recuperar o histórico de conversa
-    #     chat_history = await self.db_manager.get_chat_history(session_id)
-    #     print(chat_history)
-    #     # Converter o histórico para o formato necessário
-    #     history = []
-    #     for msg in chat_history:
-    #         history.append(msg)
+O prompt final que você gera deve seguir a estrutura abaixo. Não inclua comentários adicionais, apenas gere o prompt completo do sistema. ESPECIFICAMENTE, não inclua mensagens adicionais no início ou no fim do prompt. (por exemplo, sem "---")
 
-    #     # Obter a resposta do modelo
-    #     result = self.qa_chain(
-    #         {"question": user_input, "chat_history": history}
-    #     )
+[Instrução concisa descrevendo a tarefa - esta deve ser a primeira linha do prompt, sem cabeçalho de seção]
 
-    #     response = result["answer"]
-    #     print(response)
-    #     # Salvar a mensagem do usuário e a resposta do assistente
-    #     await self.db_manager.save_message(session_id, "user", user_input)
-    #     await self.db_manager.save_message(session_id, "assistant", response)
+[Detalhes adicionais conforme necessário.]
 
-    #     return response
+[Seções opcionais com títulos ou listas para etapas detalhadas.]
+
+# Etapas [opcional]
+
+[opcional: um detalhamento das etapas necessárias para realizar a tarefa]
+
+# Formato de Saída
+
+[Especificamente, aponte como a saída deve ser formatada, seja o comprimento da resposta, estrutura, por exemplo, JSON, markdown, etc.]
+
+# Exemplos [opcional]
+
+[Opcional: 1-3 exemplos bem definidos com placeholders, se necessário. Marque claramente onde os exemplos começam e terminam e qual é a entrada e saída. Use placeholders conforme necessário.]
+[Se os exemplos forem mais curtos do que o esperado para um exemplo real, faça uma referência com () explicando como exemplos reais devem ser mais longos / curtos / diferentes. E USE PLACEHOLDERS!]
+
+# Notas [opcional]
+
+[opcional: casos extremos, detalhes e uma área para repetir considerações importantes específicas]
+""".strip()
 
 
 
+
+class CustomMongoDBChatMessageHistory(MongoDBChatMessageHistory):
+    def __init__(self, user_email: str, disciplina: str, *args, **kwargs):
+        self.user_email = user_email
+        self.disciplina = disciplina
+        super().__init__(*args, **kwargs)
+        # Cria um índice em (session_id, user_email, timestamp) para otimizar consultas
+        self.collection.create_index(
+            [
+                (self.session_id_key, 1),
+                ("user_email", 1),
+                ("timestamp", 1)
+            ],
+            name="session_user_timestamp_index",
+            unique=False
+        )
+
+    def add_message(self, message: BaseMessage) -> None:
+        """Append the message to MongoDB with user_email, disciplina, and timestamp."""
+        try:
+            self.collection.insert_one(
+                {
+                    self.session_id_key: self.session_id,
+                    self.history_key: json.dumps(message_to_dict(message)),
+                    "user_email": self.user_email,
+                    "disciplina": self.disciplina,
+                    "timestamp": datetime.now(timezone.utc)
+                }
+            )
+        except errors.WriteError as err:
+            print(f"Error adding message: {err}")
+
+    def add_messages(self, messages: List[BaseMessage]) -> None:
+        """Append multiple messages to MongoDB with user_email, disciplina, and timestamp."""
+        try:
+            documents = [
+                {
+                    self.session_id_key: self.session_id,
+                    self.history_key: json.dumps(message_to_dict(message)),
+                    "user_email": self.user_email,
+                    "disciplina": self.disciplina,
+                    "timestamp": datetime.now(timezone.utc)
+                }
+                for message in messages
+            ]
+            self.collection.insert_many(documents)
+        except errors.WriteError as err:
+            print(f"Error adding messages: {err}")
+
+    @property
+    def messages(self) -> List[BaseMessage]:
+        """Retrieve messages filtered by session_id and user_email, sorted by timestamp."""
+        try:
+            cursor = self.collection.find(
+                {
+                    self.session_id_key: self.session_id,
+                    "user_email": self.user_email
+                }
+            ).sort("timestamp", 1)
+        except errors.OperationFailure as error:
+            print(f"Error retrieving messages: {error}")
+            return []
+
+        items = [json.loads(document[self.history_key]) for document in cursor]
+        messages = messages_from_dict(items)
+        return messages

@@ -6,7 +6,7 @@ from api.controllers.controller import (
     build_chain,
     build_sql_chain,
     route_request,
-    insertDocsInVectorDatabase
+    #insertDocsInVectorDatabase
     )
 from api.dispatchers.login_dispatcher import CredentialsDispatcher
 from database.sql_database_manager import DatabaseManager, session, metadata
@@ -141,17 +141,17 @@ async def read_route(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/upload_file") #incomplete
-async def read_route(
-    question: str = Form(...),
-    code: str = Form(...),
-    file: UploadFile = File()
-):
-    if not code_confirmation(code):
-        raise HTTPException(status_code=400, detail="Invalid code")
-    try:
-        file_bytes = await file.read()
-        response = insertDocsInVectorDatabase(file_bytes)
-        return response
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# @router.post("/upload_file") #incomplete
+# async def read_route(
+#     question: str = Form(...),
+#     code: str = Form(...),
+#     file: UploadFile = File()
+# ):
+#     if not code_confirmation(code):
+#         raise HTTPException(status_code=400, detail="Invalid code")
+#     try:
+#         file_bytes = await file.read()
+#         response = insertDocsInVectorDatabase(file_bytes)
+#         return response
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))

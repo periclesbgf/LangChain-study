@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional
-from fastapi import Depends
+from fastapi import Depends,Form, UploadFile, File
+
 from api.controllers.auth import get_current_user
 from datetime import datetime
 
@@ -115,7 +116,19 @@ class EducatorUpdate(BaseModel):
     class Config:
         from_attributes = True
 
+
 class MessageRequest(BaseModel):
     session_id: int
-    message: str
+    message: Optional[str] = None
     discipline_id: int
+    file: Optional[UploadFile] = None
+
+    @classmethod
+    def as_form(
+        cls,
+        session_id: int = Form(...),
+        message: Optional[str] = Form(None),
+        discipline_id: int = Form(...),
+        file: Optional[UploadFile] = File(None)
+    ):
+        return cls(session_id=session_id, message=message, discipline_id=discipline_id, file=file)

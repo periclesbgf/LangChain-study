@@ -42,3 +42,6 @@ langchain_chroma
 motor
 pymongo
 langchain-mongodb
+byaldi
+pdf2image
+qwen-vl-utils
