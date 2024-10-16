@@ -1,5 +1,6 @@
 # app/agent/image_handler.py
 
+import httpx
 import base64
 import os
 import re
@@ -10,64 +11,122 @@ from IPython.display import HTML, display
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_core.documents import Document
-import openai
+from openai import OpenAI
+from langchain_core.pydantic_v1 import BaseModel, Field
+from langchain.chains import TransformChain
+from langchain_core.messages import HumanMessage
+from langchain_openai import ChatOpenAI
+from langchain import globals
+from langchain_core.runnables import chain
+from langchain_core.output_parsers import JsonOutputParser
+from openai import OpenAI
+import base64
+import requests
+from PIL import Image
+import io
 
 class ImageHandler:
     def __init__(self, api_key):
-        # Initialize the OpenAI API key
+        # Inicializa a chave da API do OpenAI
         self.api_key = api_key
 
     def encode_image(self, image_path):
-        """Converts an image file to a base64-encoded string."""
+        """Converte um arquivo de imagem em uma string codificada em base64."""
         with open(image_path, "rb") as image_file:
             return base64.b64encode(image_file.read()).decode("utf-8")
 
     def encode_image_bytes(self, image_bytes):
-        """Converts image bytes to a base64-encoded string."""
+        """Converte bytes de imagem em uma string codificada em base64."""
         return base64.b64encode(image_bytes).decode("utf-8")
 
-    async def image_summarize(self, img_base64):
+    def resize_image_for_gpt(self, img: Image):
         """
-        Generates a description of the image using the OpenAI API.
-
-        :param img_base64: Base64-encoded image string.
-        :param prompt: Prompt to guide the image description.
-        :return: Description of the image.
+        Redimensiona a imagem para garantir que o menor lado tenha 768px e
+        o tamanho máximo seja 2048px.
         """
-        prompt_text = """Você é um assistente encarregado de resumir tabelas para recuperação (retrieval). \
-        Dê um resumo conciso da tabela que seja bem otimizado para recuperação. Certifique-se de capturar todos os detalhes. \
+        max_size = 2048
+        min_side = 768
+
+        # Obter dimensões originais
+        width, height = img.size
+        print(f"Dimensões originais: {width}x{height}")
+
+        # Redimensionar se necessário
+        if max(width, height) > max_size:
+            img.thumbnail((max_size, max_size), Image.LANCZOS)
+            print(f"Redimensionado para máximo de {max_size}px.")
+        
+        # Garantir que o lado menor tenha no mínimo 768px
+        if min(width, height) < min_side:
+            scaling_factor = min_side / min(width, height)
+            new_width = int(width * scaling_factor)
+            new_height = int(height * scaling_factor)
+            img = img.resize((new_width, new_height), Image.LANCZOS)
+            print(f"Redimensionado para garantir mínimo de {min_side}px no lado menor.")
+        
+        print(f"Dimensões finais: {img.size}")
+        return img
+
+    def resize_base64_image(self, base64_string, size=(768, 768)):
+        """Redimensiona uma imagem codificada em base64."""
+        img_data = base64.b64decode(base64_string)
+        img = Image.open(io.BytesIO(img_data))
+        
+        # Redimensionar a imagem para o tamanho especificado
+        resized_img = self.resize_image_for_gpt(img)
+        
+        # Salvar a imagem redimensionada para bytes
+        buffered = io.BytesIO()
+        resized_img.save(buffered, format=img.format)
+        
+        # Retornar a imagem codificada em base64
+        resized_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        print(f"Tamanho da imagem codificada em base64: {len(resized_base64)} caracteres")
+        return resized_base64
+
+    def image_summarize(self, img_base64):
         """
+        Gera uma descrição da imagem usando o modelo GPT-4.
 
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt_text},
-                    {
-                        "type": "image",
-                        "image": {
-                            "base64": img_base64,
-                        },
-                    },
-                ],
-            }
-        ]
+        :param img_base64: String da imagem codificada em base64.
+        :return: Descrição da imagem.
+        """
+        print("Iniciando o processo de sumarização da imagem...")
 
-        try:
-            # Make the API call to OpenAI
-            response = await openai.ChatCompletion.acreate(
-                model="gpt-4o-mini",
-                messages=messages,
-                max_tokens=300,
-            )
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}"
+        }
 
-            # Extract the description from the response
-            description = response['choices'][0]['message']['content'].strip()
-            return description
+        # Definir o payload da requisição
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Descreva a imagem com detalhes para facilitar a recuperação futura em um sitema RAG. Essa descricao ira ser guardada em um banco de dados Vetorial"},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}}
+                    ]
+                }
+            ],
+            "max_tokens": 300
+        }
 
-        except Exception as e:
-            print(f"Error during image summarization: {e}")
-            return "Não foi possível gerar uma descrição da imagem."
+        print("Payload preparado. Enviando solicitação para a API OpenAI...")
+
+        # Realizar a chamada da API usando a biblioteca requests
+        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+
+        # Exibir o retorno da API
+        print(f"Status da resposta: {response.status_code}")
+        print(f"Resposta completa: {response.json()}")
+
+        # Processar a resposta e extrair a descrição
+        data = response.json()
+        description = data['choices'][0]['message']['content'].strip()
+        print(f"Descrição da imagem gerada: {description}")
+        return description
 
     def looks_like_base64(self, sb):
         """Checks if the string appears to be base64-encoded."""

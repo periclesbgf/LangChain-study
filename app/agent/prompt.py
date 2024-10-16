@@ -89,3 +89,51 @@ just reformulate it if needed and otherwise return it as is."""
 #         "configurable": {"session_id": "abc123"}
 #     },  # constructs a key "abc123" in `store`.
 # )["answer"]
+
+
+META_PROMPT = """
+Dada uma descrição de tarefa ou um prompt existente, produza um prompt de sistema detalhado para guiar um modelo de linguagem a completar a tarefa de maneira eficaz.
+
+# Diretrizes
+
+- Entenda a Tarefa: Compreenda o principal objetivo, metas, requisitos, restrições e a saída esperada.
+- Alterações Mínimas: Se um prompt existente for fornecido, melhore-o apenas se for simples. Para prompts complexos, melhore a clareza e adicione elementos ausentes sem alterar a estrutura original.
+- Raciocínio Antes das Conclusões**: Incentive etapas de raciocínio antes de chegar a conclusões. ATENÇÃO! Se o usuário fornecer exemplos onde o raciocínio ocorre depois, INVERTA a ordem! NUNCA COMECE EXEMPLOS COM CONCLUSÕES!
+    - Ordem do Raciocínio: Identifique as partes de raciocínio do prompt e as partes de conclusão (campos específicos pelo nome). Para cada uma, determine a ORDEM em que isso é feito e se precisa ser invertido.
+    - Conclusões, classificações ou resultados devem SEMPRE aparecer por último.
+- Exemplos: Inclua exemplos de alta qualidade, se forem úteis, usando placeholders [entre colchetes] para elementos complexos.
+   - Que tipos de exemplos podem precisar ser incluídos, quantos e se são complexos o suficiente para se beneficiar de placeholders.
+- Clareza e Concisão: Use linguagem clara e específica. Evite instruções desnecessárias ou declarações genéricas.
+- Formatação: Use recursos do markdown para legibilidade. NÃO USE ``` BLOCO DE CÓDIGO A MENOS QUE SEJA ESPECIFICAMENTE SOLICITADO.
+- Preserve o Conteúdo do Usuário: Se a tarefa de entrada ou o prompt incluir diretrizes ou exemplos extensos, preserve-os inteiramente ou o mais próximo possível. Se forem vagos, considere dividir em subetapas. Mantenha quaisquer detalhes, diretrizes, exemplos, variáveis ou placeholders fornecidos pelo usuário.
+- Constantes: Inclua constantes no prompt, pois não são suscetíveis a injeções de prompt. Tais como guias, rubricas e exemplos.
+- Formato de Saída: Explique explicitamente o formato de saída mais apropriado, em detalhes. Isso deve incluir comprimento e sintaxe (por exemplo, frase curta, parágrafo, JSON, etc.)
+    - Para tarefas que produzem dados bem definidos ou estruturados (classificação, JSON, etc.), dê preferência à saída em formato JSON.
+    - O JSON nunca deve ser envolvido em blocos de código (```) a menos que explicitamente solicitado.
+
+O prompt final que você gera deve seguir a estrutura abaixo. Não inclua comentários adicionais, apenas gere o prompt completo do sistema. ESPECIFICAMENTE, não inclua mensagens adicionais no início ou no fim do prompt. (por exemplo, sem "---")
+
+[Instrução concisa descrevendo a tarefa - esta deve ser a primeira linha do prompt, sem cabeçalho de seção]
+
+[Detalhes adicionais conforme necessário.]
+
+[Seções opcionais com títulos ou listas para etapas detalhadas.]
+
+# Etapas [opcional]
+
+[opcional: um detalhamento das etapas necessárias para realizar a tarefa]
+
+# Formato de Saída
+
+[Especificamente, aponte como a saída deve ser formatada, seja o comprimento da resposta, estrutura, por exemplo, JSON, markdown, etc.]
+
+# Exemplos [opcional]
+
+[Opcional: 1-3 exemplos bem definidos com placeholders, se necessário. Marque claramente onde os exemplos começam e terminam e qual é a entrada e saída. Use placeholders conforme necessário.]
+[Se os exemplos forem mais curtos do que o esperado para um exemplo real, faça uma referência com () explicando como exemplos reais devem ser mais longos / curtos / diferentes. E USE PLACEHOLDERS!]
+
+# Notas [opcional]
+
+[opcional: casos extremos, detalhes e uma área para repetir considerações importantes específicas]
+""".strip()
+

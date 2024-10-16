@@ -45,3 +45,6 @@ langchain-mongodb
 byaldi
 pdf2image
 qwen-vl-utils
+youtube-search-python
+google-search-results
+wikipedia-api

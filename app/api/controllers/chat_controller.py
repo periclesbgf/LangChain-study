@@ -2,7 +2,7 @@
 
 import os
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 import json
 from pymongo import errors
 from langchain_openai import ChatOpenAI
@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 from typing import List
 import json
 from pymongo import MongoClient, errors
+import uuid
 
 import fitz  # PyMuPDF library
 import asyncio
@@ -58,7 +59,7 @@ class ChatController:
         qdrant_handler: QdrantHandler,
         image_handler: ImageHandler,
     ):
-        print("Inicializando ChatController")
+        print("Initializing ChatController")
         self.session_id = session_id
         self.student_email = student_email
         self.disciplina = disciplina
@@ -67,36 +68,30 @@ class ChatController:
             temperature=0,
             openai_api_key=OPENAI_API_KEY,
         )
-        print("LLM inicializado")
+        print("LLM initialized")
         self.qdrant_handler = qdrant_handler
         self.image_handler = image_handler
         self.text_splitter = TextSplitter()
         self.embeddings = Embeddings().get_embeddings()
         self.chain = self._setup_chain()
         self.chain_with_history = self.__setup_chat_history()
-        print("Histórico de chat inicializado")
-        print("Histórico de chat inicializado")
+        print("Chat history initialized")
+
+        # Initialize MongoDB client and image collection
+        self.client = MongoClient(MONGO_URI)
+        self.db = self.client[MONGO_DB_NAME]
+        self.image_collection = self.db["image_collection"]  # Replace with your collection name
+        print("MongoDB client initialized")
 
     def _setup_chain(self):
-        # Prompt para reformular a pergunta para o estilo pirata
-        contextualize_q_system_prompt = """You are given a chat history and the latest user question.
-        Your task is to always reformulate the question as if it were being asked by a pirate. 
-        Use pirate phrases, such as 'Arrr', 'Ahoy', 'Matey', and similar expressions.
-        For every question, no matter the subject, you must change the tone to pirate-speak.
+        print("Setting up chain")
+        # Prompt to reformulate the question
+        contextualize_q_system_prompt = """Given a chat history and the latest user question 
+        which might reference context in the chat history, formulate a standalone question 
+        which can be understood without the chat history. Do NOT answer the question, 
+        just reformulate it if needed and otherwise return it as is."""
 
-        For example:
-        - Original: 'What is the weather today?'
-        - Pirate: 'Arrr, what be the weather today, matey?'
-
-        - Original: 'Who discovered America?'
-        - Pirate: 'Arrr, who be discoverin' the lands across the sea, ye landlubber?'
-
-        - Original: 'Where is the library?'
-        - Pirate: 'Ahoy, where be the library, matey?'
-
-        Now, reformulate the user's question in pirate speak."""
-        
-        # Primeira parte: contextualizar a pergunta
+        # First part: contextualize the question
         contextualize_q_prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", contextualize_q_system_prompt),
@@ -104,9 +99,9 @@ class ChatController:
                 ("human", "{input}"),
             ]
         )
-        print("Contextualize prompt", contextualize_q_prompt)
+        print(f"Contextualize prompt: {contextualize_q_prompt}")
 
-        # Segunda parte: responder à pergunta reformulada
+        # Second part: answer the reformulated question
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
@@ -114,36 +109,36 @@ class ChatController:
                     """You are a tutor who helps students develop critical thinking and solve problems on their own. 
                     The following is the reformulated version of the user question based on the chat history:""",
                 ),
-                ("ai", "{contextualized_question}"),  # Output da pergunta reformulada
-                MessagesPlaceholder(variable_name="history"),  # Passa o histórico de chat
-                ("human", "Now answer the reformulated question: {contextualized_question}"),  # IA responde à pergunta reformulada
+                ("ai", "{contextualized_question}"),  # Output of the reformulated question
+                MessagesPlaceholder(variable_name="history"),  # Passes the chat history
+                ("human", "Now answer the reformulated question: {contextualized_question}"),  # AI answers the reformulated question
             ]
         )
-        print("Prompt", prompt)
+        print(f"Main prompt: {prompt}")
 
-        # Função para depuração: imprime o output da pergunta reformulada
+        # Debug function to print the output of the reformulated question
         def debug_output(output):
-            # Imprime a mensagem reformulada
+            # Prints the reformulated question
             reformulated_question = output.messages[-1].content
             print(f"Reformulated question: {reformulated_question}")
 
-            # Retorna os valores para continuar o processamento
+            # Returns values to continue processing
             return {
-                "contextualized_question": reformulated_question,  # Extrai a pergunta reformulada
-                "history": output.messages  # Passa o histórico de mensagens
+                "contextualized_question": reformulated_question,  # Extracts the reformulated question
+                "history": output.messages  # Passes the message history
             }
 
-        # Criar uma cadeia que processa a pergunta reformulada e passa ao próximo prompt
+        # Create a chain that processes the reformulated question and passes it to the next prompt
         chain = (
             contextualize_q_prompt
-            | debug_output  # Função que imprime e retorna o output
+            | debug_output  # Function that prints and returns the output
             | prompt
-            | self.llm  # Passa para o LLM responder
+            | self.llm  # Passes to the LLM to respond
         )
         return chain
 
-
     def __setup_chat_history(self):
+        print("Setting up chat history")
         chain_with_history = RunnableWithMessageHistory(
             self.chain,
             lambda session_id: CustomMongoDBChatMessageHistory(
@@ -161,147 +156,225 @@ class ChatController:
         )
         return chain_with_history
 
-    async def handle_user_message(self, user_input: str, files=None):
-        print("Answering user message")
+    async def handle_user_message(self, user_input: Optional[str] = None, files=None):
+        print("Handling user message")
 
         # Prepare the session ID configuration
         config = {"configurable": {"session_id": self.session_id}}
 
         try:
-            # Retrieve the chat history for the session from MongoDB
-            chat_history = self.chain_with_history.get_session_history(self.session_id)
+            # Check if files are provided
+            if files:
+                print("Processing uploaded files")
+                await self._process_files(files)
+                response = "Files have been successfully processed and added to the database."
+                return response
 
-            # Prepare input for the chain (user input and history)
-            inputs = {
-                "input": user_input,
-                "chat_history": chat_history  # Ensure this is properly formatted and passed
-            }
+            if user_input:
+                chat_history = self.chain_with_history.get_session_history(self.session_id)
 
-            # Invoke the chain asynchronously with the user's input and session history
-            result = await self.chain_with_history.ainvoke(inputs, config=config)
-            print("Result:", result)
-            response = result.content
-            # Extract the AI response
-            # if isinstance(result, AIMessage):
-            #     response = result.content
-            # else:
-            #     response = str(result)  # Convert to string if necessary
+                print(f"User input: {user_input}")
+                inputs = {
+                    "input": user_input,
+                    "chat_history": chat_history  # Ensure this is properly formatted and passed
+                }
+                # Invoke the chain asynchronously with the user's input and session history
+                result = await self.chain_with_history.ainvoke(
+                    inputs,
+                    config=config,
+                )
+                print(f"Result: {result}")
 
-            return response
+                # Extract the AI response
+                if isinstance(result, AIMessage):
+                    response = result.content
+                else:
+                    response = str(result)  # Convert to string if necessary
+
+                return response
+
+            else:
+                # If neither user_input nor files are provided
+                response = "No input provided."
+                return response
 
         except Exception as e:
             print(f"Error handling message: {e}")
             return "An error occurred while processing your message."
 
-
-
-    def _contextualize_question(self, question, chat_history):
-        contextualize_q_system_prompt = """Given a chat history and the latest user question \
-        which might reference context in the chat history, formulate a standalone question \
-        which can be understood without the chat history. Do NOT answer the question, \
-        just reformulate it if needed and otherwise return it as is."""
-
-        contextualize_q_prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", contextualize_q_system_prompt),
-                MessagesPlaceholder("history"),
-                ("human", "{input}"),
-            ]
-        )
-
-        chain = contextualize_q_prompt | self.llm
-        return chain
-
-    def _does_need_context(self, user_input):
-        # Verifica se dado uma pergunta, precisa de contexto a ser recuperado
-        pass
-
     async def _process_files(self, files):
         """
-        Processa os arquivos enviados: extrai texto, imagens e armazena embeddings.
-        :param files: Lista de arquivos enviados pelo usuário.
+        Processes the uploaded files: extracts text, images, and stores embeddings.
+        :param files: List of files uploaded by the user.
         """
+        print(f"Processing {len(files)} file(s)")
         for file in files:
             filename = file.filename
+            print(f"Processing file: {filename}")
             content = await file.read()
             if filename.lower().endswith(".pdf"):
+                print(f"Processing PDF file: {filename}")
                 await self._process_pdf(content)
             elif filename.lower().endswith((".jpg", ".jpeg", ".png")):
+                print(f"Processing image file: {filename}")
                 await self._process_image(content)
             else:
-                print(f"Tipo de arquivo não suportado: {filename}")
+                print(f"Unsupported file type: {filename}")
 
     async def _process_pdf(self, content):
         """
-        Processa arquivos PDF: extrai texto e imagens, gera embeddings.
-        :param content: Conteúdo binário do arquivo PDF.
+        Processes PDF files: extracts text and images, generates embeddings.
+        :param content: Binary content of the PDF file.
         """
-        import io
-
-        # Abre o PDF usando PyMuPDF (fitz)
+        print("Opening PDF document")
+        # Open the PDF using PyMuPDF (fitz)
         pdf_document = fitz.open(stream=content, filetype="pdf")
 
-        # Extrai texto de cada página
+        # Extract text from each page
         text = ""
-        for page_num in range(len(pdf_document)):
+        num_pages = len(pdf_document)
+        print(f"PDF has {num_pages} pages")
+        for page_num in range(num_pages):
             page = pdf_document[page_num]
-            text += page.get_text()
+            page_text = page.get_text()
+            print(f"Extracted text from page {page_num + 1}")
+            text += page_text
 
-        # Divide o texto em documentos menores
+        # Split the text into smaller documents
         documents = [Document(page_content=text)]
         text_docs = self.text_splitter.split_documents(documents)
+        print(f"Split text into {len(text_docs)} documents")
 
-        # Gera embeddings para o texto
-        for doc in text_docs:
+        # Generate embeddings for the text
+        for idx, doc in enumerate(text_docs):
             embedding = self.embeddings.embed_query(doc.page_content)
             self.qdrant_handler.add_document(
                 student_email=self.student_email,
                 disciplina=self.disciplina,
                 content=doc.page_content,
                 embedding=embedding,
-                metadata={"type": "text"},
+                metadata={
+                    "type": "text",
+                    "student_email": self.student_email,
+                    "disciplina": self.disciplina,
+                },
             )
+            print(f"Added document {idx + 1}/{len(text_docs)} to Qdrant")
 
-        # Extrai imagens de cada página
-        for page_num in range(len(pdf_document)):
+        # Extract images from each page
+        for page_num in range(num_pages):
             page = pdf_document[page_num]
             image_list = page.get_images(full=True)
+            print(f"Page {page_num + 1} has {len(image_list)} images")
 
             for img_index, img_info in enumerate(image_list):
                 xref = img_info[0]
                 base_image = pdf_document.extract_image(xref)
                 image_bytes = base_image["image"]
 
-                # Processa cada imagem extraída
+                # Process each extracted image
+                print(f"Processing image {img_index + 1}/{len(image_list)} on page {page_num + 1}")
                 await self._process_image(image_bytes)
 
         pdf_document.close()
+        print("PDF processing complete")
 
     async def _process_image(self, content):
         """
-        Processa arquivos de imagem: gera descrição usando VLM, armazena embeddings.
-        :param content: Conteúdo binário do arquivo de imagem.
+        Processes image files: stores the image in MongoDB, generates description using VLM,
+        stores embeddings, and references the UUID in Qdrant.
+        :param content: Binary content of the image file.
         """
-        # Obtém a descrição da imagem usando VLM
+        print("Processing image")
+        # Store the image in MongoDB
+        image_uuid = str(uuid.uuid4())
+        image_document = {
+            "_id": image_uuid,
+            "student_email": self.student_email,
+            "disciplina": self.disciplina,
+            "image_data": content,
+            "timestamp": datetime.now(timezone.utc)
+        }
+        self.image_collection.insert_one(image_document)
+        print(f"Image stored in MongoDB with UUID: {image_uuid}")
+
+        # Get the description of the image using VLM
         img_base64 = self.image_handler.encode_image_bytes(content)
-        description = await self.image_handler.image_summarize(img_base64)
-        # Gera embedding da descrição
+        description = self.image_handler.image_summarize(img_base64)  # Sem await
+        print(f"Image description: {description}")
+
+        # Generate embedding of the description
         embedding = self.embeddings.embed_query(description)
-        # Armazena a imagem (em base64) e o embedding
+
+        # Store the description and embedding in Qdrant
+        metadata = {
+            "type": "image",
+            "description": description,
+            "image_uuid": image_uuid,  # Reference to the image UUID in MongoDB
+            "student_email": self.student_email,
+            "disciplina": self.disciplina,
+        }
         self.qdrant_handler.add_document(
             student_email=self.student_email,
             disciplina=self.disciplina,
-            content=img_base64,
+            content=description,  # Store the description as content
             embedding=embedding,
-            metadata={"type": "image", "description": description},
+            metadata=metadata,
         )
+        print("Image description stored in Qdrant with reference to MongoDB.")
+
+    def retrieve_image_and_description(self, image_uuid):
+        """
+        Recupera a imagem do MongoDB e sua descrição armazenada no Qdrant com base no UUID da imagem.
+
+        :param image_uuid: O UUID da imagem armazenada.
+        :return: Dicionário contendo os dados da imagem e a descrição da imagem.
+        """
+        try:
+            # Recuperar a imagem do MongoDB pelo UUID
+            image_data = self.image_collection.find_one({"_id": image_uuid})
+
+            if not image_data:
+                print(f"Imagem com UUID {image_uuid} não encontrada no MongoDB.")
+                return {"error": "Image not found in MongoDB"}
+
+            # Imagem encontrada
+            print(f"Imagem com UUID {image_uuid} recuperada do MongoDB.")
+            image_bytes = image_data.get("image_data")
+
+            # Recuperar a descrição da imagem do Qdrant usando o UUID como chave de metadados
+            query = f"SELECT description FROM qdrant WHERE image_uuid = '{image_uuid}'"
+            results = self.qdrant_handler.similarity_search(
+                query=query,
+                student_email=self.student_email,
+                disciplina=self.disciplina,
+                k=1,  # Esperamos um único resultado, já que UUIDs são únicos
+            )
+
+            if not results:
+                print(f"Descrição da imagem com UUID {image_uuid} não encontrada no Qdrant.")
+                return {"error": "Image description not found in Qdrant"}
+
+            # Descrição encontrada
+            image_description = results[0].get("content")
+            print(f"Descrição da imagem com UUID {image_uuid} recuperada do Qdrant.")
+
+            return {
+                "image_bytes": image_bytes,
+                "description": image_description
+            }
+
+        except Exception as e:
+            print(f"Erro ao recuperar a imagem ou descrição: {e}")
+            return {"error": "Failed to retrieve image or description"}
 
     def _retrieve_context(self, query):
         """
-        Recupera documentos relevantes do banco vetorial com base na query.
-        :param query: Texto de entrada do usuário.
-        :return: Lista de documentos relevantes.
+        Retrieves relevant documents from the vector store based on the query.
+        :param query: The user's question.
+        :return: List of relevant documents' content.
         """
+        print(f"Retrieving context for query: {query}")
         embedding = self.embeddings.embed_query(query)
         results = self.qdrant_handler.similarity_search(
             embedding,
@@ -309,16 +382,18 @@ class ChatController:
             disciplina=self.disciplina,
             k=5,
         )
+        print(f"Retrieved {len(results)} relevant documents")
         context = [result['content'] for result in results]
         return context
 
     async def _generate_response(self, user_input, context):
         """
-        Gera a resposta do assistente usando o LLM e o contexto recuperado.
-        :param user_input: Texto de entrada do usuário.
-        :param context: Lista de documentos relevantes.
-        :return: Resposta do assistente.
+        Generates the assistant's response using the LLM and the retrieved context.
+        :param user_input: The user's input text.
+        :param context: List of relevant documents.
+        :return: Assistant's response.
         """
+        print("Generating response")
         prompt_template = ChatPromptTemplate.from_messages(
             [
                 (
@@ -332,79 +407,34 @@ class ChatController:
             ]
         )
 
-        # Prepara o histórico de mensagens
-        history_messages = self.chat_history.messages
+        # Prepare the message history
+        history_messages = self.chain_with_history.get_session_history(self.session_id).messages
 
         prompt = prompt_template.format(
             history=history_messages,
             input=user_input + "\n\nContexto:\n" + "\n".join(context),
         )
+        print(f"Prompt prepared for LLM: {prompt}")
+
         response = await self.llm.agenerate([prompt])
         response_text = response.generations[0].text.strip()
+        print(f"LLM response: {response_text}")
 
         return response_text
 
     def _save_message(self, role, content):
         """
-        Salva uma mensagem no histórico de chat.
-        :param role: 'user' ou 'assistant'.
-        :param content: Conteúdo da mensagem.
+        Saves a message to the chat history.
+        :param role: 'user' or 'assistant'.
+        :param content: Message content.
         """
+        print(f"Saving message: role={role}, content={content}")
         if role == "user":
             message = BaseMessage(content=content, role="human")
         else:
             message = BaseMessage(content=content, role="ai")
 
-        self.chat_history.add_message(message)
-
-
-
-META_PROMPT = """
-Dada uma descrição de tarefa ou um prompt existente, produza um prompt de sistema detalhado para guiar um modelo de linguagem a completar a tarefa de maneira eficaz.
-
-# Diretrizes
-
-- Entenda a Tarefa: Compreenda o principal objetivo, metas, requisitos, restrições e a saída esperada.
-- Alterações Mínimas: Se um prompt existente for fornecido, melhore-o apenas se for simples. Para prompts complexos, melhore a clareza e adicione elementos ausentes sem alterar a estrutura original.
-- Raciocínio Antes das Conclusões**: Incentive etapas de raciocínio antes de chegar a conclusões. ATENÇÃO! Se o usuário fornecer exemplos onde o raciocínio ocorre depois, INVERTA a ordem! NUNCA COMECE EXEMPLOS COM CONCLUSÕES!
-    - Ordem do Raciocínio: Identifique as partes de raciocínio do prompt e as partes de conclusão (campos específicos pelo nome). Para cada uma, determine a ORDEM em que isso é feito e se precisa ser invertido.
-    - Conclusões, classificações ou resultados devem SEMPRE aparecer por último.
-- Exemplos: Inclua exemplos de alta qualidade, se forem úteis, usando placeholders [entre colchetes] para elementos complexos.
-   - Que tipos de exemplos podem precisar ser incluídos, quantos e se são complexos o suficiente para se beneficiar de placeholders.
-- Clareza e Concisão: Use linguagem clara e específica. Evite instruções desnecessárias ou declarações genéricas.
-- Formatação: Use recursos do markdown para legibilidade. NÃO USE ``` BLOCO DE CÓDIGO A MENOS QUE SEJA ESPECIFICAMENTE SOLICITADO.
-- Preserve o Conteúdo do Usuário: Se a tarefa de entrada ou o prompt incluir diretrizes ou exemplos extensos, preserve-os inteiramente ou o mais próximo possível. Se forem vagos, considere dividir em subetapas. Mantenha quaisquer detalhes, diretrizes, exemplos, variáveis ou placeholders fornecidos pelo usuário.
-- Constantes: Inclua constantes no prompt, pois não são suscetíveis a injeções de prompt. Tais como guias, rubricas e exemplos.
-- Formato de Saída: Explique explicitamente o formato de saída mais apropriado, em detalhes. Isso deve incluir comprimento e sintaxe (por exemplo, frase curta, parágrafo, JSON, etc.)
-    - Para tarefas que produzem dados bem definidos ou estruturados (classificação, JSON, etc.), dê preferência à saída em formato JSON.
-    - O JSON nunca deve ser envolvido em blocos de código (```) a menos que explicitamente solicitado.
-
-O prompt final que você gera deve seguir a estrutura abaixo. Não inclua comentários adicionais, apenas gere o prompt completo do sistema. ESPECIFICAMENTE, não inclua mensagens adicionais no início ou no fim do prompt. (por exemplo, sem "---")
-
-[Instrução concisa descrevendo a tarefa - esta deve ser a primeira linha do prompt, sem cabeçalho de seção]
-
-[Detalhes adicionais conforme necessário.]
-
-[Seções opcionais com títulos ou listas para etapas detalhadas.]
-
-# Etapas [opcional]
-
-[opcional: um detalhamento das etapas necessárias para realizar a tarefa]
-
-# Formato de Saída
-
-[Especificamente, aponte como a saída deve ser formatada, seja o comprimento da resposta, estrutura, por exemplo, JSON, markdown, etc.]
-
-# Exemplos [opcional]
-
-[Opcional: 1-3 exemplos bem definidos com placeholders, se necessário. Marque claramente onde os exemplos começam e terminam e qual é a entrada e saída. Use placeholders conforme necessário.]
-[Se os exemplos forem mais curtos do que o esperado para um exemplo real, faça uma referência com () explicando como exemplos reais devem ser mais longos / curtos / diferentes. E USE PLACEHOLDERS!]
-
-# Notas [opcional]
-
-[opcional: casos extremos, detalhes e uma área para repetir considerações importantes específicas]
-""".strip()
-
+        self.chain_with_history.get_session_history(self.session_id).add_message(message)
 
 
 
