@@ -61,81 +61,100 @@ class ChatController:
     ):
         print("Initializing ChatController")
         self.session_id = session_id
-        self.student_email = student_email
-        self.disciplina = disciplina
+
+        # Inicializa o LLM
         self.llm = ChatOpenAI(
             model_name="gpt-4o-mini",
-            temperature=0,
-            openai_api_key=OPENAI_API_KEY,
+            temperature=0.1,
+            openai_api_key=OPENAI_API_KEY
         )
-        print("LLM initialized")
+        self.student_email = student_email
+        self.disciplina = disciplina
+        # Carrega o perfil e plano do estudante dos arquivos JSON
+        self.perfil = self._carregar_json("/home/pericles/project/LangChain-study/app/resources/context_test.json")
+        self.plano_execucao = self._carregar_json("/home/pericles/project/LangChain-study/app/resources/plano_acao.json")
+
+        # Configura dependências adicionais
         self.qdrant_handler = qdrant_handler
         self.image_handler = image_handler
         self.text_splitter = TextSplitter()
         self.embeddings = Embeddings().get_embeddings()
+
+        # Configuração das cadeias (chains)
         self.chain = self._setup_chain()
         self.chain_with_history = self.__setup_chat_history()
-        print("Chat history initialized")
 
-        # Initialize MongoDB client and image collection
+        # Inicializa o cliente MongoDB
         self.client = MongoClient(MONGO_URI)
         self.db = self.client[MONGO_DB_NAME]
-        self.image_collection = self.db["image_collection"]  # Replace with your collection name
+        self.image_collection = self.db["image_collection"]
         print("MongoDB client initialized")
+
+    def _carregar_json(self, caminho_arquivo: str):
+        """Carrega dados de um arquivo JSON."""
+        caminho_absoluto = os.path.abspath(caminho_arquivo)
+        try:
+            with open(caminho_absoluto, 'r', encoding='utf-8') as arquivo:
+                return json.load(arquivo)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"Erro ao carregar {caminho_arquivo}: {e}")
+            return {}
 
     def _setup_chain(self):
         print("Setting up chain")
-        # Prompt to reformulate the question
-        contextualize_q_system_prompt = """Given a chat history and the latest user question 
-        which might reference context in the chat history, formulate a standalone question 
-        which can be understood without the chat history. Do NOT answer the question, 
-        just reformulate it if needed and otherwise return it as is."""
 
-        # First part: contextualize the question
-        contextualize_q_prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", contextualize_q_system_prompt),
-                ("ai", "{chat_history}"),
-                ("human", "{input}"),
-            ]
-        )
-        print(f"Contextualize prompt: {contextualize_q_prompt}")
-
-        # Second part: answer the reformulated question
-        prompt = ChatPromptTemplate.from_messages(
+        # Prompt principal usando o perfil e plano de ação
+        main_prompt = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
-                    """You are a tutor who helps students develop critical thinking and solve problems on their own. 
-                    The following is the reformulated version of the user question based on the chat history:""",
+                    """Você é um tutor que ajuda estudantes a desenvolver pensamento crítico.
+                    Baseado no perfil do estudante, ajude o aluno a aprender desenvolvendo o pensamento crítico.
+                    Nunca dê as respostas diretamente; ensine o pensamento por trás da questão.
+                    Use as informações abaixo para personalizar suas respostas:\n"""
                 ),
-                ("ai", "{contextualized_question}"),  # Output of the reformulated question
-                MessagesPlaceholder(variable_name="history"),  # Passes the chat history
-                ("human", "Now answer the reformulated question: {contextualized_question}"),  # AI answers the reformulated question
+                ("system", "Perfil do estudante: {perfil}"),
+                ("system", "Plano de ação: {plano}"),
+                MessagesPlaceholder(variable_name="history"),  # Placeholder para o histórico de mensagens
+                ("human", "{input}")  # Entrada do usuário
             ]
         )
-        print(f"Main prompt: {prompt}")
 
-        # Debug function to print the output of the reformulated question
-        def debug_output(output):
-            # Prints the reformulated question
-            reformulated_question = output.messages[-1].content
-            print(f"Reformulated question: {reformulated_question}")
-
-            # Returns values to continue processing
-            return {
-                "contextualized_question": reformulated_question,  # Extracts the reformulated question
-                "history": output.messages  # Passes the message history
-            }
-
-        # Create a chain that processes the reformulated question and passes it to the next prompt
+        # Criação da cadeia (chain)
         chain = (
-            contextualize_q_prompt
-            | debug_output  # Function that prints and returns the output
-            | prompt
-            | self.llm  # Passes to the LLM to respond
+            main_prompt
+            | self.llm  # Chama o modelo de linguagem para processar o prompt
         )
         return chain
+
+    async def handle_user_message(self, user_input: Optional[str] = None, files=None):
+        print("Handling user message")
+        config = {"configurable": {"session_id": self.session_id}}
+
+        try:
+            if files:
+                print("Processing uploaded files")
+                await self._process_files(files)
+                return "Files processed and added to the database."
+
+            if user_input:
+                chat_history = self.chain_with_history.get_session_history(self.session_id)
+
+                print(f"User input: {user_input}")
+                inputs = {"input": user_input, "chat_history": chat_history, "perfil": self.perfil, "plano": self.plano_execucao}
+
+                result = await self.chain_with_history.ainvoke(inputs, config=config)
+                print(f"Result: {result}")
+
+                response = result.content if isinstance(result, AIMessage) else str(result)
+
+                return response
+
+            return "No input provided."
+
+        except Exception as e:
+            print(f"Error handling message: {e}")
+            return "An error occurred while processing your message."
 
     def __setup_chat_history(self):
         print("Setting up chat history")
@@ -155,52 +174,6 @@ class ChatController:
             history_messages_key="history",
         )
         return chain_with_history
-
-    async def handle_user_message(self, user_input: Optional[str] = None, files=None):
-        print("Handling user message")
-
-        # Prepare the session ID configuration
-        config = {"configurable": {"session_id": self.session_id}}
-
-        try:
-            # Check if files are provided
-            if files:
-                print("Processing uploaded files")
-                await self._process_files(files)
-                response = "Files have been successfully processed and added to the database."
-                return response
-
-            if user_input:
-                chat_history = self.chain_with_history.get_session_history(self.session_id)
-
-                print(f"User input: {user_input}")
-                inputs = {
-                    "input": user_input,
-                    "chat_history": chat_history  # Ensure this is properly formatted and passed
-                }
-                # Invoke the chain asynchronously with the user's input and session history
-                result = await self.chain_with_history.ainvoke(
-                    inputs,
-                    config=config,
-                )
-                print(f"Result: {result}")
-
-                # Extract the AI response
-                if isinstance(result, AIMessage):
-                    response = result.content
-                else:
-                    response = str(result)  # Convert to string if necessary
-
-                return response
-
-            else:
-                # If neither user_input nor files are provided
-                response = "No input provided."
-                return response
-
-        except Exception as e:
-            print(f"Error handling message: {e}")
-            return "An error occurred while processing your message."
 
     async def _process_files(self, files):
         """
