@@ -39,6 +39,9 @@ from typing import List
 import json
 from pymongo import MongoClient, errors
 import uuid
+from langchain.tools.retriever import create_retriever_tool
+from langchain_core.tools import tool
+
 
 import fitz  # PyMuPDF library
 import asyncio
@@ -103,6 +106,18 @@ class ChatController:
     def _setup_chain(self):
         print("Setting up chain")
 
+        decompose_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """Você é um sumarizador de historico de mensagens"""
+                ),
+                ("system", "Perfil do estudante: {perfil}"),
+                ("system", "Plano de ação: {plano}"),
+                MessagesPlaceholder(variable_name="history"),  # Placeholder para o histórico de mensagens
+                ("human", "{input}")  # Entrada do usuário
+            ]
+        )
         # Prompt principal usando o perfil e plano de ação
         main_prompt = ChatPromptTemplate.from_messages(
             [
@@ -120,12 +135,29 @@ class ChatController:
             ]
         )
 
+        feedback_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """Você é um analista de progresso de sessao de estudo, sua tarefa e analisar o historico de interacao entre uma LLM e um estudante.
+                    Dado o historico de interacao, voce deve verificar se o estudante esta progredindo de acordo com o plano de acao.
+                    Se nao estiver, voce deve fornecer feedback ao estudante e ao tutor sobre o que pode ser melhorado."""
+                ),
+                ("system", "Perfil do estudante: {perfil}"),
+                ("system", "Plano de ação: {plano}"),
+                MessagesPlaceholder(variable_name="history"),  # Placeholder para o histórico de mensagens
+            ]
+        )
+        feedback_chain = (
+            feedback_prompt
+            | self.llm  # Chama o modelo de linguagem para processar o prompt
+        )
         # Criação da cadeia (chain)
         chain = (
             main_prompt
             | self.llm  # Chama o modelo de linguagem para processar o prompt
         )
-        return chain
+        return chain, feedback_chain
 
     async def handle_user_message(self, user_input: Optional[str] = None, files=None):
         print("Handling user message")
@@ -341,7 +373,8 @@ class ChatController:
             print(f"Erro ao recuperar a imagem ou descrição: {e}")
             return {"error": "Failed to retrieve image or description"}
 
-    def _retrieve_context(self, query):
+    @tool
+    def retrieve_context(self, query):
         """
         Retrieves relevant documents from the vector store based on the query.
         :param query: The user's question.

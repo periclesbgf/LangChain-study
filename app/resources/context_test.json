@@ -1,0 +1,18 @@
+{
+    "PerfilEstudante": {
+      "Nome": "Pericles",
+      "Email": "bgf@123",
+      "Curso": "Introdução a Programação Imperativa e Funcional",
+      "ObjetivoSessaoEstudo": "Revisão de Estruturas de Decisão e Repetição"
+    },
+    "PreferenciasAprendizado": {
+      "EstiloAprendizagem": "Visual",
+      "Dificuldades": ["Estruturas de decisão", "Estruturas de repetição"],
+      "PreferenciaRecursos": "Exemplos visuais e gráficos"
+    },
+    "SessaoEstudo": {
+      "Assunto": "Estruturas de Decisão e Repetição",
+      "Inicio": "2024-10-14T18:00:00Z",
+      "ProgressoEsperado": "Compreensão de exemplos práticos de estruturas de decisão e repetição em Python."
+    }
+  }

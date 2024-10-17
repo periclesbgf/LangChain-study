@@ -1,0 +1,66 @@
+{
+    "PlanoAcao": {
+        "PerfilEstudante": {
+            "Nome": "Pericles",
+            "Email": "bgf@123",
+            "Curso": "Introdução a Programação Imperativa e Funcional",
+            "ObjetivoSessaoEstudo": "Revisão de Estruturas de Decisão e Repetição"
+        },
+        "PreferenciasAprendizado": {
+            "EstiloAprendizagem": "Visual",
+            "Dificuldades": [
+                "Estruturas de decisão",
+                "Estruturas de repetição"
+            ],
+            "PreferenciaRecursos": "Exemplos visuais e gráficos"
+        },
+        "SessaoEstudo": {
+            "Assunto": "Estruturas de Decisão e Repetição",
+            "Inicio": "2024-10-14T18:00:00Z",
+            "ProgressoEsperado": "Compreensão de exemplos práticos de estruturas de decisão e repetição em Python."
+        },
+        "Etapas": [
+            {
+                "Titulo": "Abertura e Revisão Rápida",
+                "Duracao": "10 min",
+                "Descricao": "Revisar estruturas básicas de decisão com diagrama de fluxo.",
+                "Atividade": "Mostrar diagrama de fluxo para estruturas if-else."
+            },
+            {
+                "Titulo": "Exploração de Estruturas Condicionais",
+                "Duracao": "15 min",
+                "ExemploCodigo": "valor = int(input(\"Digite um número: \"))\nif valor > 10:\n    print(\"O valor é maior que 10\")\nelif valor == 10:\n    print(\"O valor é exatamente 10\")\nelse:\n    print(\"O valor é menor que 10\")",
+                "Atividade": "Modificar o código para verificar se o número é par ou ímpar."
+            },
+            {
+                "Titulo": "Revisão de Estruturas de Repetição",
+                "Duracao": "20 min",
+                "ExemploCodigo": "for i in range(5):\n    print(f\"Contando: {i}\")",
+                "Atividade": "Percorrer uma lista de frutas e mostrar cada item."
+            },
+            {
+                "Titulo": "Aplicação com Desafio Visual",
+                "Duracao": "15 min",
+                "Descricao": "Criar um gráfico que mostra a contagem de números pares.",
+                "ExemploCodigo": "import matplotlib.pyplot as plt\nlista = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\npares = [x for x in lista if x % 2 == 0]\nplt.bar(range(len(pares)), pares)\nplt.show()",
+                "Atividade": "Usar loops e gráficos para apresentar dados visualmente."
+            },
+            {
+                "Titulo": "Reflexão e Autoavaliação",
+                "Duracao": "10 min",
+                "Pergunta": "Como você se sentiu ao usar estruturas de decisão e repetição?"
+            },
+            {
+                "Titulo": "Encerramento e Próximos Passos",
+                "Duracao": "5 min",
+                "MensagemFinal": "Ótimo trabalho hoje! Vamos continuar aplicando esses conceitos na próxima sessão.",
+                "RegistroProgresso": {
+                    "id_estudante": "bgf@123",
+                    "data_hora": "2024-10-14T18:45:00Z",
+                    "conteudo": "Revisão de estruturas de decisão e repetição com exemplos visuais.",
+                    "observacoes": "O estudante demonstrou boa compreensão ao criar gráficos."
+                }
+            }
+        ]
+    }
+}
