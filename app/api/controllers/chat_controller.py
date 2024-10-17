@@ -41,7 +41,7 @@ from pymongo import MongoClient, errors
 import uuid
 from langchain.tools.retriever import create_retriever_tool
 from langchain_core.tools import tool
-
+from agent.prompt import AGENT_CHAT_PROMPT
 
 import fitz  # PyMuPDF library
 import asyncio
@@ -123,10 +123,7 @@ class ChatController:
             [
                 (
                     "system",
-                    """Você é um tutor que ajuda estudantes a desenvolver pensamento crítico.
-                    Baseado no perfil do estudante, ajude o aluno a aprender desenvolvendo o pensamento crítico.
-                    Nunca dê as respostas diretamente; ensine o pensamento por trás da questão.
-                    Use as informações abaixo para personalizar suas respostas:\n"""
+                    AGENT_CHAT_PROMPT
                 ),
                 ("system", "Perfil do estudante: {perfil}"),
                 ("system", "Plano de ação: {plano}"),
@@ -157,7 +154,7 @@ class ChatController:
             main_prompt
             | self.llm  # Chama o modelo de linguagem para processar o prompt
         )
-        return chain, feedback_chain
+        return chain
 
     async def handle_user_message(self, user_input: Optional[str] = None, files=None):
         print("Handling user message")
