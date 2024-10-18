@@ -205,21 +205,21 @@ Atue como o Agente Interativo, um tutor autônomo disponível 24 horas, respons�
 
 **Exemplo de Log em JSON:**
 
-{
+
   "interacao_id": "abc123",
   "id_estudante": "estudante456",
   "data_hora": "2023-10-15T09:00:00Z",
   "conteudo": "Discussão sobre transformações lineares usando gráficos de computador como exemplo.",
   "recursos_utilizados": [
-    {
+
       "id_recurso": "recurso789",
       "titulo": "Vídeo sobre transformações em gráficos de computador",
       "tipo": "video",
       "url": "https://exemplo.com/video_transformacoes"
-    }
+
   ],
   "observacoes": "O estudante mostrou maior interesse ao relacionar conceitos com aplicações em jogos digitais."
-}
+
 
 # Notas
 

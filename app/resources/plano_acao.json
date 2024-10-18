@@ -39,13 +39,6 @@
                 "Atividade": "Percorrer uma lista de frutas e mostrar cada item."
             },
             {
-                "Titulo": "Aplicação com Desafio Visual",
-                "Duracao": "15 min",
-                "Descricao": "Criar um gráfico que mostra a contagem de números pares.",
-                "ExemploCodigo": "import matplotlib.pyplot as plt\nlista = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\npares = [x for x in lista if x % 2 == 0]\nplt.bar(range(len(pares)), pares)\nplt.show()",
-                "Atividade": "Usar loops e gráficos para apresentar dados visualmente."
-            },
-            {
                 "Titulo": "Reflexão e Autoavaliação",
                 "Duracao": "10 min",
                 "Pergunta": "Como você se sentiu ao usar estruturas de decisão e repetição?"
