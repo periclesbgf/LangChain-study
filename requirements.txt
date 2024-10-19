@@ -38,6 +38,9 @@ llama-index-vector-stores-qdrant
 llama-index-embeddings-huggingface
 llama-index-vector-stores-chroma
 llama-index
+llama-index-llms-openai
+llama-index-readers-file
+llama-index-embeddings-openai
 langchain_chroma
 motor
 pymongo
@@ -48,3 +51,5 @@ qwen-vl-utils
 youtube-search-python
 google-search-results
 wikipedia-api
+langgraph
+langchain-openai

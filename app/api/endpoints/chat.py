@@ -12,6 +12,7 @@ from agent.image_handler import ImageHandler
 from database.vector_db import Embeddings
 from datetime import datetime
 from utils import OPENAI_API_KEY
+from agent.agents import RetrievalAgent, ChatAgent
 import json
 
 router_chat = APIRouter()
@@ -30,13 +31,20 @@ async def chat_endpoint(
             embeddings=embeddings
         )
         image_handler = ImageHandler(OPENAI_API_KEY)
-
+        retrieval_agent = RetrievalAgent(
+            qdrant_handler=qdrant_handler,
+            embeddings=embeddings
+        )
+        # Proximo passo: Criar o FORMS para o Perfil do estudante, Criar o GET do perfil do estudante e carregar aqui. inicializar o ChatAgent
+        # chat_agent = ChatAgent(
+        #     student_profile, execution_plan, mongo_uri, database_name, session_id, user_email, disciplina
         controller = ChatController(
             session_id=str(request.session_id),
             student_email=current_user["sub"],
             disciplina=str(request.discipline_id),
             qdrant_handler=qdrant_handler,
-            image_handler=image_handler
+            image_handler=image_handler,
+            retrieval_agent=retrieval_agent
         )
 
         print(f"Received message: {request.message}")
