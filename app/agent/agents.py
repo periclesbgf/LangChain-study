@@ -45,11 +45,16 @@ class RetrievalAgent:
             self,
             qdrant_handler: QdrantHandler,
             embeddings: Embeddings,
+            disciplina: str,
+            student_email: str,
             model_name: str = "gpt-4o-mini",
+
             ):
         self.model = ChatOpenAI(model_name=model_name, api_key=OPENAI_API_KEY)
         self.qdrant_handler = qdrant_handler
         self.embeddings = embeddings
+        self.student_email = student_email,
+        self.disciplina = disciplina,
 
         self.prompt = ChatPromptTemplate.from_messages(
             [
@@ -122,7 +127,7 @@ class RetrievalAgent:
         else:
             return "Nenhum resultado encontrado no Google."
 
-    def invoke(self, query: str, student_profile, execution_plan):
+    async def invoke(self, query: str, student_profile, execution_plan):
         """Invoca o agente para sugerir recursos."""
         try:
             response = self.agent_executor.invoke({

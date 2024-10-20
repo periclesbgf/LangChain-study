@@ -1,7 +1,7 @@
 # app/database/vector_db.py
 
 from langchain.vectorstores import Qdrant
-from langchain.embeddings import OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings  # Corrige depreciação
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
 from qdrant_client import QdrantClient
@@ -116,6 +116,7 @@ class Embeddings:
         self.embeddings = self.load_embeddings()
 
     def load_embeddings(self):
+        # Corrigindo para a nova importação
         return OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 
     def get_embeddings(self):

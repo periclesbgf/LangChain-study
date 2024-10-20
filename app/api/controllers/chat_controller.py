@@ -28,6 +28,7 @@ from langchain.schema import BaseMessage, message_to_dict, messages_from_dict, A
 from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.schema import BaseMessage
+import hashlib
 
 from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -106,7 +107,7 @@ A saída deve ser um **JSON** contendo a pergunta reformulada e os agentes neces
 ## Tarefas do Agente Orquestrador
 1. **Analisar o histórico e o input**: Reformule a pergunta do estudante para que ela possa ser respondida de forma clara e objetiva.
 2. **Determinar a sequência de agentes**: Ative os agentes necessários com base na natureza da pergunta.
-3. **Verificar a necessidade do Retrieval Agent**: Ative-o se o estudante estiver perguntando sobre materiais que ele mesmo enviou.
+3. **Verificar a necessidade do Retrieval Agent**: Ative-o se o estudante esiver tirando duvidas sobre um material que ele enviou ou se ele quiser que voce procure algo na internet.
 4. **Gerar Saída JSON**: Produza uma saída organizada e clara no formato JSON, conforme especificado.
 
 ---
@@ -125,6 +126,12 @@ A saída deve ser um **JSON** contendo a pergunta reformulada e os agentes neces
     - **Agente Analista de Progresso** para garantir que o plano esteja sendo seguido.  
     - **Agente de Chat** para fornecer a explicação solicitada.
 
+- **Indicacao de material**:  
+  - "Poderia me indicar algum material sobre string por favor?"  
+  - **Agentes ativados**:  
+    - **Retrieval Agent** para pesquisar um material baseado no perfil do estudante.  
+    - **Agente Analista de Progresso**  
+    - **Agente de Chat**
 ---
 
 ## Missão do Agente Orquestrador
@@ -145,7 +152,7 @@ class ChatController:
         qdrant_handler: QdrantHandler,
         image_handler: ImageHandler,
         retrieval_agent: RetrievalAgent,
-        chat_agent: ChatAgent
+        #chat_agent: ChatAgent
     ):
         print("Initializing ChatController")
         self.session_id = session_id
@@ -178,7 +185,7 @@ class ChatController:
         self.image_collection = self.db["image_collection"]
         print("MongoDB client initialized")
         self.retrieval_agent = retrieval_agent
-        self.chat_agent = chat_agent
+        #self.chat_agent = chat_agent
         self.chat_history = CustomMongoDBChatMessageHistory(
             user_email=self.student_email,
             disciplina=self.disciplina,
@@ -214,7 +221,7 @@ class ChatController:
                     "system",
                     PROMPT_AGENTE_ORQUESTRADOR
                 ),
-                ("human", "{input}")  # Entrada do usuário
+                ("human", "{input}")
             ]
         )
 
@@ -236,7 +243,7 @@ class ChatController:
             | self.llm  # Chama o modelo de linguagem para processar o prompt
         )
         json_output_parser = JsonOutputParser()
-        # Criação da cadeia (chain)
+
         chain = (
             main_prompt
             | self.llm
@@ -249,63 +256,71 @@ class ChatController:
         config = {"configurable": {"session_id": self.session_id}}
 
         try:
-            if files:
-                print("Processing uploaded files")
-                self._process_files(files)
-                return "Files processed and added to the database."
-
             if user_input:
+                print("obtendo o histórico e preparando a entrada")
                 # Obter o histórico e preparar a entrada
                 chat_history = self.chain_with_history.get_session_history(self.session_id).messages
+
                 inputs = {
                     "input": user_input,
-                    "chat_history": chat_history,
                     "perfil": self.perfil,
-                    "plano": self.plano_execucao
+                    "plano": self.plano_execucao,
                 }
 
                 # Salvar a mensagem do usuário no histórico
-                self.chat_history.add_message(HumanMessage(content=user_input))
-
+                #self.chat_history.add_message(HumanMessage(content=user_input))
+                print("Enviando requisição para o orquestrador")
                 # Invocar a cadeia do orquestrador
                 result = await self.chain_with_history.ainvoke(inputs, config=config)
                 print(f"Orchestrator Result: {result}")
 
-                orchestrator_response = result if isinstance(result, dict) else json.loads(result)
-                pergunta_reformulada = orchestrator_response.get("pergunta_reformulada")
-                agentes_necessarios = orchestrator_response.get("agentes_necessarios", [])
+                # Validação do formato da resposta
+                if isinstance(result, dict):
+                    output = result.get("output", "No valid output returned.")
+                    if "iteration limit" in output or "time limit" in output:
+                        print("Iteration or time limit reached.")
+                        output = "Desculpe, o agente atingiu o limite de iterações ou tempo."
+
+                else:
+                    output = str(result)
 
                 # Verificar se o RetrievalAgent é necessário
                 retrieval_needed = any(
                     agente["agente"] == "Retrieval Agent" and agente["necessario"]
-                    for agente in agentes_necessarios
+                    for agente in result.get("agentes_necessarios", [])
                 )
 
                 if retrieval_needed:
                     print("Retrieval Agent activated")
-                    retrieval_response = self.retrieval_agent.invoke(
-                        query=pergunta_reformulada,
+                    retrieval_response = await self.retrieval_agent.invoke(
+                        query=result.get("pergunta_reformulada", ""),
                         student_profile=self.perfil,
-                        execution_plan=self.plano_execucao
+                        execution_plan=self.plano_execucao,
                     )
                     print(f"Retrieval Agent Response: {retrieval_response}")
 
-                    # Extrair o campo 'output' e salvar no histórico
-                    output = retrieval_response.get('output', 'No relevant output found.')
-                    self.chat_history.add_message(AIMessage(content=output))
+                    # Verificar o tipo de resposta
+                    final_response = (
+                        retrieval_response.get("output", "Nenhum resultado encontrado.")
+                        if isinstance(retrieval_response, dict)
+                        else str(retrieval_response)
+                    )
 
-                    return output
+                    # Salvar a resposta no histórico
+                    self.chat_history.add_message(AIMessage(content=final_response))
+                    return final_response
 
-                # Salvar a pergunta reformulada como resposta do assistente
-                self.chat_history.add_message(AIMessage(content=pergunta_reformulada))
+                # Salvar a resposta do agente principal no histórico
+                self.chat_history.add_message(AIMessage(content=output))
+                return output
+            
+            
 
-                return pergunta_reformulada or "Pergunta não reformulada disponível."
-
-            return "No input provided."
+            return "Nenhuma entrada fornecida."
 
         except Exception as e:
             print(f"Error handling message: {e}")
-            return "An error occurred while processing your message."
+            return "Ocorreu um erro ao processar sua mensagem."
 
     def __setup_chat_history(self):
         print("Setting up chat history")
@@ -326,35 +341,34 @@ class ChatController:
         )
         return chain_with_history
 
-    def _process_files(self, files):
+    async def _process_files(self, files):
         """
         Processes the uploaded files: extracts text, images, and stores embeddings.
-        :param files: List of files uploaded by the user.
         """
         print(f"Processing {len(files)} file(s)")
         for file in files:
             filename = file.filename
             print(f"Processing file: {filename}")
-            content = file.read()
+            content = await file.read()  # Adição de await para ler o conteúdo corretamente
             if filename.lower().endswith(".pdf"):
                 print(f"Processing PDF file: {filename}")
-                self._process_pdf(content)
+                await self._process_pdf(content)  # Adição de await
             elif filename.lower().endswith((".jpg", ".jpeg", ".png")):
                 print(f"Processing image file: {filename}")
-                self._process_image(content)
+                await self._process_image(content)  # Adição de await
             else:
                 print(f"Unsupported file type: {filename}")
 
     async def _process_pdf(self, content):
         """
-        Processes PDF files: extracts text and images, generates embeddings.
+        Processes PDF files: extracts text and images, generates embeddings, 
+        and avoids adding duplicate content to Qdrant.
         :param content: Binary content of the PDF file.
         """
         print("Opening PDF document")
-        # Open the PDF using PyMuPDF (fitz)
         pdf_document = fitz.open(stream=content, filetype="pdf")
 
-        # Extract text from each page
+        # Extrair texto de cada página
         text = ""
         num_pages = len(pdf_document)
         print(f"PDF has {num_pages} pages")
@@ -364,12 +378,20 @@ class ChatController:
             print(f"Extracted text from page {page_num + 1}")
             text += page_text
 
+        # Calcular o hash do conteúdo para verificar duplicação
+        content_hash = hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+        # Verificar se o documento já existe no Qdrant
+        if self._document_exists_in_qdrant(content_hash):
+            print("Document already exists in Qdrant. Skipping insertion.")
+            return
+
         # Split the text into smaller documents
         documents = [Document(page_content=text)]
         text_docs = self.text_splitter.split_documents(documents)
         print(f"Split text into {len(text_docs)} documents")
 
-        # Generate embeddings for the text
+        # Gerar e armazenar embeddings no Qdrant
         for idx, doc in enumerate(text_docs):
             embedding = self.embeddings.embed_query(doc.page_content)
             self.qdrant_handler.add_document(
@@ -379,29 +401,28 @@ class ChatController:
                 embedding=embedding,
                 metadata={
                     "type": "text",
+                    "content_hash": content_hash,  # Armazena o hash para evitar duplicatas
                     "student_email": self.student_email,
                     "disciplina": self.disciplina,
                 },
             )
             print(f"Added document {idx + 1}/{len(text_docs)} to Qdrant")
 
-        # Extract images from each page
-        for page_num in range(num_pages):
-            page = pdf_document[page_num]
-            image_list = page.get_images(full=True)
-            print(f"Page {page_num + 1} has {len(image_list)} images")
-
-            for img_index, img_info in enumerate(image_list):
-                xref = img_info[0]
-                base_image = pdf_document.extract_image(xref)
-                image_bytes = base_image["image"]
-
-                # Process each extracted image
-                print(f"Processing image {img_index + 1}/{len(image_list)} on page {page_num + 1}")
-                await self._process_image(image_bytes)
-
         pdf_document.close()
         print("PDF processing complete")
+
+    def _document_exists_in_qdrant(self, content_hash: str) -> bool:
+        embedding = self.embeddings.embed_query(content_hash)  # Gerando o embedding corretamente
+        results = self.qdrant_handler.similarity_search(
+            embedding=embedding,  # <-- Correto
+            student_email=self.student_email,
+            disciplina=self.disciplina,
+            k=1
+        )
+        exists = len(results) > 0
+        print(f"Document exists: {exists}")
+        return exists
+
 
     async def _process_image(self, content):
         """

@@ -33,7 +33,9 @@ async def chat_endpoint(
         image_handler = ImageHandler(OPENAI_API_KEY)
         retrieval_agent = RetrievalAgent(
             qdrant_handler=qdrant_handler,
-            embeddings=embeddings
+            embeddings=embeddings,
+            disciplina=request.discipline_id,
+            student_email=current_user["sub"]
         )
         # Proximo passo: Criar o FORMS para o Perfil do estudante, Criar o GET do perfil do estudante e carregar aqui. inicializar o ChatAgent
         # chat_agent = ChatAgent(
