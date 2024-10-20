@@ -153,10 +153,14 @@ class ChatController:
         qdrant_handler: QdrantHandler,
         image_handler: ImageHandler,
         retrieval_agent: RetrievalAgent,
-        #chat_agent: ChatAgent
+        student_profile: dict  # Adicionado o perfil como parâmetro
     ):
         print("Initializing ChatController")
         self.session_id = session_id
+        self.student_email = student_email
+        self.disciplina = disciplina
+        self.perfil = student_profile  # Perfil passado para o controlador
+        self.plano_execucao = self._carregar_json("/home/pericles/project/LangChain-study/app/resources/plano_acao.json")
 
         # Inicializa o LLM
         self.llm = ChatOpenAI(
@@ -164,11 +168,6 @@ class ChatController:
             temperature=0.1,
             openai_api_key=OPENAI_API_KEY
         )
-        self.student_email = student_email
-        self.disciplina = disciplina
-        # Carrega o perfil e plano do estudante dos arquivos JSON
-        self.perfil = self._carregar_json("/home/pericles/project/LangChain-study/app/resources/context_test.json")
-        self.plano_execucao = self._carregar_json("/home/pericles/project/LangChain-study/app/resources/plano_acao.json")
 
         # Configura dependências adicionais
         self.qdrant_handler = qdrant_handler
@@ -186,8 +185,8 @@ class ChatController:
         self.image_collection = self.db["image_collection"]
         self.collection_name = "student_documents"
         print("MongoDB client initialized")
+
         self.retrieval_agent = retrieval_agent
-        #self.chat_agent = chat_agent
         self.chat_history = CustomMongoDBChatMessageHistory(
             user_email=self.student_email,
             disciplina=self.disciplina,
@@ -198,7 +197,6 @@ class ChatController:
             session_id_key="session_id",
             history_key="history",
         )
-
     def _carregar_json(self, caminho_arquivo: str):
         """Carrega dados de um arquivo JSON."""
         caminho_absoluto = os.path.abspath(caminho_arquivo)

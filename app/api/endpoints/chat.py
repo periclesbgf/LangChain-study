@@ -13,6 +13,7 @@ from database.vector_db import Embeddings
 from datetime import datetime
 from utils import OPENAI_API_KEY
 from agent.agents import RetrievalAgent, ChatAgent
+from database.mongo_database_manager import MongoDatabaseManager
 import json
 
 router_chat = APIRouter()
@@ -25,33 +26,40 @@ async def chat_endpoint(
     try:
         # Inicializa o QdrantHandler e o ImageHandler
         embeddings = Embeddings().get_embeddings()
-        print(f"Embeddings: {embeddings}")
-        print(f"QDRANT_URL: {QDRANT_URL}")
-        print("email: ", current_user["sub"])
-        print("disciplina: ", request.discipline_id)
         qdrant_handler = QdrantHandler(
             url=QDRANT_URL,
             collection_name="student_documents",
             embeddings=embeddings
         )
-        print("QdrantHandler inicializado com sucesso.")
         image_handler = ImageHandler(OPENAI_API_KEY)
+
+        # Inicializa o agente de recuperação
         retrieval_agent = RetrievalAgent(
             qdrant_handler=qdrant_handler,
             embeddings=embeddings,
             disciplina=request.discipline_id,
             student_email=current_user["sub"]
         )
-        # Proximo passo: Criar o FORMS para o Perfil do estudante, Criar o GET do perfil do estudante e carregar aqui. inicializar o ChatAgent
-        # chat_agent = ChatAgent(
-        #     student_profile, execution_plan, mongo_uri, database_name, session_id, user_email, disciplina
+
+        # Conecte-se ao MongoDB e obtenha o perfil do estudante
+        mongo_manager = MongoDatabaseManager()
+        student_profile = await mongo_manager.get_student_profile(
+            email=current_user["sub"],
+            collection_name="student_learn_preference"
+        )
+
+        if not student_profile:
+            raise HTTPException(status_code=404, detail="Perfil do estudante não encontrado.")
+
+        # Inicializa o ChatController com o perfil do estudante
         controller = ChatController(
             session_id=str(request.session_id),
             student_email=current_user["sub"],
             disciplina=str(request.discipline_id),
             qdrant_handler=qdrant_handler,
             image_handler=image_handler,
-            retrieval_agent=retrieval_agent
+            retrieval_agent=retrieval_agent,
+            student_profile=student_profile  # Passa o perfil
         )
 
         print(f"Received message: {request.message}")
@@ -65,6 +73,7 @@ async def chat_endpoint(
         response = await controller.handle_user_message(request.message, files)
         print(f"Response: {response}")
         return {"response": response}
+
     except Exception as e:
         print(f"Error in chat_endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))

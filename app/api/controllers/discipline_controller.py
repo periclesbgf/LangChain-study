@@ -42,19 +42,19 @@ class DisciplineController:
 
     def create_discipline_from_pdf(self, text: str, user_email: str):
         try:
-            # data = self.disciplin_chain.create_discipline_from_pdf(text, user_email)
-            # print(data)
+            data = self.disciplin_chain.create_discipline_from_pdf(text, user_email)
+            print(data)
 
             # saving data into json
             # with open('output_disciplina.json', 'w') as f:
             #     json.dump(data, f)
             # Ler o arquivo disciplin.json, economizando chamadas de API
-            with open('output_disciplina.json', 'r') as f:
-                data = json.load(f)
-            print("Arquivo JSON lido com sucesso.")
-            print(data)
+            # with open('output_disciplina.json', 'r') as f:
+            #     data = json.load(f)
+            # print("Arquivo JSON lido com sucesso.")
+            # print(data)
 
-            print("Tentando converter o texto do PDF em JSON...")
+            # print("Tentando converter o texto do PDF em JSON...")
             data = json.loads(data)
             print("Conversão bem-sucedida.")
             # Obtenha o nome do curso diretamente do JSON

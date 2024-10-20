@@ -210,6 +210,21 @@ class DatabaseManager:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Erro ao buscar curso para a disciplina '{discipline_name}'.")
 
+    def get_user_name_by_email(self, user_email: str) -> str:
+        """
+        Obtém o nome do usuário com base no e-mail.
+        :param user_email: E-mail do usuário.
+        :return: Nome do usuário.
+        """
+        try:
+            query = select(tabela_usuarios.c.Nome).where(tabela_usuarios.c.Email == user_email)
+            result = self.session.execute(query).fetchone()
+            if not result:
+                raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+            return result[0]
+        except Exception as e:
+            print(f"Erro ao buscar o nome do usuário: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao buscar o nome do usuário.")
 
     def get_study_sessions_by_course_and_student(self, course_id: int, student_id: int):
         try:

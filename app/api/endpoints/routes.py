@@ -18,7 +18,8 @@ from sqlalchemy import insert
 from fastapi.security import OAuth2PasswordRequestForm
 from api.controllers.auth import create_access_token, get_current_user
 from utils import SECRET_EDUCATOR_CODE
-
+from database.mongo_database_manager import MongoDatabaseManager
+from datetime import datetime, timezone
 
 history = ConversationHistory()
 
@@ -31,13 +32,18 @@ async def create_account(
 ):
     print("Creating account")
     try:
+        # Inicializa o gerenciador SQL
         sql_database_manager = DatabaseManager(session, metadata)
         sql_database_controller = CredentialsDispatcher(sql_database_manager)
+        
         print("connecting to database")
+
+        # Verifica se o código especial está correto para educadores
         if register_model.tipo_usuario == "educator":
             if register_model.special_code != SECRET_EDUCATOR_CODE:
                 raise HTTPException(status_code=400, detail="Invalid special code")
 
+        # Cria a conta no banco de dados SQL
         sql_database_controller.create_account(
             register_model.nome,
             register_model.email,
@@ -46,13 +52,45 @@ async def create_account(
             register_model.instituicao,
         )
 
-        return {"message": "Conta criada com sucesso"}
+        # Cria automaticamente o perfil no MongoDB
+        await create_profile_in_mongo(register_model.nome, register_model.email)
 
-    except IntegrityError as e:
+        return {"message": "Conta e perfil criados com sucesso"}
+
+    except IntegrityError:
         raise HTTPException(status_code=400, detail="Email já cadastrado.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+async def create_profile_in_mongo(nome: str, email: str):
+    try:
+        # Inicializa o gerenciador MongoDB
+        mongo_manager = MongoDatabaseManager()
+
+        # Monta os dados do perfil
+        profile_data = {
+            "Nome": nome,
+            "Email": email,
+            "EstiloAprendizagem": None,  # Inicialmente como None
+            "Feedback": None,
+            "PreferenciaAprendizado": None,
+            "created_at": datetime.now(timezone.utc)
+        }
+
+        # Cria o perfil no MongoDB
+        profile_id = await mongo_manager.create_student_profile(
+            email=email,
+            profile_data=profile_data
+        )
+
+        if not profile_id:
+            raise HTTPException(status_code=500, detail="Erro ao criar perfil.")
+
+        print(f"Perfil criado com ID: {profile_id}")
+
+    except Exception as e:
+        print(f"Erro ao criar perfil no MongoDB: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao criar perfil: {str(e)}")
 
 @router.post("/login")
 async def login(

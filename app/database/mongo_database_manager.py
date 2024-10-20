@@ -11,7 +11,7 @@ from pymongo import errors
 from datetime import datetime, timezone
 import json
 import os
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 
 class MongoDatabaseManager:
@@ -20,30 +20,77 @@ class MongoDatabaseManager:
         db_name = MONGO_DB_NAME
         self.client = motor.motor_asyncio.AsyncIOMotorClient(mongo_uri)
         self.db = self.client[db_name]
-        self.collection = self.db['mensagens']
 
-    async def save_message(self, session_id: str, role: str, content: str):
-        document = {
-            'session_id': session_id,
-            'role': role,
-            'content': content
-        }
-        await self.collection.insert_one(document)
+    async def create_student_profile(self, email: str, profile_data: Dict[str, Any]) -> Optional[str]:
+        """
+        Cria um novo perfil de estudante no MongoDB.
+        """
+        collection = self.db['student_learn_preference']
+        try:
+            # Verifica se o perfil já existe
+            existing_profile = await collection.find_one({"user_email": email})
+            if existing_profile:
+                print(f"Perfil já existe para o email: {email}")
+                return None
+            
+            # Insere o novo perfil
+            result = await collection.insert_one(profile_data)
+            print(f"Perfil criado com sucesso para o email: {email}")
+            return str(result.inserted_id)
+        
+        except errors.PyMongoError as e:
+            print(f"Erro ao criar perfil: {e}")
+            return None
 
-    async def get_chat_history(self, session_id: str):
-        cursor = self.collection.find({'session_id': session_id}).sort('_id', 1)
-        chat_history = []
-        async for doc in cursor:
-            role = doc['role']
-            content = doc['content']
-            if role == 'user':
-                chat_history.append(HumanMessage(content=content))
-            elif role == 'assistant':
-                chat_history.append(AIMessage(content=content))
-            elif role == 'system':
-                chat_history.append(SystemMessage(content=content))
-        return chat_history
-    
+    async def get_student_profile(self, email: str, collection_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Busca o perfil de um estudante pelo e-mail.
+        """
+        collection = self.db[collection_name]
+        try:
+            profile = await collection.find_one({"Email": email})  # Correção aqui
+            if not profile:
+                print(f"Perfil não encontrado para o email: {email}")
+                return None
+            return profile
+        except errors.PyMongoError as e:
+            print(f"Erro ao buscar perfil: {e}")
+            return None
+
+    async def update_student_profile(self, email: str, profile_data: Dict[str, Any], collection_name: str):
+        """
+        Atualiza o perfil de um estudante pelo e-mail.
+        """
+        collection = self.db[collection_name]
+        try:
+            result = await collection.update_one(
+                {"user_email": email},
+                {"$set": {"profile_data": profile_data, "updated_at": datetime.now(timezone.utc)}}
+            )
+            if result.matched_count == 0:
+                print(f"Perfil não encontrado para o email: {email}")
+                return False
+            print(f"Perfil atualizado com sucesso para o email: {email}")
+            return True
+        except errors.PyMongoError as e:
+            print(f"Erro ao atualizar perfil: {e}")
+            return False
+
+    async def delete_student_profile(self, email: str, collection_name: str):
+        """
+        Exclui o perfil de um estudante pelo e-mail.
+        """
+        collection = self.db[collection_name]
+        try:
+            result = await collection.delete_one({"user_email": email})
+            if result.deleted_count == 0:
+                print(f"Perfil não encontrado para o email: {email}")
+                return False
+            print(f"Perfil excluído com sucesso para o email: {email}")
+            return True
+        except errors.PyMongoError as e:
+            print(f"Erro ao excluir perfil: {e}")
+            return False
 
 class CustomMongoDBChatMessageHistory(MongoDBChatMessageHistory):
     def __init__(self, user_email: str, disciplina: str, *args, **kwargs):

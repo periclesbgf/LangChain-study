@@ -1,9 +1,10 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, List
 from fastapi import Depends,Form, UploadFile, File
+from pydantic import BaseModel, Field, EmailStr
 
 from api.controllers.auth import get_current_user
-from datetime import datetime
+from datetime import datetime, date
 
 
 class Question(BaseModel):
@@ -132,3 +133,23 @@ class MessageRequest(BaseModel):
         file: Optional[UploadFile] = File(None)
     ):
         return cls(session_id=session_id, message=message, discipline_id=discipline_id, file=file)
+
+
+
+class EstiloAprendizagem(BaseModel):
+    Percepcao: str = Field(..., example="Sensorial")
+    Entrada: str = Field(..., example="Visual")
+    Processamento: str = Field(..., example="Ativo")
+    Entendimento: str = Field(..., example="Sequencial")
+
+class Feedback(BaseModel):
+    data: Optional[datetime] = Field(None, example="2024-10-14")
+    disciplina: Optional[str] = Field(None, example="Introdução à Programação")
+    feedback: Optional[str] = Field(None, example="Bom progresso.")
+    acoesRecomendadas: Optional[List[str]] = Field(None, example=["Praticar loops"])
+
+class PreferenciasAprendizado(BaseModel):
+    Dificuldades: Optional[List[str]] = Field(None, example=["Estruturas de decisão"])
+    PreferenciaRecursos: Optional[str] = Field(None, example="Exemplos visuais")
+    feedbackDoTutor: Optional[List[Feedback]] = Field(default_factory=list)
+    feedbackDoProfessor: Optional[List[Feedback]] = Field(default_factory=list)
