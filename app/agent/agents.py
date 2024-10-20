@@ -9,13 +9,14 @@ from langchain.memory.chat_message_histories import MongoDBChatMessageHistory
 from langchain.schema import BaseMessage, AIMessage, message_to_dict, messages_from_dict
 from pymongo import errors
 from datetime import datetime, timezone
+from typing import Callable
 import json
 from langchain_openai import ChatOpenAI
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import tool
 from database.vector_db import QdrantHandler, Embeddings
-from langchain.tools import tool
+from langchain.tools import tool, StructuredTool, BaseTool
 from youtubesearchpython import VideosSearch
 import wikipediaapi
 from serpapi import GoogleSearch
@@ -38,6 +39,10 @@ Você é o Agente de Recuperador de Conteúdo. Sua função é sugerir recursos 
 1. **Pesquisar Recursos Relevantes**: Use a consulta do usuário para encontrar materiais apropriados.
 2. **Personalizar Sugestões**: Adapte os recursos às preferências e necessidades do estudante.
 3. **Fornecer Recomendações Claras**: Apresente os recursos de forma organizada e acessível.
+
+### Nota Importante:
+- Sempre priorize a ferramenta `retrieve_context` para fornecer contexto educativo relevante antes de utilizar Wikipedia.
+- Garanta que todas as respostas sejam apresentadas de forma clara e direcionada ao objetivo do estudante.
 """
 
 class RetrievalAgent:
@@ -48,13 +53,12 @@ class RetrievalAgent:
             disciplina: str,
             student_email: str,
             model_name: str = "gpt-4o-mini",
-
-            ):
+    ):
         self.model = ChatOpenAI(model_name=model_name, api_key=OPENAI_API_KEY)
         self.qdrant_handler = qdrant_handler
         self.embeddings = embeddings
-        self.student_email = student_email,
-        self.disciplina = disciplina,
+        self.student_email = student_email
+        self.disciplina = disciplina
 
         self.prompt = ChatPromptTemplate.from_messages(
             [
@@ -63,69 +67,125 @@ class RetrievalAgent:
                 ("system", RETRIEVAL_PROMPT),
             ]
         )
-        self.agent = create_tool_calling_agent(self.model, [self.retrieve_context, self.search_youtube, self.search_wikipedia, self.search_google], self.prompt)
-        self.agent_executor = AgentExecutor(agent=self.agent, tools=[self.retrieve_context, self.search_youtube, self.search_wikipedia, self.search_google])
-
-    @tool
-    def retrieve_context(self, query: str):
-        """Recupera recursos relevantes do banco vetorial com base na consulta."""
-        print(f"Retrieving context for query: {query}")
-        embedding = self.embeddings.embed_query(query)
-        results = self.qdrant_handler.similarity_search(
-            embedding=embedding,
-            k=5,
+        
+        # Defina ferramentas auxiliares sem decorar métodos de instância
+        tools = [
+            self.create_tool(self.retrieve_context, "retrieve_context"),
+            self.create_tool(self.search_youtube, "search_youtube"),
+            self.create_tool(self.search_wikipedia, "search_wikipedia"),
+            self.create_tool(self.search_google, "search_google"),
+        ]
+        
+        self.agent = create_tool_calling_agent(
+            self.model, 
+            tools, 
+            self.prompt
         )
-        print(f"Retrieved {len(results)} relevant documents")
-        context = [result['content'] for result in results]
-        return "\n".join(context)
+        self.agent_executor = AgentExecutor(
+            agent=self.agent, 
+            tools=tools
+        )
 
-    @tool
-    def search_youtube(query: str) -> str:
+    def create_tool(self, func: Callable[[str], str], name: str) -> StructuredTool:
+        """Cria uma ferramenta a partir de uma função sem 'self'."""
+        return StructuredTool.from_function(
+            func=func,
+            name=name,
+            description=f"Tool para {name}",
+            args_schema=None,  # Defina conforme necessário
+        )
+
+    def retrieve_context(self, query: str) -> str:
+        print(f"Retrieving context for query: {query}")
+
+        try:
+            # Depurar metadados
+            self.qdrant_handler.debug_metadata()
+
+            # Busca sem filtro
+            print("🔍 Buscando sem filtro...")
+            no_filter_results = self.qdrant_handler.similarity_search_without_filter(query, k=5)
+
+            # Busca com filtro
+            print("🔍 Buscando com filtro...")
+            filter_results = self.qdrant_handler.similarity_search_with_filter(
+                query=query,
+                student_email=self.student_email,
+                disciplina="1",  # Garantir que é string
+                k=5
+            )
+
+            print(f"Sem filtro: {len(no_filter_results)} | Com filtro: {len(filter_results)}")
+
+            if filter_results:
+                context = "\n".join([doc.page_content for doc in filter_results])
+            else:
+                context = "Nenhum contexto relevante encontrado."
+
+            return context
+
+        except Exception as e:
+            print(f"Erro ao recuperar contexto: {e}")
+            return "Ocorreu um erro ao tentar recuperar o contexto."
+
+
+
+    def search_youtube(self, query: str) -> str:
         """
         Realiza uma pesquisa no YouTube e retorna o link do vídeo mais relevante.
         """
-        videos_search = VideosSearch(query, limit=1)
-        results = videos_search.result()
+        try:
+            videos_search = VideosSearch(query, limit=1)
+            results = videos_search.result()
 
-        if results['result']:
-            video_info = results['result'][0]
-            return f"Título: {video_info['title']}\nLink: {video_info['link']}\nDescrição: {video_info.get('descriptionSnippet', 'Sem descrição')}"
-        else:
-            return "Nenhum vídeo encontrado."
+            if results['result']:
+                video_info = results['result'][0]
+                return f"Título: {video_info['title']}\nLink: {video_info['link']}\nDescrição: {video_info.get('descriptionSnippet', 'Sem descrição')}"
+            else:
+                return "Nenhum vídeo encontrado."
+        except Exception as e:
+            print(f"Erro ao buscar no YouTube: {e}")
+            return "Ocorreu um erro ao buscar no YouTube."
 
-    @tool
-    def search_wikipedia(query: str) -> str:
+    def search_wikipedia(self, query: str) -> str:
         """
         Realiza uma pesquisa no Wikipedia e retorna o resumo da página.
         """
-        wiki_wiki = wikipediaapi.Wikipedia('pt')  # Português
-        page = wiki_wiki.page(query)
+        try:
+            wiki_wiki = wikipediaapi.Wikipedia('pt')  # Português
+            page = wiki_wiki.page(query)
 
-        if page.exists():
-            return f"Título: {page.title}\nResumo: {page.summary[:500]}...\nLink: {page.fullurl}"
-        else:
-            return "Página não encontrada."
+            if page.exists():
+                return f"Título: {page.title}\nResumo: {page.summary[:500]}...\nLink: {page.fullurl}"
+            else:
+                return "Página não encontrada."
+        except Exception as e:
+            print(f"Erro ao buscar no Wikipedia: {e}")
+            return "Ocorreu um erro ao buscar no Wikipedia."
 
-    @tool
-    def search_google(query: str) -> str:
+    def search_google(self, query: str) -> str:
         """
         Realiza uma pesquisa no Google e retorna o primeiro link relevante.
         """
-        params = {
-            "q": query,
-            "hl": "pt",  # Português
-            "gl": "br",  # Região Brasil
-            "api_key": "YOUR_SERPAPI_KEY"  # Substitua com sua chave da API SerpAPI
-        }
+        try:
+            params = {
+                "q": query,
+                "hl": "pt",  # Português
+                "gl": "br",  # Região Brasil
+                "api_key": "YOUR_SERPAPI_KEY"  # Substitua com sua chave da API SerpAPI
+            }
 
-        search = GoogleSearch(params)
-        results = search.get_dict()
+            search = GoogleSearch(params)
+            results = search.get_dict()
 
-        if "organic_results" in results:
-            top_result = results["organic_results"][0]
-            return f"Título: {top_result['title']}\nLink: {top_result['link']}\nDescrição: {top_result.get('snippet', 'Sem descrição')}"
-        else:
-            return "Nenhum resultado encontrado no Google."
+            if "organic_results" in results and len(results["organic_results"]) > 0:
+                top_result = results["organic_results"][0]
+                return f"Título: {top_result['title']}\nLink: {top_result['link']}\nDescrição: {top_result.get('snippet', 'Sem descrição')}"
+            else:
+                return "Nenhum resultado encontrado no Google."
+        except Exception as e:
+            print(f"Erro ao buscar no Google: {e}")
+            return "Ocorreu um erro ao buscar no Google."
 
     async def invoke(self, query: str, student_profile, execution_plan):
         """Invoca o agente para sugerir recursos."""
@@ -140,7 +200,7 @@ class RetrievalAgent:
             return response
         except Exception as e:
             print(f"Error in RetrievalAgent: {e}")
-            return "An error occurred while retrieving resources."
+            return "Ocorreu um erro ao recuperar recursos."
 
 PROMPT_AGENTE_ANALISE_PROGRESSO = """
 Você é o Agente de Análise de Progresso. Sua responsabilidade é avaliar o desempenho do estudante e fornecer feedback corretivo, se necessário.
@@ -165,7 +225,7 @@ Você é o Agente de Análise de Progresso. Sua responsabilidade é avaliar o de
 """
 
 class ProgressAnalysisAgent:
-    def __init__(self, student_profile, execution_plan, mongo_uri, database_name, session_id, user_email, disciplina, model_name="gpt-4o"):
+    def __init__(self, student_profile, execution_plan, mongo_uri, database_name, session_id, user_email, disciplina, model_name="gpt-4o-mini"):
         self.student_profile = student_profile
         self.execution_plan = execution_plan
         self.session_id = session_id

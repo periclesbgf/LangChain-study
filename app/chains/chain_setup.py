@@ -102,7 +102,7 @@ class CommandChain:
 class SQLChain:
     def __init__(self, api_key):
         self.api_key = api_key
-        self.model = "gpt-4-turbo"
+        self.model = "gpt-4o-mini"
         self.prompt_template = """
             Você é um especialista em tranformar frases em consultas sql.
             - Como resposta você deverá dar a consulta SQL referente a frase do usuário e nada mais.

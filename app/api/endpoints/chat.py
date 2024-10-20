@@ -25,11 +25,16 @@ async def chat_endpoint(
     try:
         # Inicializa o QdrantHandler e o ImageHandler
         embeddings = Embeddings().get_embeddings()
+        print(f"Embeddings: {embeddings}")
+        print(f"QDRANT_URL: {QDRANT_URL}")
+        print("email: ", current_user["sub"])
+        print("disciplina: ", request.discipline_id)
         qdrant_handler = QdrantHandler(
             url=QDRANT_URL,
             collection_name="student_documents",
             embeddings=embeddings
         )
+        print("QdrantHandler inicializado com sucesso.")
         image_handler = ImageHandler(OPENAI_API_KEY)
         retrieval_agent = RetrievalAgent(
             qdrant_handler=qdrant_handler,

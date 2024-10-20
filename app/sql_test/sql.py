@@ -16,7 +16,7 @@ from app.utils import OPENAI_API_KEY, CODE
 class CommandChain:
     def __init__(self, api_key):
         self.api_key = api_key
-        self.model = "gpt-4o"
+        self.model = "gpt-4o-mini"
         self.prompt_template = """
         1. Você é um assistente virtual chamado Éden
         2. Seu papel é ler e entender o conteudo de um PDF que será desorganizado

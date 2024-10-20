@@ -41,6 +41,7 @@ import json
 from pymongo import MongoClient, errors
 import uuid
 from langchain.tools.retriever import create_retriever_tool
+from qdrant_client.http.models import FieldCondition, Filter, MatchValue
 from langchain_core.tools import tool
 from agent.prompt import AGENT_CHAT_PROMPT
 from agent.agents import RetrievalAgent, ChatAgent
@@ -183,6 +184,7 @@ class ChatController:
         self.client = MongoClient(MONGO_URI)
         self.db = self.client[MONGO_DB_NAME]
         self.image_collection = self.db["image_collection"]
+        self.collection_name = "student_documents"
         print("MongoDB client initialized")
         self.retrieval_agent = retrieval_agent
         #self.chat_agent = chat_agent
@@ -256,23 +258,53 @@ class ChatController:
         config = {"configurable": {"session_id": self.session_id}}
 
         try:
-            if user_input:
-                print("obtendo o histórico e preparando a entrada")
+            if user_input or files:
+                print("Obtendo o histórico e preparando a entrada")
                 # Obter o histórico e preparar a entrada
                 chat_history = self.chain_with_history.get_session_history(self.session_id).messages
 
+                # Processar arquivos, se houver
+                if files:
+                    print(f"{len(files)} arquivo(s) recebido(s). Processando...")
+                    await self._process_files(files)
+                    files_processed = True
+                else:
+                    files_processed = False
+
                 inputs = {
-                    "input": user_input,
+                    "input": user_input if user_input else "",
                     "perfil": self.perfil,
                     "plano": self.plano_execucao,
                 }
 
                 # Salvar a mensagem do usuário no histórico
-                #self.chat_history.add_message(HumanMessage(content=user_input))
+                if user_input:
+                    self.chat_history.add_message(HumanMessage(content=user_input))
+                    print(f"Adicionada mensagem do usuário ao histórico: {user_input}")
+
                 print("Enviando requisição para o orquestrador")
                 # Invocar a cadeia do orquestrador
                 result = await self.chain_with_history.ainvoke(inputs, config=config)
                 print(f"Orchestrator Result: {result}")
+
+                # Se arquivos foram processados, garantir que Retrieval Agent seja necessário
+                if files_processed:
+                    print("Arquivos processados, ajustando 'necessario' para Retrieval Agent.")
+                    agentes = result.get("agentes_necessarios", [])
+                    retrieval_agent_found = False
+                    for agente in agentes:
+                        if agente["agente"] == "Retrieval Agent":
+                            agente["necessario"] = True
+                            retrieval_agent_found = True
+                            print("Retrieval Agent já existente encontrado e ajustado.")
+                            break
+                    if not retrieval_agent_found:
+                        # Adicionar Retrieval Agent se não existir
+                        agentes.append({"agente": "Retrieval Agent", "necessario": True})
+                        print("Retrieval Agent não encontrado, adicionado à lista de agentes.")
+                    result["agentes_necessarios"] = agentes
+                else:
+                    print("Nenhum arquivo processado, mantendo configuração original dos agentes.")
 
                 # Validação do formato da resposta
                 if isinstance(result, dict):
@@ -280,7 +312,6 @@ class ChatController:
                     if "iteration limit" in output or "time limit" in output:
                         print("Iteration or time limit reached.")
                         output = "Desculpe, o agente atingiu o limite de iterações ou tempo."
-
                 else:
                     output = str(result)
 
@@ -313,8 +344,6 @@ class ChatController:
                 # Salvar a resposta do agente principal no histórico
                 self.chat_history.add_message(AIMessage(content=output))
                 return output
-            
-            
 
             return "Nenhuma entrada fornecida."
 
@@ -359,7 +388,7 @@ class ChatController:
             else:
                 print(f"Unsupported file type: {filename}")
 
-    async def _process_pdf(self, content):
+    async def _process_pdf(self, content: bytes):
         """
         Processes PDF files: extracts text and images, generates embeddings, 
         and avoids adding duplicate content to Qdrant.
@@ -382,7 +411,7 @@ class ChatController:
         content_hash = hashlib.sha256(text.encode('utf-8')).hexdigest()
 
         # Verificar se o documento já existe no Qdrant
-        if self._document_exists_in_qdrant(content_hash):
+        if self.qdrant_handler.document_exists(content_hash, self.student_email, self.disciplina):
             print("Document already exists in Qdrant. Skipping insertion.")
             return
 
@@ -391,35 +420,35 @@ class ChatController:
         text_docs = self.text_splitter.split_documents(documents)
         print(f"Split text into {len(text_docs)} documents")
 
-        # Gerar e armazenar embeddings no Qdrant
+        # Adicionar documentos no Qdrant usando QdrantVectorStore
         for idx, doc in enumerate(text_docs):
-            embedding = self.embeddings.embed_query(doc.page_content)
+            metadata_extra = {
+                "content_hash": content_hash,  # Armazena o hash para evitar duplicatas
+            }
             self.qdrant_handler.add_document(
                 student_email=self.student_email,
                 disciplina=self.disciplina,
                 content=doc.page_content,
-                embedding=embedding,
-                metadata={
-                    "type": "text",
-                    "content_hash": content_hash,  # Armazena o hash para evitar duplicatas
-                    "student_email": self.student_email,
-                    "disciplina": self.disciplina,
-                },
+                metadata_extra=metadata_extra,
             )
             print(f"Added document {idx + 1}/{len(text_docs)} to Qdrant")
 
         pdf_document.close()
         print("PDF processing complete")
 
+
     def _document_exists_in_qdrant(self, content_hash: str) -> bool:
-        embedding = self.embeddings.embed_query(content_hash)  # Gerando o embedding corretamente
-        results = self.qdrant_handler.similarity_search(
-            embedding=embedding,  # <-- Correto
+        """
+        Verifica se um documento com o content_hash já existe na coleção.
+        
+        :param content_hash: Hash do conteúdo do documento.
+        :return: True se existir, False caso contrário.
+        """
+        exists = self.qdrant_handler.document_exists(
+            content_hash=content_hash,
             student_email=self.student_email,
-            disciplina=self.disciplina,
-            k=1
+            disciplina=self.disciplina
         )
-        exists = len(results) > 0
         print(f"Document exists: {exists}")
         return exists
 
