@@ -10,6 +10,7 @@ from langchain.schema import BaseMessage, AIMessage, message_to_dict, messages_f
 from pymongo import errors
 from datetime import datetime, timezone
 from typing import Callable
+from langchain_core.runnables import RunnableWithMessageHistory
 import json
 from langchain_openai import ChatOpenAI
 from langchain.agents import AgentExecutor, create_tool_calling_agent
@@ -19,8 +20,12 @@ from database.vector_db import QdrantHandler, Embeddings
 from langchain.tools import tool, StructuredTool, BaseTool
 from youtubesearchpython import VideosSearch
 import wikipediaapi
+from langchain.agents.react.output_parser import ReActOutputParser
 from serpapi import GoogleSearch
 from utils import OPENAI_API_KEY
+from langchain.agents import AgentExecutor, create_tool_calling_agent, Tool, initialize_agent, create_react_agent
+from langchain_core.output_parsers import StrOutputParser
+from langchain.chains.sequential import SequentialChain
 
 
 RETRIEVAL_PROMPT = """
@@ -268,43 +273,49 @@ class ProgressAnalysisAgent:
         # Invocar o agente
         response = self.agent_executor.invoke({"history": history_messages})
         return response
-    
 
 
-PROMPT_AGENTE_CONVERSASIONAL = """
-Você é o Agente de Pensamento Crítico, o tutor principal responsável por ensinar o estudante, se comunicar de forma eficaz e promover o desenvolvimento do pensamento crítico.
-
-### Responsabilidades:
-- **Ensino do Conteúdo**: Apresente conceitos de forma clara e adaptada ao nível do estudante.
-- **Comunicação Eficaz**: Use exemplos personalizados e linguagem apropriada ao perfil do estudante.
-- **Desenvolvimento do Pensamento Crítico**: Incentive o estudante a refletir e encontrar respostas por conta própria.
+PROMPT_COMBINADO = """
+Você é um agente de aprendizado que realiza duas tarefas principais:
+1. **Análise da Pergunta**: Entender a pergunta do estudante e criar um plano de resposta personalizado com base no perfil e no histórico do aluno.
+2. **Execução da Resposta**: Ensinar o estudante de forma eficaz, seguindo o plano de resposta gerado e o plano de execução existente.
 
 ### Entrada:
-- **Perfil do Estudante**: {perfil_do_estudante}
-- **Plano de Execução**: {plano_de_execucao}
-- **Histórico de Interações**: {historico_de_interacoes}
+- **Pergunta do Usuário**
+- **Perfil do Estudante**
+- **Plano de Execução**
+- **Histórico da Conversa**
 
 ### Tarefas:
-1. **Responda de forma personalizada**: Use o perfil e plano do estudante para adaptar sua resposta.
-2. **Inicie perguntas reflexivas**: Ajude o estudante a desenvolver habilidades críticas e resolver problemas.
-3. **Verifique o alinhamento com o plano**: Certifique-se de que sua resposta está de acordo com o plano de execução.
+1. **Compreender a Pergunta**:
+   - Identifique o que o estudante quer saber.
+2. **Criar um Plano de Resposta**:
+   - Com base no perfil e nas necessidades do estudante, defina os passos necessários para ensinar o conceito.
+3. **Executar o Plano de Resposta**:
+   - Siga o plano passo a passo.
+   - Promova o pensamento crítico, incentivando o estudante a pensar e encontrar soluções por conta própria.
 
-**Exemplo de Interação**:
-*Entrada*: "Não entendo como resolver essa equação diferencial."
-*Resposta*: "Vamos resolver isso juntos. O que você já sabe sobre integrais? Talvez possamos começar por aí."
+### Exemplo de Saída:
+- **Plano de Resposta**:
+  1. Revisar conceito X.
+  2. Aplicar exemplo Y.
+  3. Fazer perguntas reflexivas para verificar a compreensão.
+- **Resposta Final**:
+  "Vamos revisar o conceito X, aplicando o exemplo Y para entender melhor. Em seguida, farei algumas perguntas para verificar sua compreensão."
 
-**Formato de Saída**:
-- Uma resposta clara e relevante para o estudante.
+### Nota:
+- NUNCA DE A RESPOSTA. Sempre guie o estudante para a solução.
 """
 
 class ChatAgent:
     def __init__(self, student_profile, execution_plan, mongo_uri, database_name, session_id, user_email, disciplina, model_name="gpt-4o-mini"):
         self.student_profile = student_profile
-        self.execution_plan = execution_plan
+        self.execution_plan = execution_plan  # Plano de execução mantido no __init__
         self.session_id = session_id
         self.user_email = user_email
         self.disciplina = disciplina
         self.model = ChatOpenAI(model_name=model_name, api_key=OPENAI_API_KEY)
+
         self.history = CustomMongoDBChatMessageHistory(
             user_email=self.user_email,
             disciplina=self.disciplina,
@@ -315,35 +326,205 @@ class ChatAgent:
             session_id_key="session_id",
             history_key="history",
         )
-        self.prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", PROMPT_AGENTE_CONVERSASIONAL),
-                MessagesPlaceholder(variable_name="history"),
-                ("human", "{input}")
-            ]
-        )
-        self.agent = create_tool_calling_agent(self.model, [self.respond_to_student], self.prompt)
-        self.agent_executor = AgentExecutor(agent=self.agent, tools=[self.respond_to_student])
 
-    @tool
-    def respond_to_student(self, query: str):
-        """Processa a entrada do estudante e gera uma resposta reflexiva."""
-        # Aqui você pode adicionar lógica adicional se necessário
-        return query
+        self.chain = self._setup_chain()
 
-    def invoke(self, user_input: str):
-        # Obter o histórico de mensagens
-        history_messages = self.history.messages
-        # Formatar o prompt
-        formatted_prompt = self.prompt.format(
-            perfil_do_estudante=self.student_profile,
-            plano_de_execucao=self.execution_plan,
-            historico_de_interacoes="\n".join([msg.content for msg in history_messages]),
-            input=user_input
-        )
-        # Invocar o agente
-        response = self.agent_executor.invoke({"input": user_input, "history": history_messages})
-        # Salvar a interação no histórico
-        self.history.add_message(BaseMessage(content=user_input, role="human"))
-        self.history.add_message(AIMessage(content=response, role="assistant"))
-        return response
+    def _setup_chain(self):
+        """Configura a cadeia de prompts para análise e execução da resposta."""
+
+        # Primeira etapa: Análise da pergunta e geração do plano
+        plan_prompt = ChatPromptTemplate.from_messages([
+            MessagesPlaceholder(variable_name="history"),
+            ("ai", "perfil do estudante: {perfil_do_estudante}"),
+            ("ai", "plano de execução: {plano_de_execucao}"),
+            ("system", PROMPT_COMBINADO),
+            ("human", "{input}"),
+        ])
+
+        # Configuração das cadeias individuais
+        chain = plan_prompt | self.model | StrOutputParser()
+
+        return chain
+
+    async def invoke(self, user_input: str, history):
+        """Executa a cadeia configurada para fornecer a resposta final."""
+        try:
+            print(f"Received message: {user_input}")
+
+            # Prepara as entradas para o fluxo
+            inputs = {
+                "input": user_input,
+                "perfil_do_estudante": self.student_profile,
+                "plano_de_execucao": self.execution_plan,
+                "history": history
+            }
+
+            # Invoca a cadeia sequencial
+            result = await self.chain.ainvoke(inputs)
+
+            # Acessa a resposta final
+
+            # (Opcional) Salvar no histórico da conversa
+            # self.history.add_message(BaseMessage(content=user_input, role="human"))
+            # self.history.add_message(AIMessage(content=final_response, role="assistant"))
+
+            return result
+
+        except Exception as e:
+            print(f"Erro ao processar a mensagem: {e}")
+            return "Ocorreu um erro ao processar sua mensagem."
+        
+
+
+
+        
+# PROMPT_AGENTE_CONVERSASIONAL = """
+# Você é o Agente de Pensamento Crítico, responsável por ensinar o estudante e promover o desenvolvimento do pensamento crítico.
+
+# ## Responsabilidades:
+# - **Ensino do Conteúdo**: Apresente conceitos claros e adaptados ao nível do estudante.
+# - **Comunicação Eficaz**: Use exemplos e uma linguagem apropriada ao perfil do estudante.
+# - **Desenvolvimento do Pensamento Crítico**: Incentive a reflexão e a solução independente de problemas.
+# - **Uso de Histórico**: Acompanhe o histórico do estudante para personalizar a resposta e garantir continuidade.
+
+# ## Entrada:
+# - **Perfil do Estudante**: {perfil_do_estudante}
+# - **Plano de Execução**: {plano_de_execucao}
+# - **Histórico de Interações**: {historico_de_interacoes}
+
+# ## Exemplo de Fluxo:
+# *Entrada*: "Como resolver uma equação diferencial?"
+# *Resposta*: "Vamos resolver juntos! O que você já sabe sobre integrais? Podemos começar por aí."
+
+# ---
+
+# ## Regras:
+# 1. **Personalize a resposta**: Utilize o perfil e histórico do estudante.
+# 2. **Inicie perguntas reflexivas**: Encoraje o aluno a pensar e encontrar soluções.
+# 3. **Garanta alinhamento**: Verifique se a resposta segue o plano de execução.
+
+# ## Nota, 
+# utilize o formato abaixo para fazer o registro de cada interação:
+# Thought: [Sua análise do que fazer]
+# Action: [Nome da ação a ser realizada]
+# Action Input: [Parâmetros da ação]
+# Observation: [Resultado da ação]
+# Thought: [Análise após observar o resultado]
+# ... (Repita o ciclo, se necessário)
+# Final Answer: [Resposta final ao usuário]
+# """
+
+
+# class ChatAgent:
+#     def __init__(self, student_profile, execution_plan, mongo_uri, database_name, session_id, user_email, disciplina, model_name="gpt-4o-mini"):
+#         self.student_profile = student_profile
+#         self.execution_plan = execution_plan
+#         self.session_id = session_id
+#         self.user_email = user_email
+#         self.disciplina = disciplina
+
+#         # Inicializa o modelo de linguagem
+#         self.model = ChatOpenAI(model_name=model_name, api_key=OPENAI_API_KEY)
+
+#         # Histórico de conversas no MongoDB
+#         self.mongo_client = MongoClient(mongo_uri)
+#         self.history_collection = self.mongo_client[database_name]['chat_history']
+#         self.long_term_memory_collection = self.mongo_client[database_name]['long_term_memory']
+
+#         # Prompt do agente
+#         self.prompt = ChatPromptTemplate.from_messages([
+#             ("system", PROMPT_AGENTE_CONVERSASIONAL),
+#             MessagesPlaceholder(variable_name="history"),
+#             ("human", "{input}")
+#         ])
+
+#         # Parser ReAct
+#         self.output_parser = ReActOutputParser()
+
+#         # Define tools para o agente
+#         self.tools = [
+#             Tool(name="retrieve_chat_history", func=self.retrieve_chat_history, description="Resgata o histórico do chat."),
+#             Tool(name="insert_long_term_memory", func=self.insert_long_term_memory, description="Insere memória de longo prazo."),
+#             Tool(name="add_long_term_memory_to_agent", func=self.add_long_term_memory_to_agent, description="Adiciona memória ao agente.")
+#         ]
+
+#         # Cria o agente ReAct
+#         self.agent = create_react_agent(
+#             llm=self.model,
+#             prompt=self.prompt,
+#             output_parser=self.output_parser
+#         )
+
+#         # Executor do agente
+#         self.agent_executor = AgentExecutor(agent=self.agent, tools=self.tools, verbose=True)
+
+#     def retrieve_chat_history(self, session_id: str) -> str:
+#         """Resgata o histórico de chat do MongoDB."""
+#         try:
+#             history_cursor = self.history_collection.find({"session_id": session_id}).sort("timestamp", 1)
+#             history = [json.loads(doc.get('history', '{}')) for doc in history_cursor]
+#             return json.dumps(history)
+#         except Exception as e:
+#             print(f"Erro ao resgatar o histórico de chat: {e}")
+#             return "Erro ao resgatar o histórico de chat."
+
+#     def insert_long_term_memory(self, memory: dict) -> str:
+#         """Insere memória de longo prazo no MongoDB."""
+#         try:
+#             memory['timestamp'] = datetime.now(timezone.utc)
+#             self.long_term_memory_collection.insert_one(memory)
+#             return "Memória de longo prazo inserida com sucesso."
+#         except Exception as e:
+#             print(f"Erro ao inserir memória de longo prazo: {e}")
+#             return "Erro ao inserir memória de longo prazo."
+
+#     def add_long_term_memory_to_agent(self, memory: dict) -> str:
+#         """Adiciona memória de longo prazo ao agente."""
+#         try:
+#             # Adiciona a memória ao histórico
+#             self.history_collection.insert_one({
+#                 "session_id": self.session_id,
+#                 "user_email": self.user_email,
+#                 "disciplina": self.disciplina,
+#                 "memory": memory,
+#                 "timestamp": datetime.now(timezone.utc)
+#             })
+#             return "Memória adicionada ao agente com sucesso."
+#         except Exception as e:
+#             print(f"Erro ao adicionar memória ao agente: {e}")
+#             return "Erro ao adicionar memória ao agente."
+
+#     async def invoke(self, user_input: str) -> str:
+#         """Processa a entrada do usuário e retorna a resposta do agente."""
+#         try:
+#             # Obter o histórico de mensagens
+#             history_messages = self.history_collection.find({"session_id": self.session_id})
+
+#             # Formatar o prompt
+#             formatted_prompt = self.prompt.format(
+#                 perfil_do_estudante=self.student_profile,
+#                 plano_de_execucao=self.execution_plan,
+#                 historico_de_interacoes="\n".join([msg['content'] for msg in history_messages]),
+#                 input=user_input
+#             )
+
+#             # Invocar o agente para gerar a resposta
+#             response = await self.agent_executor.ainvoke({"input": user_input, "history": list(history_messages)})
+
+#             # Processar a resposta
+#             parsed_response = self.output_parser.parse(response)
+#             print(f"Resposta Parseada: {parsed_response}")
+
+#             # Salvar a interação no histórico
+#             self.history_collection.insert_one({
+#                 "session_id": self.session_id,
+#                 "user_email": self.user_email,
+#                 "disciplina": self.disciplina,
+#                 "history": parsed_response,
+#                 "timestamp": datetime.now(timezone.utc)
+#             })
+
+#             return parsed_response
+#         except Exception as e:
+#             print(f"Erro ao processar a mensagem: {e}")
+#             return "Ocorreu um erro ao processar sua mensagem."

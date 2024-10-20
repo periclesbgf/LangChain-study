@@ -24,7 +24,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_openai import ChatOpenAI
 from langchain.schema import BaseMessage, message_to_dict, messages_from_dict, AIMessage, HumanMessage
-
+from agent.agents import ChatAgent
 from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.schema import BaseMessage
@@ -138,10 +138,7 @@ A saída deve ser um **JSON** contendo a pergunta reformulada e os agentes neces
 ## Missão do Agente Orquestrador
 Garanta que todas as perguntas sejam reformuladas corretamente e que a sequência adequada de agentes seja ativada para cada interação. 
 Sua função é coordenar os agentes sem responder diretamente ao estudante, assegurando que cada passo esteja alinhado ao plano de execução e promovendo o progresso contínuo.
-
-
 """
-
 
 
 class ChatController:
@@ -153,7 +150,8 @@ class ChatController:
         qdrant_handler: QdrantHandler,
         image_handler: ImageHandler,
         retrieval_agent: RetrievalAgent,
-        student_profile: dict  # Adicionado o perfil como parâmetro
+        student_profile: dict,
+        chat_agent: ChatAgent,
     ):
         print("Initializing ChatController")
         self.session_id = session_id
@@ -168,7 +166,7 @@ class ChatController:
             temperature=0.1,
             openai_api_key=OPENAI_API_KEY
         )
-
+        self.chat_agent = chat_agent
         # Configura dependências adicionais
         self.qdrant_handler = qdrant_handler
         self.image_handler = image_handler
@@ -225,23 +223,6 @@ class ChatController:
             ]
         )
 
-        feedback_prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    """Você é um analista de progresso de sessao de estudo, sua tarefa e analisar o historico de interacao entre uma LLM e um estudante.
-                    Dado o historico de interacao, voce deve verificar se o estudante esta progredindo de acordo com o plano de acao.
-                    Se nao estiver, voce deve fornecer feedback ao estudante e ao tutor sobre o que pode ser melhorado."""
-                ),
-                ("system", "Perfil do estudante: {perfil}"),
-                ("system", "Plano de ação: {plano}"),
-                MessagesPlaceholder(variable_name="history"),  # Placeholder para o histórico de mensagens
-            ]
-        )
-        feedback_chain = (
-            feedback_prompt
-            | self.llm  # Chama o modelo de linguagem para processar o prompt
-        )
         json_output_parser = JsonOutputParser()
 
         chain = (
@@ -264,7 +245,7 @@ class ChatController:
                 # Processar arquivos, se houver
                 if files:
                     print(f"{len(files)} arquivo(s) recebido(s). Processando...")
-                    await self._process_files(files)
+                    self._process_files(files)  # Removido 'await'
                     files_processed = True
                 else:
                     files_processed = False
@@ -297,7 +278,6 @@ class ChatController:
                             print("Retrieval Agent já existente encontrado e ajustado.")
                             break
                     if not retrieval_agent_found:
-                        # Adicionar Retrieval Agent se não existir
                         agentes.append({"agente": "Retrieval Agent", "necessario": True})
                         print("Retrieval Agent não encontrado, adicionado à lista de agentes.")
                     result["agentes_necessarios"] = agentes
@@ -328,20 +308,24 @@ class ChatController:
                     )
                     print(f"Retrieval Agent Response: {retrieval_response}")
 
-                    # Verificar o tipo de resposta
                     final_response = (
                         retrieval_response.get("output", "Nenhum resultado encontrado.")
                         if isinstance(retrieval_response, dict)
                         else str(retrieval_response)
                     )
 
-                    # Salvar a resposta no histórico
                     self.chat_history.add_message(AIMessage(content=final_response))
                     return final_response
 
-                # Salvar a resposta do agente principal no histórico
-                self.chat_history.add_message(AIMessage(content=output))
-                return output
+                # Adicionando o ChatAgent após o Orchestrator
+                print("ChatAgent activated")
+                chat_agent_response = await self.chat_agent.invoke(user_input, chat_history)
+                print(f"ChatAgent Response: {chat_agent_response}")
+
+                # Salvar a resposta do ChatAgent no histórico
+                self.chat_history.add_message(AIMessage(content=chat_agent_response))
+
+                return chat_agent_response
 
             return "Nenhuma entrada fornecida."
 
@@ -368,7 +352,7 @@ class ChatController:
         )
         return chain_with_history
 
-    async def _process_files(self, files):
+    def _process_files(self, files):
         """
         Processes the uploaded files: extracts text, images, and stores embeddings.
         """
@@ -376,13 +360,13 @@ class ChatController:
         for file in files:
             filename = file.filename
             print(f"Processing file: {filename}")
-            content = await file.read()  # Adição de await para ler o conteúdo corretamente
+            content = file.read()  # Removido 'await' para leitura síncrona
             if filename.lower().endswith(".pdf"):
                 print(f"Processing PDF file: {filename}")
-                await self._process_pdf(content)  # Adição de await
+                self._process_pdf(content)  # Removido 'await'
             elif filename.lower().endswith((".jpg", ".jpeg", ".png")):
                 print(f"Processing image file: {filename}")
-                await self._process_image(content)  # Adição de await
+                self._process_image(content)  # Removido 'await'
             else:
                 print(f"Unsupported file type: {filename}")
 

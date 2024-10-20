@@ -14,7 +14,9 @@ from datetime import datetime
 from utils import OPENAI_API_KEY
 from agent.agents import RetrievalAgent, ChatAgent
 from database.mongo_database_manager import MongoDatabaseManager
+from agent.agents import ChatAgent
 import json
+import os
 
 router_chat = APIRouter()
 
@@ -24,7 +26,7 @@ async def chat_endpoint(
     current_user=Depends(get_current_user)
 ):
     try:
-        # Inicializa o QdrantHandler e o ImageHandler
+        # Inicializa as dependências
         embeddings = Embeddings().get_embeddings()
         qdrant_handler = QdrantHandler(
             url=QDRANT_URL,
@@ -33,6 +35,26 @@ async def chat_endpoint(
         )
         image_handler = ImageHandler(OPENAI_API_KEY)
 
+        # Obtenha o perfil do estudante do MongoDB
+        mongo_manager = MongoDatabaseManager()
+        student_profile = await mongo_manager.get_student_profile(
+            email=current_user["sub"],
+            collection_name="student_learn_preference"
+        )
+        
+        if not student_profile:
+            raise HTTPException(status_code=404, detail="Perfil do estudante não encontrado.")
+        print(f"Student profile: {student_profile}")
+        # Inicializa o ChatAgent
+        chat_agent = ChatAgent(
+            student_profile=student_profile,
+            execution_plan=_carregar_json("/home/pericles/project/LangChain-study/app/resources/plano_acao.json"),
+            mongo_uri=MONGO_URI,
+            database_name=MONGO_DB_NAME,
+            session_id=str(request.session_id),
+            user_email=current_user["sub"],
+            disciplina=request.discipline_id
+        )
         # Inicializa o agente de recuperação
         retrieval_agent = RetrievalAgent(
             qdrant_handler=qdrant_handler,
@@ -42,38 +64,28 @@ async def chat_endpoint(
         )
 
         # Conecte-se ao MongoDB e obtenha o perfil do estudante
-        mongo_manager = MongoDatabaseManager()
-        student_profile = await mongo_manager.get_student_profile(
-            email=current_user["sub"],
-            collection_name="student_learn_preference"
-        )
 
-        if not student_profile:
-            raise HTTPException(status_code=404, detail="Perfil do estudante não encontrado.")
-
-        # Inicializa o ChatController com o perfil do estudante
+        # Inicializa o ChatController com o ChatAgent
         controller = ChatController(
             session_id=str(request.session_id),
             student_email=current_user["sub"],
-            disciplina=str(request.discipline_id),
+            disciplina=request.discipline_id,
             qdrant_handler=qdrant_handler,
             image_handler=image_handler,
             retrieval_agent=retrieval_agent,
-            student_profile=student_profile  # Passa o perfil
+            chat_agent=chat_agent,  # Passa o ChatAgent
+            student_profile=student_profile
         )
 
         print(f"Received message: {request.message}")
         print(f"Received file: {request.file}")
 
-        # Se um arquivo foi enviado, processa-o
-        files = []
-        if request.file:
-            files.append(request.file)
-
+        # Processa a mensagem do usuário
+        files = [request.file] if request.file else []
         response = await controller.handle_user_message(request.message, files)
         print(f"Response: {response}")
-        return {"response": response}
 
+        return {"response": response}
     except Exception as e:
         print(f"Error in chat_endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -130,3 +142,14 @@ async def get_chat_history(
     except Exception as e:
         print(f"Error in get_chat_history: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+
+def _carregar_json(caminho_arquivo: str):
+    """Carrega dados de um arquivo JSON."""
+    caminho_absoluto = os.path.abspath(caminho_arquivo)
+    try:
+        with open(caminho_absoluto, 'r', encoding='utf-8') as arquivo:
+            return json.load(arquivo)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Erro ao carregar {caminho_arquivo}: {e}")
+        return {}
