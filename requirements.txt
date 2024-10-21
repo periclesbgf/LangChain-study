@@ -53,3 +53,4 @@ google-search-results
 wikipedia-api
 langgraph
 langchain-openai
+ipython

@@ -41,14 +41,14 @@ async def chat_endpoint(
             email=current_user["sub"],
             collection_name="student_learn_preference"
         )
-        
+
         if not student_profile:
             raise HTTPException(status_code=404, detail="Perfil do estudante não encontrado.")
         print(f"Student profile: {student_profile}")
         # Inicializa o ChatAgent
         chat_agent = ChatAgent(
             student_profile=student_profile,
-            execution_plan=_carregar_json("/home/pericles/project/LangChain-study/app/resources/plano_acao.json"),
+            execution_plan=_carregar_json("resources/plano_acao.json"),
             mongo_uri=MONGO_URI,
             database_name=MONGO_DB_NAME,
             session_id=str(request.session_id),
@@ -60,6 +60,7 @@ async def chat_endpoint(
             qdrant_handler=qdrant_handler,
             embeddings=embeddings,
             disciplina=request.discipline_id,
+            session_id=str(request.session_id),
             student_email=current_user["sub"]
         )
 

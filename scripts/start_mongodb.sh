@@ -16,7 +16,12 @@ DATA_DIR="$(pwd)/mongo_data"
 
 # Verifica se o diretório de dados existe, se não, cria
 if [ ! -d "$DATA_DIR" ]; then
+    echo "Criando diretório de dados em: $DATA_DIR"
     mkdir -p "$DATA_DIR"
+    sudo chown -R $(whoami):$(whoami) "$DATA_DIR"
+    sudo chmod -R 755 "$DATA_DIR"
+else
+    echo "Diretório de dados já existe: $DATA_DIR"
 fi
 
 # Verifica se o container já está em execução
@@ -34,6 +39,15 @@ else
             -e MONGO_INITDB_ROOT_USERNAME=$MONGO_INITDB_ROOT_USERNAME \
             -e MONGO_INITDB_ROOT_PASSWORD=$MONGO_INITDB_ROOT_PASSWORD \
             -v $DATA_DIR:/data/db \
+            --user "$(id -u):$(id -g)" \
             -d -p $HOST_PORT:$CONTAINER_PORT mongo
+
+        # Verifica se o container foi iniciado corretamente
+        if [ $? -eq 0 ]; then
+            echo "Container $CONTAINER_NAME iniciado com sucesso!"
+        else
+            echo "Erro ao iniciar o container $CONTAINER_NAME."
+            exit 1
+        fi
     fi
 fi
