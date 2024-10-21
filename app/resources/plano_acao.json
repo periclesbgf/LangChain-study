@@ -1,83 +1,93 @@
 {
+    "id_sessao": "1",
+    "disciplina_id": "1",
     "disciplina": "Programação Imperativa e Funcional",
-    "objetivo_sessao": "Introdução à Programação imperativa e funcional, revisão de estruturas de decisão e repetição.",
-    "plano_acao": [
-      {
-        "titulo": "Abertura e Introdução à Sessão",
-        "duracao": "5-10 minutos",
-        "descricao": "Apresentação dos objetivos da sessão e contextualização dos paradigmas imperativo e funcional.",
-        "atividade": null,
-        "progresso": 5
-      },
-      {
-        "titulo": "Seção 1: Conceitos Fundamentais da Programação Imperativa",
-        "duracao": "20 minutos",
-        "conteudo": [
-          "Definição de programação imperativa.",
-          "Foco no controle explícito do fluxo de execução com sequências de instruções.",
-          "Exemplos práticos: Atribuição de variáveis, uso de estruturas de decisão (if, else, elif) e introdução a loops com for e while."
-        ],
-        "atividade": "Resolver exercícios práticos que envolvem a manipulação de variáveis e aplicação de estruturas de decisão.",
-        "progresso": 20
-      },
-      {
-        "titulo": "Seção 2: Revisão de Estruturas de Decisão e Repetição",
-        "duracao": "15-20 minutos",
-        "conteudo": [
-          "Revisão de estruturas de decisão: if, else, elif.",
-          "Revisão de estruturas de repetição: for, while.",
-          "Discussão sobre melhores práticas e quando escolher uma estrutura específica."
-        ],
-        "atividade": "Implementar exemplos de laços de repetição e condições, como um loop que verifica se números de 1 a 10 são pares ou ímpares.",
-        "progresso": 15
-      },
-      {
-        "titulo": "Seção 3: Introdução à Programação Funcional",
-        "duracao": "25 minutos",
-        "conteudo": [
-          "Definição de programação funcional e comparação com o paradigma imperativo.",
-          "Conceitos fundamentais: Funções puras, imutabilidade e funções como cidadãos de primeira classe.",
-          "Introdução a lambda, map, filter e reduce."
-        ],
-        "atividade": "Resolver exercícios usando funções puras e lambda, como criar uma função que retorna uma lista de números pares usando filter.",
-        "progresso": 25
-      },
-      {
-        "titulo": "Seção 4: Comparação entre Paradigmas Imperativo e Funcional",
-        "duracao": "10 minutos",
-        "conteudo": [
-          "Tabela comparativa entre os paradigmas imperativo e funcional.",
-          "Discussão sobre as vantagens e limitações de cada paradigma.",
-          "Exemplos de linguagens típicas de cada paradigma: Imperativo (C, Java, Python - imperativo), Funcional (Haskell, Lisp, Scala, Python - funcional)."
-        ],
-        "atividade": null,
-        "progresso": 10
-      },
-      {
-        "titulo": "Conclusão e Reflexão Final",
-        "duracao": "10 minutos",
-        "descricao": "Revisão dos pontos principais abordados na sessão e reflexão sobre a aplicação dos paradigmas em problemas reais.",
-        "atividade": "Propor um problema simples para ser implementado tanto no paradigma imperativo quanto no funcional.",
-        "progresso": 10
-      },
-      {
-        "titulo": "Recursos e Materiais de Apoio",
-        "conteudo": [
-          "Slides com resumo da sessão.",
-          "Links para leituras complementares: https://docs.python.org/3/howto/functional.html e https://www.geeksforgeeks.org/difference-between-imperative-and-functional-programming/",
-          "Código-fonte dos exemplos apresentados."
-        ],
-        "atividade": null,
-        "progresso": 5
-      },
-      {
-        "titulo": "Tarefa Pós-Sessão (Opcional)",
-        "descricao": "Implementar uma calculadora simples que usa decisão e repetição no modo imperativo e funções no modo funcional. Enviar o código para revisão.",
-        "atividade": "Tarefa pós-sessão opcional.",
-        "progresso": 10
-      }
+    "descricao": "Esta sessão de estudos aborda a introdução aos paradigmas imperativo e funcional, incluindo conceitos fundamentais e uma revisão prática de estruturas de controle e repetição.",
+    "objetivo_sessao": "Compreender as diferenças entre programação imperativa e funcional e reforçar o uso de estruturas de decisão e repetição.",
+    "plano_execucao": [
+        {
+            "titulo": "Abertura e Introdução aos Paradigmas",
+            "duracao": "10 minutos",
+            "descricao": "Apresentação dos paradigmas imperativo e funcional e sua relevância na prática de programação.",
+            "conteudo": [
+                "Definição de paradigma imperativo e funcional.",
+                "Contextualização da aplicação em diferentes linguagens de programação."
+            ],
+            "recursos": [
+                {
+                    "tipo": "Vídeo",
+                    "descricao": "Introdução visual aos paradigmas de programação.",
+                    "url": "https://example.com/video-intro-paradigmas"
+                }
+            ],
+            "atividade": {
+                "descricao": "Discussão em grupo sobre exemplos de uso de cada paradigma.",
+                "tipo": "Discussão em grupo",
+                "formato": "Colaborativo"
+            },
+            "progresso": 10
+        },
+        {
+            "titulo": "Estruturas de Decisão e Repetição na Prática",
+            "duracao": "25 minutos",
+            "descricao": "Aplicação prática de estruturas condicionais e loops em Python.",
+            "conteudo": [
+                "Uso de if, else e elif para controle de fluxo.",
+                "Implementação de loops com for e while."
+            ],
+            "recursos": [
+                {
+                    "tipo": "Código",
+                    "descricao": "Exemplo prático de loops em Python.",
+                    "url": "https://example.com/python-loops"
+                }
+            ],
+            "atividade": {
+                "descricao": "Resolver exercícios práticos envolvendo estruturas de decisão e repetição.",
+                "tipo": "Exercício prático",
+                "formato": "Individual"
+            },
+            "progresso": 25
+        },
+        {
+            "titulo": "Explorando Funções Lambda e Imutabilidade",
+            "duracao": "30 minutos",
+            "descricao": "Introdução ao conceito de funções lambda e ao uso de imutabilidade na programação funcional.",
+            "conteudo": [
+                "O que são funções lambda e como utilizá-las.",
+                "Por que a imutabilidade é importante na programação funcional."
+            ],
+            "recursos": [
+                {
+                    "tipo": "Artigo",
+                    "descricao": "Imutabilidade na programação funcional.",
+                    "url": "https://example.com/imutabilidade"
+                }
+            ],
+            "atividade": {
+                "descricao": "Implementar uma função lambda para filtrar números pares de uma lista.",
+                "tipo": "Exercício prático",
+                "formato": "Individual"
+            },
+            "progresso": 30
+        },
+        {
+            "titulo": "Conclusão e Reflexão",
+            "duracao": "10 minutos",
+            "descricao": "Resumo dos conceitos abordados e reflexão sobre o uso de cada paradigma.",
+            "conteudo": [
+                "Revisão dos conceitos de programação imperativa e funcional.",
+                "Discussão sobre cenários de aplicação prática."
+            ],
+            "atividade": {
+                "descricao": "Escrever uma breve reflexão sobre como cada paradigma pode ser aplicado no cotidiano do aluno.",
+                "tipo": "Atividade reflexiva",
+                "formato": "Individual"
+            },
+            "progresso": 10
+        }
     ],
-    "duracao_total": "90 minutos",
-    "progresso_total": 100
-  }
-  
+    "duracao_total": "75 minutos",
+    "progresso_total": 100,
+    "created_at": "2024-10-21T09:29:12.991Z"
+}

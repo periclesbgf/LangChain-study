@@ -2,7 +2,6 @@ from pydantic import BaseModel
 from typing import Optional, Dict, List
 from fastapi import Depends,Form, UploadFile, File
 from pydantic import BaseModel, Field, EmailStr
-
 from api.controllers.auth import get_current_user
 from datetime import datetime, date
 
@@ -153,3 +152,38 @@ class PreferenciasAprendizado(BaseModel):
     PreferenciaRecursos: Optional[str] = Field(None, example="Exemplos visuais")
     feedbackDoTutor: Optional[List[Feedback]] = Field(default_factory=list)
     feedbackDoProfessor: Optional[List[Feedback]] = Field(default_factory=list)
+
+
+
+
+class Recurso(BaseModel):
+    tipo: str = Field(..., example="Vídeo")
+    descricao: str = Field(..., example="Fluxograma explicando estruturas de decisão.")
+    url: Optional[str] = Field(None, example="https://example.com/video")
+
+class Atividade(BaseModel):
+    descricao: str = Field(..., example="Resolver exercícios práticos em grupo.")
+    tipo: str = Field(..., example="Exercício prático")
+    formato: Optional[str] = Field(None, example="Colaborativo")
+
+class SecaoPlano(BaseModel):
+    titulo: str = Field(..., example="Introdução à Programação Funcional")
+    duracao: str = Field(..., example="25 minutos")
+    descricao: Optional[str] = Field(None, example="Exploração de conceitos fundamentais e exemplos práticos.")
+    conteudo: List[str] = Field(..., example=[
+        "Definição de programação funcional.",
+        "Uso de funções lambda em Python."
+    ])
+    recursos: Optional[List[Recurso]] = None
+    atividade: Optional[Atividade] = None
+    progresso: int = Field(..., example=25)
+
+class PlanoExecucao(BaseModel):
+    id_sessao: int = Field(..., example=1)  # Novo campo para associar à sessão de estudos
+    disciplina: str = Field(..., example="Programação Imperativa e Funcional")
+    descricao: Optional[str] = Field(None, example="Revisão detalhada dos principais conceitos de programação imperativa e funcional.")
+    objetivo_sessao: str = Field(..., example="Introdução e revisão de conceitos fundamentais.")
+    plano_execucao: List[SecaoPlano] = Field(...)
+    duracao_total: str = Field(..., example="90 minutos")
+    progresso_total: int = Field(..., example=100)
+    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
