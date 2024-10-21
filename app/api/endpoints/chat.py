@@ -60,7 +60,7 @@ async def chat_endpoint(
             qdrant_handler=qdrant_handler,
             embeddings=embeddings,
             disciplina=request.discipline_id,
-            session_id=str(request.session_id),
+            #session_id=str(request.session_id),
             student_email=current_user["sub"]
         )
 
