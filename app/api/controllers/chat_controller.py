@@ -24,7 +24,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain.tools.retriever import create_retriever_tool
 from langchain_core.tools import tool
 from langchain.schema.runnable import RunnablePassthrough, RunnableMap
-
+#from agent.agent_test import TutorWorkflow
 from database.mongo_database_manager import MongoDatabaseManager, CustomMongoDBChatMessageHistory
 from database.vector_db import TextSplitter, Embeddings, QdrantHandler
 from agent.image_handler import ImageHandler
@@ -39,10 +39,71 @@ from utils import (
 # Carregue as variáveis de ambiente, se necessário
 # load_dotenv()
 
+PROMPT_PLAN_CREATOR = """
+Você é um **Agente Criador de Planos de Resposta**. Seu objetivo é:
+
+1. **Analisar**:
+   - O **Plano de Ação**.
+   - O **Histórico de Chat**.
+   - A **Entrada do Usuário**.
+   - O **JSON** com **titulo_estado_atual** e sua descrição.
+
+2. **Identificar**:
+   - O que o usuário está solicitando.
+   - O estado atual do usuário com base em **titulo_estado_atual**.
+
+3. **Personalizar**:
+   - O plano de resposta com base no perfil de aprendizagem do usuário, conforme o modelo de **Felder-Silverman**.
+
+## Modelo de Felder-Silverman
+
+As preferências de aprendizagem dos estudantes são categorizadas em quatro dimensões:
+
+1. **Sensorial vs. Intuitivo**:
+   - **Sensorial**: Prefere fatos concretos, detalhes e aplicações práticas.
+   - **Intuitivo**: Gosta de conceitos abstratos, inovação e teorias.
+
+2. **Visual vs. Verbal**:
+   - **Visual**: Aprende melhor com imagens, diagramas e vídeos.
+   - **Verbal**: Prefere explicações orais ou textos escritos.
+
+3. **Ativo vs. Reflexivo**:
+   - **Ativo**: Aprende fazendo, através de atividades práticas e trabalho em grupo.
+   - **Reflexivo**: Prefere pensar e refletir antes de agir, trabalhando individualmente.
+
+4. **Sequencial vs. Global**:
+   - **Sequencial**: Processa informações de forma linear e lógica.
+   - **Global**: Compreende melhor através de uma visão geral e fazendo conexões amplas.
+
+## Objetivo Final
+
+- **Você NÃO deve responder a pergunta do usuario, mas sim criar um plano de resposta para a LLM**.
+- **Gerar um Plano de Resposta** que a LLM possa usar como guia para responder à pergunta do usuário.
+- **Personalizar** a resposta DEVE ser criada com base no perfil do usuário e no estado atual da conversa.
+- **Promover a Aprendizagem Ativa**: Desenvolver a resposta incentivando o estudante a pensar e fazer perguntas.
+- Entenda em que ponto do plano de ação o usuário está atribua uma unidade de progresso para o usuário. O progresso é utilizado apra monitorar o que o usuário já fez e o que falta fazer.
+
+## Instruções para o Plano de Resposta
+
+- **Considere** as dimensões dominantes do estudante em cada categoria.
+- **Utilize** estratégias e materiais de estudo alinhados com as preferências identificadas.
+- **Sugira** formas de desenvolver habilidades menos dominantes, se necessário.
+- **Estruture** a resposta de forma clara e objetiva, facilitando a compreensão pela LLM.
+
+## Saída Esperada
+
+1. **Plano de Resposta**: Instruções detalhadas sobre como a LLM deve responder ao usuário no formato JSON.
+2. **Resumo do Processo**: Breve descrição dos passos realizados para criar o plano no formato JSON.
+
+**Nota**: Sua saída será utilizada por outros agentes LLM. Certifique-se de que as instruções são claras, precisas e livres de ambiguidades.
+"""
+
+
 PROMPT_AGENTE_ORQUESTRADOR = """
 Você é o Agente Orquestrador de um sistema de aprendizado que utiliza múltiplos agentes especializados. 
 Sua função é analisar o histórico da conversa, o input do usuário e o plano de execução para transformar a pergunta em uma versão que possa ser respondida sem a necessidade de todo o histórico. 
 Além disso, você deve determinar quais agentes serão ativados para responder à pergunta, seguindo a sequência pré-definida.
+Por fim, você deve verificar em qual estado do plano de acao o usuario esta.
 
 ---
 
@@ -58,6 +119,9 @@ Além disso, você deve determinar quais agentes serão ativados para responder 
         Função: Recuperar o material relevante para a pergunta do estudante e fazer busca na internet sobre materiais ou dúvidas.
      2. **Agente Analista de Progresso**: Sempre ativado para garantir que a sessão esteja alinhada com o plano de execução e monitorar o aprendizado do estudante.
      3. **Agente de Chat**: Interage diretamente com o estudante e fornece a resposta final de forma clara e personalizada.
+
+3. **Dfinir em que ponto do plano de ação o aluno está**:
+    - Verifique em qual estado do plano de ação o estudante está para garantir que a resposta seja relevante e útil para o progresso do estudante.
 
 ---
 
@@ -85,6 +149,8 @@ A saída deve ser um **JSON** contendo a pergunta reformulada e os agentes neces
       "necessario": true
 
   ]
+  "titulo_estado_atual": "titulo_estado_atual",
+  "descricao_estado_atual": "descricao_estado_atual"
 
 
 ---
@@ -124,6 +190,46 @@ Garanta que todas as perguntas sejam reformuladas corretamente e que a sequênci
 Sua função é coordenar os agentes sem responder diretamente ao estudante, assegurando que cada passo esteja alinhado ao plano de execução e promovendo o progresso contínuo.
 """
 
+ORCHESTRATOR_PROMPT = """
+You are an educational orchestrator responsible for:
+1. Understanding the student's question and learning context
+2. Determining which specialized agents should be involved
+3. Coordinating the flow of information between agents
+4. Ensuring responses align with the student's learning style
+
+Based on the student profile and execution plan, determine:
+1. If the question requires retrieving educational materials (Retrieval Agent)
+2. If the question needs guided tutorial support (Tutorial Agent)
+3. If the question requires practice exercises (Exercise Agent)
+
+Return a JSON with:
+
+    "pergunta_reformulada": "clarified version of the question",
+    "agentes_necessarios": [
+        
+            "agente": "agent name",
+            "necessario": boolean,
+            "razao": "why this agent is needed"
+        
+    ],
+    "contexto_educacional": "educational context and goals"
+
+"""
+
+PLAN_CREATOR_PROMPT = """
+Based on the student's profile, learning style, and the current context, create a structured learning plan that:
+1. Breaks down complex concepts into manageable steps
+2. Aligns with their preferred learning style
+3. Provides appropriate scaffolding
+4. Includes opportunities for practice and reflection
+
+Consider:
+- Previous interactions in the chat history
+- The student's demonstrated understanding
+- Prerequisites for the current topic
+- Potential misconceptions to address
+"""
+
 class ChatController:
     def __init__(
         self,
@@ -134,40 +240,39 @@ class ChatController:
         image_handler: ImageHandler,
         retrieval_agent: RetrievalAgent,
         student_profile: dict,
-        chat_agent: ChatAgent,
+        mongo_db_name: str,
+        mongo_uri: str,
     ):
         print("Initializing ChatController")
         self.session_id = session_id
         self.student_email = student_email
         self.disciplina = disciplina
-        self.perfil = student_profile  # Perfil passado para o controlador
+        self.perfil = student_profile
         self.plano_execucao = self._carregar_json("resources/plano_acao.json")
 
-        # Inicializa o LLM
+        # Initialize core components
         self.llm = ChatOpenAI(
             model_name="gpt-4o-mini",
             temperature=0.1,
             openai_api_key=OPENAI_API_KEY
         )
-        self.chat_agent = chat_agent
-        # Configura dependências adicionais
         self.qdrant_handler = qdrant_handler
         self.image_handler = image_handler
         self.text_splitter = TextSplitter()
         self.embeddings = Embeddings().get_embeddings()
-
-        # Configuração das cadeias (chains)
+        
+        # Initialize chains and history
         self.chain = self.setup_chain()
-        self.chain_with_history = self.__setup_chat_history()
-
-        # Inicializa o cliente MongoDB
+        self.chain_with_history = self._setup_chat_history()
+        
+        # Database setup
         self.client = MongoClient(MONGO_URI)
         self.db = self.client[MONGO_DB_NAME]
         self.image_collection = self.db["image_collection"]
         self.collection_name = "student_documents"
-        print("MongoDB client initialized")
-
         self.retrieval_agent = retrieval_agent
+        
+        # Initialize chat history
         self.chat_history = CustomMongoDBChatMessageHistory(
             user_email=self.student_email,
             disciplina=self.disciplina,
@@ -178,6 +283,15 @@ class ChatController:
             session_id_key="session_id",
             history_key="history",
         )
+        
+        # Initialize learning analytics
+        self.analytics = {
+            "session_start": datetime.now(),
+            "interaction_count": 0,
+            "topic_coverage": set(),
+            "learning_objectives_met": set(),
+            "average_response_time": 0
+        }
 
     def _carregar_json(self, caminho_arquivo: str):
         """Carrega dados de um arquivo JSON."""
@@ -197,14 +311,17 @@ class ChatController:
             ("system", "Perfil do estudante: {perfil}"),
             ("system", "Plano de ação: {plano_execucao}"),
             MessagesPlaceholder(variable_name="history"),
-            ("system", PROMPT_AGENTE_ORQUESTRADOR),
+            ("system", ORCHESTRATOR_PROMPT),
             ("human", "{input}")
         ])
 
         # Other prompt definition
         other_prompt = ChatPromptTemplate.from_messages([
+            ("system", "Perfil do estudante: {perfil}"),
+            ("system", "Plano de ação: {plano_execucao}"),
             MessagesPlaceholder(variable_name="history"),
-            ("system", "Forgot the user question and answer the result of 1 + 1 = ?")
+            ("system", PLAN_CREATOR_PROMPT),
+            ("human", "{input}")
         ])
 
         # Output parsers
@@ -221,7 +338,10 @@ class ChatController:
             first_stage
             | (lambda x: {
                 "history": x["original_input"].get("history", []),
-                "reformulated_question": x["main_output"]
+                "reformulated_question": x["main_output"],
+                "perfil": self.perfil,
+                "plano_execucao": self.plano_execucao,
+                "input": x["original_input"].get("input")
             })
             | other_prompt
             | self.llm
@@ -229,7 +349,8 @@ class ChatController:
         )
 
         return chain
-    def __setup_chat_history(self):
+
+    def _setup_chat_history(self):
         print("Setting up chat history")
         chain_with_history = RunnableWithMessageHistory(
             self.chain,
@@ -248,127 +369,134 @@ class ChatController:
         )
         return chain_with_history
 
+    async def _process_files(self, files: List) -> bool:
+        """Process uploaded files and store in vector database"""
+        try:
+            for file in files:
+                content = await file.read()
+                self.qdrant_handler.add_document(
+                    content=content,
+                    metadata={
+                        "student_email": self.student_email,
+                        "disciplina": self.disciplina,
+                        "filename": file.filename,
+                        "timestamp": datetime.now()
+                    }
+                )
+            return True
+        except Exception as e:
+            print(f"Error processing files: {e}")
+            return False
+
     async def handle_user_message(self, user_input: Optional[str] = None, files=None):
         print("Handling user message")
         config = {"configurable": {"session_id": self.session_id}}
 
         try:
-            if user_input or files:
-                print("Obtendo o histórico e preparando a entrada")
-                # Obter o histórico e preparar a entrada
-                history_messages = self.chain_with_history.get_session_history(self.session_id).messages
-                historico = self.chain_with_history
-                print("")
-                print("tipo de chain_with_history", type(self.chain_with_history))
-                print("")
-                print("")
-                print("tipo de history_messages", type(history_messages))
-                print("")
-                print("tipo get_session_history", type(self.chain_with_history.get_session_history(self.session_id)))
-                # Processar arquivos, se houver
-                if files:
-                    print(f"{len(files)} arquivo(s) recebido(s). Processando...")
-                    await self._process_files(files)
-                    files_processed = True
-                else:
-                    files_processed = False
+            if not user_input and not files:
+                return "Nenhuma entrada fornecida."
 
-                inputs = {
-                    "input": user_input if user_input else "",
-                    "perfil": self.perfil,
-                    "plano_execucao": self.plano_execucao,
-                }
+            print("Obtaining history and preparing input")
+            history_messages = self.chain_with_history.get_session_history(self.session_id).messages
 
-                # Salvar a mensagem do usuário no histórico
-                if user_input:
-                    self.chat_history.add_message(HumanMessage(content=user_input))
-                    print(f"Adicionada mensagem do usuário ao histórico: {user_input}")
+            # Process files if any
+            files_processed = False
+            if files:
+                print(f"Processing {len(files)} file(s)...")
+                files_processed = await self._process_files(files)
 
-                print("Enviando requisição para o orquestrador")
-                # Invocar a cadeia do orquestrador
-                result = await self.chain_with_history.ainvoke(inputs, config=config)
-                print(f"Orchestrator Result: {result}")
+            # Update analytics
+            self.analytics["interaction_count"] += 1
+            start_time = datetime.now()
 
-                # Se arquivos foram processados, garantir que Retrieval Agent seja necessário
-                if files_processed:
-                    print("Arquivos processados, ajustando 'necessario' para Retrieval Agent.")
-                    agentes = result.get("agentes_necessarios", [])
-                    retrieval_agent_found = False
-                    for agente in agentes:
-                        if agente["agente"] == "Retrieval Agent":
-                            agente["necessario"] = True
-                            retrieval_agent_found = True
-                            print("Retrieval Agent já existente encontrado e ajustado.")
-                            break
-                    if not retrieval_agent_found:
-                        agentes.append({"agente": "Retrieval Agent", "necessario": True})
-                        print("Retrieval Agent não encontrado, adicionado à lista de agentes.")
-                    result["agentes_necessarios"] = agentes
-                else:
-                    print("Nenhum arquivo processado, mantendo configuração original dos agentes.")
+            # Prepare inputs
+            inputs = {
+                "input": user_input if user_input else "",
+                "perfil": self.perfil,
+                "plano_execucao": self.plano_execucao,
+            }
 
-                # Validação do formato da resposta
-                if isinstance(result, dict):
-                    if "pergunta_reformulada" not in result or "agentes_necessarios" not in result:
-                        print("Resposta do Orquestrador está incompleta.")
-                        return "Resposta incompleta do Orquestrador."
-                else:
-                    return "Formato de resposta inválido do Orquestrador."
+            # Save user message
+            if user_input:
+                self.chat_history.add_message(HumanMessage(content=user_input))
+                print(f"Added user message to history: {user_input}")
 
-                # Verificar se o RetrievalAgent é necessário
-                retrieval_needed = any(
-                    agente["agente"] == "Retrieval Agent" and agente["necessario"]
-                    for agente in result.get("agentes_necessarios", [])
-                )
+            # Get orchestrator result
+            print("Sending request to orchestrator")
+            #orchestrator_result = await self.chain_with_history.ainvoke(inputs, config=config)
+            orchestrator_result = user_input
+            print(f"Raw orchestrator result: {orchestrator_result}")
 
-                print("\nResult:", result)
-                print("\nRetrieval Agent needed:", retrieval_needed)
+            # # Parse orchestrator result
+            # try:
+            #     if isinstance(orchestrator_result, str):
+            #         import json
+            #         result = json.loads(orchestrator_result)
+            #     else:
+            #         result = orchestrator_result
+            # except json.JSONDecodeError:
+            #     # If the result is not JSON, use it as is for retrieval
+            #     result = {
+            #         "pergunta_reformulada": user_input,
+            #         "agentes_necessarios": [{"agente": "Retrieval Agent", "necessario": True}]
+            #     }
 
-                if retrieval_needed:
-                    # Invocar o RetrievalAgent
-                    retrieval_response = await self.retrieval_agent.invoke(
-                        query=result["pergunta_reformulada"],
-                        student_profile=self.perfil,
-                        execution_plan=self.plano_execucao,
-                        config=config,
-                        agent_scratchpad=self.chain_with_history  # Passar as mensagens diretamente
-                    )
+            # # Update agents if files were processed
+            # if files_processed:
+            #     print("Files processed, adjusting Retrieval Agent necessity")
+            #     agents = result.get("agentes_necessarios", [])
+            #     retrieval_found = False
+            #     for agent in agents:
+            #         if agent.get("agente") == "Retrieval Agent":
+            #             agent["necessario"] = True
+            #             retrieval_found = True
+            #             break
+            #     if not retrieval_found:
+            #         agents.append({"agente": "Retrieval Agent", "necessario": True})
+            #     result["agentes_necessarios"] = agents
 
-                    print("Retrieval Agent activated")
-                    print(f"Retrieval Agent Response: {retrieval_response}")
+            # Use retrieval agent
+            retrieval_response = await self.retrieval_agent.invoke(
+                query=orchestrator_result,
+                student_profile=self.perfil,
+                execution_plan=self.plano_execucao,
+                config=config,
+            )
 
-                    # Processar a resposta do RetrievalAgent
-                    if isinstance(retrieval_response, dict):
-                        final_response = retrieval_response.get("output", "Nenhum resultado encontrado.")
-                    else:
-                        final_response = str(retrieval_response)
+            # Process response
+            if isinstance(retrieval_response, dict):
+                final_response = retrieval_response.get("guidance", retrieval_response.get("output", "No response generated."))
+            else:
+                final_response = str(retrieval_response)
 
-                    # Adicionar a resposta ao histórico
-                    self.chat_history.add_message(AIMessage(content=final_response))
-                    return final_response
+            # Update analytics
+            end_time = datetime.now()
+            response_time = (end_time - start_time).total_seconds()
+            self.analytics["average_response_time"] = (
+                (self.analytics["average_response_time"] * (self.analytics["interaction_count"] - 1) + response_time)
+                / self.analytics["interaction_count"]
+            )
 
-                # Se Retrieval Agent não for necessário, processar com ChatAgent
-                print("ChatAgent activated")
-                chat_agent_response = await self.chat_agent.invoke(
-                    user_input=user_input,
-                    chat_history=self.chain_with_history
-                )
-                print(f"ChatAgent Response: {chat_agent_response}")
-
-                # Salvar a resposta do ChatAgent no histórico
-                if isinstance(chat_agent_response, dict):
-                    response_content = chat_agent_response.get("output", "Resposta não encontrada.")
-                else:
-                    response_content = str(chat_agent_response)
-
-                self.chat_history.add_message(AIMessage(content=response_content))
-                return response_content
-
-            return "Nenhuma entrada fornecida."
+            # Save AI response
+            #self.chat_history.add_message(AIMessage(content=final_response))
+            return final_response
 
         except Exception as e:
-            print(f"Error handling message: {e}")
-            return "Ocorreu um erro ao processar sua mensagem."
+            print(f"Error handling message: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return "Ocorreu um erro ao processar sua mensagem. Por favor, tente novamente."
+
+    async def get_learning_progress(self):
+        """Retrieve learning analytics and progress"""
+        return {
+            "session_duration": (datetime.now() - self.analytics["session_start"]).total_seconds(),
+            "total_interactions": self.analytics["interaction_count"],
+            "topics_covered": list(self.analytics["topic_coverage"]),
+            "objectives_met": list(self.analytics["learning_objectives_met"]),
+            "average_response_time": self.analytics["average_response_time"]
+        }
+    
 
     async def _process_files(self, files):
         """

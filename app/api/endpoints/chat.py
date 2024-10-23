@@ -15,18 +15,21 @@ from utils import OPENAI_API_KEY
 from agent.agents import RetrievalAgent, ChatAgent
 from database.mongo_database_manager import MongoDatabaseManager
 from agent.agents import ChatAgent
+#from agent.agent_test import TutorWorkflow
+
 import json
 import os
 
 router_chat = APIRouter()
 
+# Update the chat endpoint to include TutorWorkflow
 @router_chat.post("/chat")
 async def chat_endpoint(
     request: MessageRequest = Depends(MessageRequest.as_form),
     current_user=Depends(get_current_user)
 ):
     try:
-        # Inicializa as dependências
+        # Existing initialization code remains the same
         embeddings = Embeddings().get_embeddings()
         qdrant_handler = QdrantHandler(
             url=QDRANT_URL,
@@ -35,7 +38,7 @@ async def chat_endpoint(
         )
         image_handler = ImageHandler(OPENAI_API_KEY)
 
-        # Obtenha o perfil do estudante do MongoDB
+        # Get student profile
         mongo_manager = MongoDatabaseManager()
         student_profile = await mongo_manager.get_student_profile(
             email=current_user["sub"],
@@ -45,7 +48,15 @@ async def chat_endpoint(
         if not student_profile:
             raise HTTPException(status_code=404, detail="Perfil do estudante não encontrado.")
         print(f"Student profile: {student_profile}")
-        # Inicializa o ChatAgent
+
+        # # Initialize TutorWorkflow
+        # tutor_workflow = TutorWorkflow(
+        #     qdrant_handler=qdrant_handler,
+        #     student_email=current_user["sub"],
+        #     disciplina=request.discipline_id
+        # )
+
+        # Initialize other agents as before
         chat_agent = ChatAgent(
             student_profile=student_profile,
             execution_plan=_carregar_json("resources/plano_acao.json"),
@@ -55,7 +66,7 @@ async def chat_endpoint(
             user_email=current_user["sub"],
             disciplina=request.discipline_id
         )
-        # Inicializa o agente de recuperação
+
         retrieval_agent = RetrievalAgent(
             qdrant_handler=qdrant_handler,
             embeddings=embeddings,
@@ -64,9 +75,7 @@ async def chat_endpoint(
             student_email=current_user["sub"]
         )
 
-        # Conecte-se ao MongoDB e obtenha o perfil do estudante
-
-        # Inicializa o ChatController com o ChatAgent
+        # Initialize ChatController with all components
         controller = ChatController(
             session_id=str(request.session_id),
             student_email=current_user["sub"],
@@ -74,14 +83,15 @@ async def chat_endpoint(
             qdrant_handler=qdrant_handler,
             image_handler=image_handler,
             retrieval_agent=retrieval_agent,
-            chat_agent=chat_agent,  # Passa o ChatAgent
-            student_profile=student_profile
+            student_profile=student_profile,
+            mongo_db_name=MONGO_DB_NAME,
+            mongo_uri=MONGO_URI,
         )
 
         print(f"Received message: {request.message}")
         print(f"Received file: {request.file}")
 
-        # Processa a mensagem do usuário
+        # Process user message
         files = [request.file] if request.file else []
         response = await controller.handle_user_message(request.message, files)
         print(f"Response: {response}")
@@ -90,7 +100,6 @@ async def chat_endpoint(
     except Exception as e:
         print(f"Error in chat_endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
 @router_chat.get("/chat_history/{session_id}")
 async def get_chat_history(
     session_id: str,

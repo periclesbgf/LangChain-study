@@ -26,6 +26,9 @@ from utils import OPENAI_API_KEY, MONGO_URI, MONGO_DB_NAME
 from langchain.agents import AgentExecutor, create_tool_calling_agent, Tool, initialize_agent, create_react_agent
 from langchain_core.output_parsers import StrOutputParser
 from langchain.chains.sequential import SequentialChain
+from langgraph.checkpoint.memory import MemorySaver
+from api.controllers.student_profile_controller import StudentProfileController
+from database.mongo_database_manager import MongoDatabaseManager
 
 
 REACT_PROMP = """
@@ -63,6 +66,7 @@ Given the execution answer plan:
 
 Do NOT answer his question, teach him the critical thinking about the question and how to solve it as best you can. 
 Always try to retrieve the context.
+Try to ask questions that promote deeper understanding.
 You have access to the following tools:
 
 {tools}
@@ -89,7 +93,7 @@ Begin!
 
 Question: {input}
 
-Thought: agent_scratchpad
+Thought: {agent_scratchpad}
 """
 
 RETRIEVAL_PROMPT = """
@@ -113,6 +117,62 @@ Você é o Agente de Recuperador de Conteúdo. Sua função é sugerir recursos 
 - Sempre priorize a ferramenta `retrieve_context` para fornecer contexto educativo relevante antes de utilizar Wikipedia.
 - Garanta que todas as respostas sejam apresentadas de forma clara e direcionada ao objetivo do estudante.
 """
+EDUCATIONAL_PROMPT = """
+You are an educational guide focused on developing critical thinking. Your role is to help students learn how to solve problems on their own, NOT to provide direct answers.
+
+Given the student's learning style based on the Felder-Silverman model:
+{perfil_do_estudante}
+
+And the current execution plan:
+{plano_de_execucao}
+
+Your responsibilities:
+1. Guide students through problem-solving steps
+2. Ask thought-provoking questions
+3. Provide hints and suggestions rather than answers
+4. Adapt explanations to match their learning style
+5. Encourage self-discovery and critical thinking
+
+When responding:
+- Break down complex problems into smaller steps
+- Use analogies relevant to the student's interests
+- Provide scaffolding that matches their learning style
+- Ask questions that promote deeper understanding
+- Give constructive feedback on their thinking process
+
+You have access to these tools:
+{tools}
+
+Use this format:
+
+Question: the student's question you must help them solve
+
+Thought: your analysis of how to guide the student (not visible to them)
+
+Action: the action to take, should be one of [{tool_names}]
+
+Action Input: the input to the action
+
+Observation: the result of the action
+
+... (this Thought/Action/Action Input/Observation can repeat N times)
+
+Thought: I now know how to guide the student
+
+Final Answer: A step-by-step guidance plan that:
+1. Asks leading questions
+2. Provides relevant hints
+3. Suggests learning resources
+4. Encourages critical thinking
+Do NOT provide the direct answer.
+
+Begin!
+
+Question: {input}
+
+Thought: {agent_scratchpad}
+"""
+
 
 class RetrievalAgent:
     def __init__(
@@ -129,6 +189,9 @@ class RetrievalAgent:
         self.embeddings = embeddings
         self.student_email = student_email
         self.disciplina = disciplina
+        self.session_id = session_id
+        self.mongo_database_manager = MongoDatabaseManager()
+        # Initialize chat history
         self.chat_history = CustomMongoDBChatMessageHistory(
             user_email=self.student_email,
             disciplina=self.disciplina,
@@ -140,51 +203,54 @@ class RetrievalAgent:
             history_key="history",
         )
 
-        self.prompt = ChatPromptTemplate.from_messages([
-            ("system", REACT_PROMP),
-            ("human", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad"),  # Usar MessagesPlaceholder ao invés de placeholder
-        ])
-        self.output_parser = ReActOutputParser()
-
-        # Defina ferramentas auxiliares sem decorar métodos de instância
-        # tools = [
-        #     self.create_tool(self.retrieve_context, "retrieve_context"),
-        #     self.create_tool(self.search_youtube, "search_youtube"),
-        #     self.create_tool(self.search_wikipedia, "search_wikipedia"),
-        # ]
-        tools = [
+        # Initialize tools
+        self.tools = [
             Tool(
-                name="retrieve_context",  # Name of the tool
-                func=self.retrieve_context,  # Function that the tool will execute
-                # Description of the tool
-                description="Retrieve relevant context from vector database from a query",
+                name="retrieve_context",
+                func=self.retrieve_context,
+                description="Search the knowledge base for relevant educational materials and examples"
             ),
+            # Tool(
+            #     name="search_youtube",
+            #     func=self.search_youtube,
+            #     description="Search YouTube for relevant educational videos"
+            # ),
+            # Tool(
+            #     name="search_wikipedia",
+            #     func=self.search_wikipedia,
+            #     description="Search Wikipedia for detailed information and explanations"
+            # )
         ]
+
+
+        self.prompt = ChatPromptTemplate.from_template(REACT_PROMP)
+
+        # Initialize agent
         self.agent = create_react_agent(
-            llm=self.model.bind_tools(tools), 
-            tools=tools, 
-            prompt=self.prompt,
-            output_parser=self.output_parser,
-        )
-        self.agent_executor = AgentExecutor(
-            agent=self.agent, 
-            tools=tools,
-            verbose=True,
-            max_iterations=15,
+            llm=self.model,
+            tools=self.tools,
+            prompt=self.prompt
         )
 
-    def create_tool(self, func: Callable[[str], str], name: str) -> StructuredTool:
-        """Cria uma ferramenta a partir de uma função sem 'self'."""
-        return StructuredTool.from_function(
-            func=func,
-            name=name,
-            description=f"Tool para {name}",
-            args_schema=None,  # Defina conforme necessário
+        # Create agent executor
+        self.agent_executor = AgentExecutor(
+            agent=self.agent,
+            tools=self.tools,
+            verbose=True,
+            max_iterations=10,
+            early_stopping_method="generate",
+            handle_parsing_errors=True
         )
+
+    def get_student_profile(self) -> dict:
+        """Retrieve the student's profile from the database."""
+        student_profile = self.mongo_database_manager.get_student_profile(
+            email=self.student_email,
+            collection_name="student_learn_preference"
+        )
+        return student_profile
 
     def retrieve_context(self, query: str) -> str:
-        """ Retrieve relevant context from vector database from a query """
         print(f"Retrieving context for query: {query}")
 
         try:
@@ -216,7 +282,6 @@ class RetrievalAgent:
         except Exception as e:
             print(f"Erro ao recuperar contexto: {e}")
             return "Ocorreu um erro ao tentar recuperar o contexto."
-
 
 
     def search_youtube(self, query: str) -> str:
@@ -252,49 +317,68 @@ class RetrievalAgent:
             print(f"Erro ao buscar no Wikipedia: {e}")
             return "Ocorreu um erro ao buscar no Wikipedia."
 
-    # def search_google(self, query: str) -> str:
-    #     """
-    #     Realiza uma pesquisa no Google e retorna o primeiro link relevante.
-    #     """
-    #     try:
-    #         params = {
-    #             "q": query,
-    #             "hl": "pt",  # Português
-    #             "gl": "br",  # Região Brasil
-    #             "api_key": "YOUR_SERPAPI_KEY"  # Substitua com sua chave da API SerpAPI
-    #         }
-
-    #         search = GoogleSearch(params)
-    #         results = search.get_dict()
-
-    #         if "organic_results" in results and len(results["organic_results"]) > 0:
-    #             top_result = results["organic_results"][0]
-    #             return f"Título: {top_result['title']}\nLink: {top_result['link']}\nDescrição: {top_result.get('snippet', 'Sem descrição')}"
-    #         else:
-    #             return "Nenhum resultado encontrado no Google."
-    #     except Exception as e:
-    #         print(f"Erro ao buscar no Google: {e}")
-    #         return "Ocorreu um erro ao buscar no Google."
-
-    async def invoke(self, query: str, student_profile, execution_plan, config, agent_scratchpad):
-        """Invoca o agente para sugerir recursos."""
+    async def invoke(self, query: str, student_profile: dict, execution_plan: dict, config: dict) -> dict:
+        """Process a query and provide educational guidance"""
         try:
-            print("Invocando Retrieval Agent")
-
-            response = self.agent_executor.invoke({
+            print(f"RetrievalAgent processing query: {query}")
+            
+            # Prepare the input with intermediate_steps for agent_scratchpad
+            agent_input = {
                 "input": query,
                 "perfil_do_estudante": student_profile,
                 "plano_de_execucao": execution_plan,
-                "agent_scratchpad": agent_scratchpad
-            },
-            config=config)
-            print(f"Retrieval Agent Response: {response}")
-            print("Passos intermediários:")
-            print(response["intermediate_steps"])
-            return response
+            }
+
+            # Execute the agent
+            response = await self.agent_executor.ainvoke(
+                agent_input,
+                config=config
+            )
+
+            # Process the response
+            if isinstance(response, dict):
+                output = response.get("output", "")
+                steps = response.get("intermediate_steps", [])
+                
+                # Save response to chat history
+                self.chat_history.add_message(AIMessage(content=output))
+                
+                return {
+                    "guidance": output,
+                    "steps": steps,
+                    "context_used": bool(steps),
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                # Save response to chat history
+                self.chat_history.add_message(AIMessage(content=str(response)))
+                
+                return {
+                    "guidance": str(response),
+                    "steps": [],
+                    "context_used": False,
+                    "timestamp": datetime.now().isoformat()
+                }
+
         except Exception as e:
             print(f"Error in RetrievalAgent: {e}")
-            return {"output": "Ocorreu um erro ao recuperar recursos."}  # Retornar um dicionário com chave 'output'
+            import traceback
+            traceback.print_exc()
+            
+            error_message = (
+                "I encountered an issue while processing your question. "
+                "Let's try breaking it down into smaller steps. "
+                "What specific aspect would you like to understand first?"
+            )
+            
+            # Save error response to chat history
+            self.chat_history.add_message(AIMessage(content=error_message))
+            
+            return {
+                "guidance": error_message,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            }
 
 PROMPT_AGENTE_ANALISE_PROGRESSO = """
 Você é o Agente de Análise de Progresso. Sua responsabilidade é avaliar o desempenho do estudante e fornecer feedback corretivo, se necessário.
@@ -445,7 +529,8 @@ class ChatAgent:
                 "input": user_input,
                 "perfil_do_estudante": self.student_profile,
                 "plano_de_execucao": self.execution_plan,
-                "history": history
+                "history": history,
+                "agent_scratchpad": [BaseMessage],
             }
 
             # Invoca a cadeia sequencial

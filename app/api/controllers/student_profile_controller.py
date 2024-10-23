@@ -1,9 +1,9 @@
 from api.dispatchers.student_profile_dispatcher import StudentProfileDispatcher
 from sqlalchemy.exc import IntegrityError
-from datetime import datetime
+from datetime import datetime, timezone
 from database.mongo_database_manager import MongoDatabaseManager
-from api.models import StudentProfileCreate
-
+from api.endpoints.models import EstiloAprendizagem
+from fastapi import HTTPException
 
 class StudentProfileController:
     def __init__(self, sql_database_manager):
@@ -36,7 +36,7 @@ class StudentProfileController:
         updated_data = {
             "DadosPerfil": perfil_aprendizado,
             "IdPerfilFelderSilverman": id_perfil_felder,
-            "DataUltimaAtualizacao": datetime.utcnow()
+            "DataUltimaAtualizacao": datetime.now(timezone.utc)
         }
         self.dispatcher.update_student_learning_profile(user_id, updated_data)
 
@@ -57,10 +57,10 @@ class ProfileController:
         self.mongo_manager = mongo_manager
         self.collection = mongo_manager.db["student_learn_preference"]
 
-    async def create_profile(self, profile_data: StudentProfileCreate, current_user: dict):
+    async def create_profile(self, profile_data: EstiloAprendizagem, current_user: dict):
         profile = {
             "user_email": current_user["sub"],
-            "profile_data": profile_data.dict(),
+            "profile_data": profile_data.model_dump(),
             "created_at": datetime.now(timezone.utc)
         }
         result = await self.collection.insert_one(profile)
@@ -72,10 +72,10 @@ class ProfileController:
             raise HTTPException(status_code=404, detail="Perfil não encontrado")
         return profile
 
-    async def update_profile(self, profile_data: StudentProfileCreate, current_user: dict):
+    async def update_profile(self, profile_data: EstiloAprendizagem, current_user: dict):
         result = await self.collection.update_one(
             {"user_email": current_user["sub"]},
-            {"$set": {"profile_data": profile_data.dict(), "updated_at": datetime.utcnow()}}
+            {"$set": {"profile_data": profile_data.model_dump(), "updated_at": datetime.now(timezone.utc)}}
         )
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Perfil não encontrado")
