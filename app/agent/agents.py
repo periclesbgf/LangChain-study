@@ -22,11 +22,75 @@ from youtubesearchpython import VideosSearch
 import wikipediaapi
 from langchain.agents.react.output_parser import ReActOutputParser
 from serpapi import GoogleSearch
-from utils import OPENAI_API_KEY
+from utils import OPENAI_API_KEY, MONGO_URI, MONGO_DB_NAME
 from langchain.agents import AgentExecutor, create_tool_calling_agent, Tool, initialize_agent, create_react_agent
 from langchain_core.output_parsers import StrOutputParser
 from langchain.chains.sequential import SequentialChain
 
+
+REACT_PROMP = """
+You are a personalized tutor. Your goal is to look at the student progile the way he learns
+and the current state of conversation and what is his necessities.
+
+Students can have different learning preferences according to the Felder-Silverman model. The dimensions and their characteristics are:
+
+1. **Sensing vs. Intuitive**:
+   - Sensing: Prefers concrete facts, details, and practical applications.
+   - Intuitive: Enjoys abstract concepts, innovation, and theories.
+
+2. **Visual vs. Verbal**:
+   - Visual: Learns better through images, diagrams, and videos.
+   - Verbal: Prefers oral explanations or reading texts.
+
+3. **Active vs. Reflective**:
+   - Active: Learns through hands-on activities and group collaboration.
+   - Reflective: Prefers to think and work alone before acting.
+
+4. **Sequential vs. Global**:
+   - Sequential: Processes knowledge linearly and in an organized manner.
+   - Global: Understands better with a big-picture view and makes broad connections.
+
+Based on these characteristics, generate a personalized study plan that considers:
+1. The student's dominant dimension in each category.
+2. Strategies and study materials aligned with these preferences.
+3. Suggestions for developing less dominant skills, if necessary.
+
+Given the student profile:
+{perfil_do_estudante}
+
+Given the execution answer plan:
+{plano_de_execucao}
+
+Do NOT answer his question, teach him the critical thinking about the question and how to solve it as best you can. 
+Always try to retrieve the context.
+You have access to the following tools:
+
+{tools}
+
+Use the following format:
+
+Question: the input question you must answer
+
+Thought: you should always think about what to do
+
+Action: the action to take, should be one of [{tool_names}]
+
+Action Input: the input to the action
+
+Observation: the result of the action
+
+... (this Thought/Action/Action Input/Observation can repeat N times)
+
+Thought: I now know the step by step to teach the student how to solve the question
+
+Final Answer: the step by step to the original input question translated to pt-br language.
+
+Begin!
+
+Question: {input}
+
+Thought: agent_scratchpad
+"""
 
 RETRIEVAL_PROMPT = """
 Você é o Agente de Recuperador de Conteúdo. Sua função é sugerir recursos e materiais relevantes com base na necessidade do estudante.
@@ -57,6 +121,7 @@ class RetrievalAgent:
             embeddings: Embeddings,
             disciplina: str,
             student_email: str,
+            session_id: str,
             model_name: str = "gpt-4o-mini",
     ):
         self.model = ChatOpenAI(model_name=model_name, api_key=OPENAI_API_KEY)
@@ -64,31 +129,49 @@ class RetrievalAgent:
         self.embeddings = embeddings
         self.student_email = student_email
         self.disciplina = disciplina
-
-        self.prompt = ChatPromptTemplate.from_messages(
-            [
-                ("human", "{input}"),
-                ("placeholder", "{agent_scratchpad}"),
-                ("system", RETRIEVAL_PROMPT),
-            ]
+        self.chat_history = CustomMongoDBChatMessageHistory(
+            user_email=self.student_email,
+            disciplina=self.disciplina,
+            connection_string=MONGO_URI,
+            session_id=session_id,
+            database_name=MONGO_DB_NAME,
+            collection_name="chat_history",
+            session_id_key="session_id",
+            history_key="history",
         )
-        
+
+        self.prompt = ChatPromptTemplate.from_messages([
+            ("system", REACT_PROMP),
+            ("human", "{input}"),
+            MessagesPlaceholder(variable_name="agent_scratchpad"),  # Usar MessagesPlaceholder ao invés de placeholder
+        ])
+        self.output_parser = ReActOutputParser()
+
         # Defina ferramentas auxiliares sem decorar métodos de instância
+        # tools = [
+        #     self.create_tool(self.retrieve_context, "retrieve_context"),
+        #     self.create_tool(self.search_youtube, "search_youtube"),
+        #     self.create_tool(self.search_wikipedia, "search_wikipedia"),
+        # ]
         tools = [
-            self.create_tool(self.retrieve_context, "retrieve_context"),
-            self.create_tool(self.search_youtube, "search_youtube"),
-            self.create_tool(self.search_wikipedia, "search_wikipedia"),
-            self.create_tool(self.search_google, "search_google"),
+            Tool(
+                name="retrieve_context",  # Name of the tool
+                func=self.retrieve_context,  # Function that the tool will execute
+                # Description of the tool
+                description="Retrieve relevant context from vector database from a query",
+            ),
         ]
-        
-        self.agent = create_tool_calling_agent(
-            self.model, 
-            tools, 
-            self.prompt
+        self.agent = create_react_agent(
+            llm=self.model.bind_tools(tools), 
+            tools=tools, 
+            prompt=self.prompt,
+            output_parser=self.output_parser,
         )
         self.agent_executor = AgentExecutor(
             agent=self.agent, 
-            tools=tools
+            tools=tools,
+            verbose=True,
+            max_iterations=15,
         )
 
     def create_tool(self, func: Callable[[str], str], name: str) -> StructuredTool:
@@ -101,6 +184,7 @@ class RetrievalAgent:
         )
 
     def retrieve_context(self, query: str) -> str:
+        """ Retrieve relevant context from vector database from a query """
         print(f"Retrieving context for query: {query}")
 
         try:
@@ -168,44 +252,49 @@ class RetrievalAgent:
             print(f"Erro ao buscar no Wikipedia: {e}")
             return "Ocorreu um erro ao buscar no Wikipedia."
 
-    def search_google(self, query: str) -> str:
-        """
-        Realiza uma pesquisa no Google e retorna o primeiro link relevante.
-        """
-        try:
-            params = {
-                "q": query,
-                "hl": "pt",  # Português
-                "gl": "br",  # Região Brasil
-                "api_key": "YOUR_SERPAPI_KEY"  # Substitua com sua chave da API SerpAPI
-            }
+    # def search_google(self, query: str) -> str:
+    #     """
+    #     Realiza uma pesquisa no Google e retorna o primeiro link relevante.
+    #     """
+    #     try:
+    #         params = {
+    #             "q": query,
+    #             "hl": "pt",  # Português
+    #             "gl": "br",  # Região Brasil
+    #             "api_key": "YOUR_SERPAPI_KEY"  # Substitua com sua chave da API SerpAPI
+    #         }
 
-            search = GoogleSearch(params)
-            results = search.get_dict()
+    #         search = GoogleSearch(params)
+    #         results = search.get_dict()
 
-            if "organic_results" in results and len(results["organic_results"]) > 0:
-                top_result = results["organic_results"][0]
-                return f"Título: {top_result['title']}\nLink: {top_result['link']}\nDescrição: {top_result.get('snippet', 'Sem descrição')}"
-            else:
-                return "Nenhum resultado encontrado no Google."
-        except Exception as e:
-            print(f"Erro ao buscar no Google: {e}")
-            return "Ocorreu um erro ao buscar no Google."
+    #         if "organic_results" in results and len(results["organic_results"]) > 0:
+    #             top_result = results["organic_results"][0]
+    #             return f"Título: {top_result['title']}\nLink: {top_result['link']}\nDescrição: {top_result.get('snippet', 'Sem descrição')}"
+    #         else:
+    #             return "Nenhum resultado encontrado no Google."
+    #     except Exception as e:
+    #         print(f"Erro ao buscar no Google: {e}")
+    #         return "Ocorreu um erro ao buscar no Google."
 
-    async def invoke(self, query: str, student_profile, execution_plan):
+    async def invoke(self, query: str, student_profile, execution_plan, config, agent_scratchpad):
         """Invoca o agente para sugerir recursos."""
         try:
+            print("Invocando Retrieval Agent")
+
             response = self.agent_executor.invoke({
                 "input": query,
                 "perfil_do_estudante": student_profile,
                 "plano_de_execucao": execution_plan,
-                "consulta_usuario": query
-            })
+                "agent_scratchpad": agent_scratchpad
+            },
+            config=config)
             print(f"Retrieval Agent Response: {response}")
+            print("Passos intermediários:")
+            print(response["intermediate_steps"])
             return response
         except Exception as e:
             print(f"Error in RetrievalAgent: {e}")
-            return "Ocorreu um erro ao recuperar recursos."
+            return {"output": "Ocorreu um erro ao recuperar recursos."}  # Retornar um dicionário com chave 'output'
 
 PROMPT_AGENTE_ANALISE_PROGRESSO = """
 Você é o Agente de Análise de Progresso. Sua responsabilidade é avaliar o desempenho do estudante e fornecer feedback corretivo, se necessário.

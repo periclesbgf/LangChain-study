@@ -1,59 +1,43 @@
 # app/controllers/chat_controller.py
 
 import os
+import json
+import uuid
+import hashlib
+import fitz  # Biblioteca PyMuPDF para manipulação de PDFs
+import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional
-import json
-from pymongo import errors
+
+from pymongo import MongoClient, errors
+from dotenv import load_dotenv
+from bs4 import BeautifulSoup
+
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.schema import AIMessage, BaseMessage, message_to_dict, messages_from_dict
+from langchain.schema import AIMessage, HumanMessage, BaseMessage, message_to_dict, messages_from_dict
 from langchain.memory.chat_message_histories import MongoDBChatMessageHistory
 from langchain.docstore.document import Document
-from database.vector_db import TextSplitter, Embeddings, QdrantHandler
-from agent.image_handler import ImageHandler
-from pymongo import MongoClient
-from dotenv import load_dotenv
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.schema import BaseMessage
-from bs4 import BeautifulSoup
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.output_parsers.json import JsonOutputParser
+from langchain_core.output_parsers import StrOutputParser
+from langchain.tools.retriever import create_retriever_tool
+from langchain_core.tools import tool
+from langchain.schema.runnable import RunnablePassthrough, RunnableMap
+
 from database.mongo_database_manager import MongoDatabaseManager, CustomMongoDBChatMessageHistory
 from database.vector_db import TextSplitter, Embeddings, QdrantHandler
-from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_openai import ChatOpenAI
-from langchain.schema import BaseMessage, message_to_dict, messages_from_dict, AIMessage, HumanMessage
-from agent.agents import ChatAgent
-from langchain_openai import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.schema import BaseMessage
-import hashlib
-
-from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_openai import ChatOpenAI
-from agent.prompt import CONTEXTUALIZE_SYSTEM_PROMPT
-from datetime import datetime, timezone
-from typing import List
-import json
-from pymongo import MongoClient, errors
-import uuid
-from langchain.tools.retriever import create_retriever_tool
-from qdrant_client.http.models import FieldCondition, Filter, MatchValue
-from langchain_core.tools import tool
-from agent.prompt import AGENT_CHAT_PROMPT
-from agent.agents import RetrievalAgent, ChatAgent
-from langchain_core.output_parsers.json import JsonOutputParser
-import fitz  # PyMuPDF library
-import asyncio
-
+from agent.image_handler import ImageHandler
+from agent.agents import ChatAgent, RetrievalAgent
+from agent.prompt import CONTEXTUALIZE_SYSTEM_PROMPT, AGENT_CHAT_PROMPT
 from utils import (
     OPENAI_API_KEY,
     MONGO_DB_NAME,
     MONGO_URI,
-    )
+)
+
+# Carregue as variáveis de ambiente, se necessário
+# load_dotenv()
 
 PROMPT_AGENTE_ORQUESTRADOR = """
 Você é o Agente Orquestrador de um sistema de aprendizado que utiliza múltiplos agentes especializados. 
@@ -70,8 +54,8 @@ Além disso, você deve determinar quais agentes serão ativados para responder 
 
 2. **Decidir os Agentes Necessários**:
    - Identifique quais agentes serão ativados para responder à pergunta, seguindo a sequência:
-     1. **Retrieval Agent (opcional)**: Ativado **se a LLM detectar que o estudante quer esclarecer dúvidas** sobre algum material enviado, como slides da aula ou atividades submetidas ou algo que ele quer que voce procure na internet. Ou se a LLM nao conseguir responder a pergunta.
-        Função: Recuperar o material relevante para a pergunta do estudante e fazer busca na internet sobre materiais ou duvidas.
+     1. **Retrieval Agent (opcional)**: Ativado **se a LLM detectar que o estudante quer esclarecer dúvidas** sobre algum material enviado, como slides da aula ou atividades submetidas ou algo que ele quer que você procure na internet. Ou se a LLM não conseguir responder a pergunta.
+        Função: Recuperar o material relevante para a pergunta do estudante e fazer busca na internet sobre materiais ou dúvidas.
      2. **Agente Analista de Progresso**: Sempre ativado para garantir que a sessão esteja alinhada com o plano de execução e monitorar o aprendizado do estudante.
      3. **Agente de Chat**: Interage diretamente com o estudante e fornece a resposta final de forma clara e personalizada.
 
@@ -108,7 +92,7 @@ A saída deve ser um **JSON** contendo a pergunta reformulada e os agentes neces
 ## Tarefas do Agente Orquestrador
 1. **Analisar o histórico e o input**: Reformule a pergunta do estudante para que ela possa ser respondida de forma clara e objetiva.
 2. **Determinar a sequência de agentes**: Ative os agentes necessários com base na natureza da pergunta.
-3. **Verificar a necessidade do Retrieval Agent**: Ative-o se o estudante esiver tirando duvidas sobre um material que ele enviou ou se ele quiser que voce procure algo na internet.
+3. **Verificar a necessidade do Retrieval Agent**: Ative-o se o estudante estiver tirando dúvidas sobre um material que ele enviou ou se ele quiser que você procure algo na internet.
 4. **Gerar Saída JSON**: Produza uma saída organizada e clara no formato JSON, conforme especificado.
 
 ---
@@ -127,7 +111,7 @@ A saída deve ser um **JSON** contendo a pergunta reformulada e os agentes neces
     - **Agente Analista de Progresso** para garantir que o plano esteja sendo seguido.  
     - **Agente de Chat** para fornecer a explicação solicitada.
 
-- **Indicacao de material**:  
+- **Indicação de material**:  
   - "Poderia me indicar algum material sobre string por favor?"  
   - **Agentes ativados**:  
     - **Retrieval Agent** para pesquisar um material baseado no perfil do estudante.  
@@ -139,7 +123,6 @@ A saída deve ser um **JSON** contendo a pergunta reformulada e os agentes neces
 Garanta que todas as perguntas sejam reformuladas corretamente e que a sequência adequada de agentes seja ativada para cada interação. 
 Sua função é coordenar os agentes sem responder diretamente ao estudante, assegurando que cada passo esteja alinhado ao plano de execução e promovendo o progresso contínuo.
 """
-
 
 class ChatController:
     def __init__(
@@ -158,7 +141,7 @@ class ChatController:
         self.student_email = student_email
         self.disciplina = disciplina
         self.perfil = student_profile  # Perfil passado para o controlador
-        self.plano_execucao = self._carregar_json("/home/pericles/project/LangChain-study/app/resources/plano_acao.json")
+        self.plano_execucao = self._carregar_json("resources/plano_acao.json")
 
         # Inicializa o LLM
         self.llm = ChatOpenAI(
@@ -174,7 +157,7 @@ class ChatController:
         self.embeddings = Embeddings().get_embeddings()
 
         # Configuração das cadeias (chains)
-        self.chain = self._setup_chain()
+        self.chain = self.setup_chain()
         self.chain_with_history = self.__setup_chat_history()
 
         # Inicializa o cliente MongoDB
@@ -195,6 +178,7 @@ class ChatController:
             session_id_key="session_id",
             history_key="history",
         )
+
     def _carregar_json(self, caminho_arquivo: str):
         """Carrega dados de um arquivo JSON."""
         caminho_absoluto = os.path.abspath(caminho_arquivo)
@@ -205,32 +189,64 @@ class ChatController:
             print(f"Erro ao carregar {caminho_arquivo}: {e}")
             return {}
 
-    def _setup_chain(self):
+    def setup_chain(self):
         print("Setting up chain")
-
+        
         # Prompt principal usando o perfil e plano de ação
-        main_prompt = ChatPromptTemplate.from_messages(
-            [
+        main_prompt = ChatPromptTemplate.from_messages([
+            ("system", "Perfil do estudante: {perfil}"),
+            ("system", "Plano de ação: {plano_execucao}"),
+            MessagesPlaceholder(variable_name="history"),
+            ("system", PROMPT_AGENTE_ORQUESTRADOR),
+            ("human", "{input}")
+        ])
 
-                ("system", "Perfil do estudante: {perfil}"),
-                ("system", "Plano de ação: {plano}"),
-                MessagesPlaceholder(variable_name="history"),
-                (
-                    "system",
-                    PROMPT_AGENTE_ORQUESTRADOR
-                ),
-                ("human", "{input}")
-            ]
-        )
+        # Other prompt definition
+        other_prompt = ChatPromptTemplate.from_messages([
+            MessagesPlaceholder(variable_name="history"),
+            ("system", "Forgot the user question and answer the result of 1 + 1 = ?")
+        ])
 
+        # Output parsers
         json_output_parser = JsonOutputParser()
+        str_output_parser = StrOutputParser()
+
+        # Define the chain with proper connection using RunnableMap
+        first_stage = RunnableMap({
+            "main_output": main_prompt | self.llm | json_output_parser,
+            "original_input": RunnablePassthrough()
+        })
 
         chain = (
-            main_prompt
+            first_stage
+            | (lambda x: {
+                "history": x["original_input"].get("history", []),
+                "reformulated_question": x["main_output"]
+            })
+            | other_prompt
             | self.llm
-            | json_output_parser
+            | str_output_parser
         )
+
         return chain
+    def __setup_chat_history(self):
+        print("Setting up chat history")
+        chain_with_history = RunnableWithMessageHistory(
+            self.chain,
+            lambda session_id: CustomMongoDBChatMessageHistory(
+                user_email=self.student_email,
+                disciplina=self.disciplina,
+                connection_string=MONGO_URI,
+                session_id=session_id,
+                database_name=MONGO_DB_NAME,
+                collection_name="chat_history",
+                session_id_key="session_id",
+                history_key="history",
+            ),
+            input_messages_key="input",
+            history_messages_key="history",
+        )
+        return chain_with_history
 
     async def handle_user_message(self, user_input: Optional[str] = None, files=None):
         print("Handling user message")
@@ -240,12 +256,19 @@ class ChatController:
             if user_input or files:
                 print("Obtendo o histórico e preparando a entrada")
                 # Obter o histórico e preparar a entrada
-                chat_history = self.chain_with_history.get_session_history(self.session_id).messages
-
+                history_messages = self.chain_with_history.get_session_history(self.session_id).messages
+                historico = self.chain_with_history
+                print("")
+                print("tipo de chain_with_history", type(self.chain_with_history))
+                print("")
+                print("")
+                print("tipo de history_messages", type(history_messages))
+                print("")
+                print("tipo get_session_history", type(self.chain_with_history.get_session_history(self.session_id)))
                 # Processar arquivos, se houver
                 if files:
                     print(f"{len(files)} arquivo(s) recebido(s). Processando...")
-                    self._process_files(files)  # Removido 'await'
+                    await self._process_files(files)
                     files_processed = True
                 else:
                     files_processed = False
@@ -253,7 +276,7 @@ class ChatController:
                 inputs = {
                     "input": user_input if user_input else "",
                     "perfil": self.perfil,
-                    "plano": self.plano_execucao,
+                    "plano_execucao": self.plano_execucao,
                 }
 
                 # Salvar a mensagem do usuário no histórico
@@ -286,12 +309,11 @@ class ChatController:
 
                 # Validação do formato da resposta
                 if isinstance(result, dict):
-                    output = result.get("output", "No valid output returned.")
-                    if "iteration limit" in output or "time limit" in output:
-                        print("Iteration or time limit reached.")
-                        output = "Desculpe, o agente atingiu o limite de iterações ou tempo."
+                    if "pergunta_reformulada" not in result or "agentes_necessarios" not in result:
+                        print("Resposta do Orquestrador está incompleta.")
+                        return "Resposta incompleta do Orquestrador."
                 else:
-                    output = str(result)
+                    return "Formato de resposta inválido do Orquestrador."
 
                 # Verificar se o RetrievalAgent é necessário
                 retrieval_needed = any(
@@ -299,33 +321,48 @@ class ChatController:
                     for agente in result.get("agentes_necessarios", [])
                 )
 
+                print("\nResult:", result)
+                print("\nRetrieval Agent needed:", retrieval_needed)
+
                 if retrieval_needed:
-                    print("Retrieval Agent activated")
+                    # Invocar o RetrievalAgent
                     retrieval_response = await self.retrieval_agent.invoke(
-                        query=result.get("pergunta_reformulada", ""),
+                        query=result["pergunta_reformulada"],
                         student_profile=self.perfil,
                         execution_plan=self.plano_execucao,
+                        config=config,
+                        agent_scratchpad=self.chain_with_history  # Passar as mensagens diretamente
                     )
+
+                    print("Retrieval Agent activated")
                     print(f"Retrieval Agent Response: {retrieval_response}")
 
-                    final_response = (
-                        retrieval_response.get("output", "Nenhum resultado encontrado.")
-                        if isinstance(retrieval_response, dict)
-                        else str(retrieval_response)
-                    )
+                    # Processar a resposta do RetrievalAgent
+                    if isinstance(retrieval_response, dict):
+                        final_response = retrieval_response.get("output", "Nenhum resultado encontrado.")
+                    else:
+                        final_response = str(retrieval_response)
 
+                    # Adicionar a resposta ao histórico
                     self.chat_history.add_message(AIMessage(content=final_response))
                     return final_response
 
-                # Adicionando o ChatAgent após o Orchestrator
+                # Se Retrieval Agent não for necessário, processar com ChatAgent
                 print("ChatAgent activated")
-                chat_agent_response = await self.chat_agent.invoke(user_input, chat_history)
+                chat_agent_response = await self.chat_agent.invoke(
+                    user_input=user_input,
+                    chat_history=self.chain_with_history
+                )
                 print(f"ChatAgent Response: {chat_agent_response}")
 
                 # Salvar a resposta do ChatAgent no histórico
-                self.chat_history.add_message(AIMessage(content=chat_agent_response))
+                if isinstance(chat_agent_response, dict):
+                    response_content = chat_agent_response.get("output", "Resposta não encontrada.")
+                else:
+                    response_content = str(chat_agent_response)
 
-                return chat_agent_response
+                self.chat_history.add_message(AIMessage(content=response_content))
+                return response_content
 
             return "Nenhuma entrada fornecida."
 
@@ -333,26 +370,7 @@ class ChatController:
             print(f"Error handling message: {e}")
             return "Ocorreu um erro ao processar sua mensagem."
 
-    def __setup_chat_history(self):
-        print("Setting up chat history")
-        chain_with_history = RunnableWithMessageHistory(
-            self.chain,
-            lambda session_id: CustomMongoDBChatMessageHistory(
-                user_email=self.student_email,
-                disciplina=self.disciplina,
-                connection_string=MONGO_URI,
-                session_id=session_id,
-                database_name=MONGO_DB_NAME,
-                collection_name="chat_history",
-                session_id_key="session_id",
-                history_key="history",
-            ),
-            input_messages_key="input",
-            history_messages_key="history",
-        )
-        return chain_with_history
-
-    def _process_files(self, files):
+    async def _process_files(self, files):
         """
         Processes the uploaded files: extracts text, images, and stores embeddings.
         """
@@ -360,13 +378,13 @@ class ChatController:
         for file in files:
             filename = file.filename
             print(f"Processing file: {filename}")
-            content = file.read()  # Removido 'await' para leitura síncrona
+            content = await file.read()  # Adiciona 'await' aqui
             if filename.lower().endswith(".pdf"):
                 print(f"Processing PDF file: {filename}")
-                self._process_pdf(content)  # Removido 'await'
+                await self._process_pdf(content)  # Adiciona 'await' aqui
             elif filename.lower().endswith((".jpg", ".jpeg", ".png")):
                 print(f"Processing image file: {filename}")
-                self._process_image(content)  # Removido 'await'
+                await self._process_image(content)  # Adiciona 'await' aqui
             else:
                 print(f"Unsupported file type: {filename}")
 
@@ -395,6 +413,7 @@ class ChatController:
         # Verificar se o documento já existe no Qdrant
         if self.qdrant_handler.document_exists(content_hash, self.student_email, self.disciplina):
             print("Document already exists in Qdrant. Skipping insertion.")
+            pdf_document.close()
             return
 
         # Split the text into smaller documents
@@ -418,24 +437,7 @@ class ChatController:
         pdf_document.close()
         print("PDF processing complete")
 
-
-    def _document_exists_in_qdrant(self, content_hash: str) -> bool:
-        """
-        Verifica se um documento com o content_hash já existe na coleção.
-        
-        :param content_hash: Hash do conteúdo do documento.
-        :return: True se existir, False caso contrário.
-        """
-        exists = self.qdrant_handler.document_exists(
-            content_hash=content_hash,
-            student_email=self.student_email,
-            disciplina=self.disciplina
-        )
-        print(f"Document exists: {exists}")
-        return exists
-
-
-    async def _process_image(self, content):
+    async def _process_image(self, content: bytes):
         """
         Processes image files: stores the image in MongoDB, generates description using VLM,
         stores embeddings, and references the UUID in Qdrant.
@@ -479,7 +481,7 @@ class ChatController:
         )
         print("Image description stored in Qdrant with reference to MongoDB.")
 
-    def retrieve_image_and_description(self, image_uuid):
+    def retrieve_image_and_description(self, image_uuid: str):
         """
         Recupera a imagem do MongoDB e sua descrição armazenada no Qdrant com base no UUID da imagem.
 
@@ -499,7 +501,13 @@ class ChatController:
             image_bytes = image_data.get("image_data")
 
             # Recuperar a descrição da imagem do Qdrant usando o UUID como chave de metadados
-            query = f"SELECT description FROM qdrant WHERE image_uuid = '{image_uuid}'"
+            query = {
+                "filter": {
+                    "must": [
+                        {"key": "image_uuid", "match": {"value": image_uuid}}
+                    ]
+                }
+            }
             results = self.qdrant_handler.similarity_search(
                 query=query,
                 student_email=self.student_email,
@@ -525,7 +533,7 @@ class ChatController:
             return {"error": "Failed to retrieve image or description"}
 
     @tool
-    def retrieve_context(self, query):
+    def retrieve_context(self, query: str) -> List[str]:
         """
         Retrieves relevant documents from the vector store based on the query.
         :param query: The user's question.
@@ -543,7 +551,7 @@ class ChatController:
         context = [result['content'] for result in results]
         return context
 
-    async def _generate_response(self, user_input, context):
+    async def _generate_response(self, user_input: str, context: List[str]) -> str:
         """
         Generates the assistant's response using the LLM and the retrieved context.
         :param user_input: The user's input text.
@@ -579,18 +587,16 @@ class ChatController:
 
         return response_text
 
-    def _save_message(self, role, content):
+    def _save_message(self, role: str, content: str):
         """
         Saves a message to the chat history.
-        :param role: 'user' or 'assistant'.
-        :param content: Message content.
+        :param role: 'user' ou 'assistant'.
+        :param content: Conteúdo da mensagem.
         """
         print(f"Saving message: role={role}, content={content}")
         if role == "user":
-            message = BaseMessage(content=content, role="human")
+            message = HumanMessage(content=content)
         else:
-            message = BaseMessage(content=content, role="ai")
+            message = AIMessage(content=content)
 
         self.chain_with_history.get_session_history(self.session_id).add_message(message)
-
-
