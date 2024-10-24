@@ -70,8 +70,24 @@ async def get_profile(
         )
 
         if not profile:
-            raise HTTPException(status_code=404, detail="Perfil não encontrado.")
+            sql_manager = DatabaseManager(session, metadata)
 
+            student_name = sql_manager.get_user_name_by_email(current_user["sub"])
+
+            profile_data = {
+                "Nome": student_name,
+                "Email": current_user["sub"],
+                "EstiloAprendizagem": None,
+                "Feedback": None,
+                "PreferenciaAprendizado": None,
+                "created_at": datetime.now(timezone.utc)
+            }
+
+            profile_id = await mongo_manager.create_student_profile(
+                email=current_user["sub"],
+                profile_data=profile_data
+            )
+            return profile_id
         profile["_id"] = str(profile["_id"])
         return profile
 

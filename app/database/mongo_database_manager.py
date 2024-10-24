@@ -1,11 +1,8 @@
 # app/database/mongo_database_manager.py
 
 import motor.motor_asyncio
-from langchain_community.chat_message_histories import ChatMessageHistory
-from langchain.schema import HumanMessage, AIMessage, SystemMessage
 from utils import MONGO_DB_NAME, MONGO_URI
 from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
-
 from langchain.schema import BaseMessage, message_to_dict, messages_from_dict
 from pymongo import errors
 from datetime import datetime, timezone
@@ -32,12 +29,12 @@ class MongoDatabaseManager:
             if existing_profile:
                 print(f"Perfil já existe para o email: {email}")
                 return None
-            
+
             # Insere o novo perfil
             result = await collection.insert_one(profile_data)
             print(f"Perfil criado com sucesso para o email: {email}")
             return str(result.inserted_id)
-        
+
         except errors.PyMongoError as e:
             print(f"Erro ao criar perfil: {e}")
             return None
@@ -97,6 +94,10 @@ class CustomMongoDBChatMessageHistory(MongoDBChatMessageHistory):
         self.user_email = user_email
         self.disciplina = disciplina
         super().__init__(*args, **kwargs)
+
+        # Verifica e cria a coleção se necessário
+        self.ensure_collection_exists()
+
         # Cria um índice em (session_id, user_email, timestamp) para otimizar consultas
         self.collection.create_index(
             [
@@ -107,6 +108,20 @@ class CustomMongoDBChatMessageHistory(MongoDBChatMessageHistory):
             name="session_user_timestamp_index",
             unique=False
         )
+
+    def ensure_collection_exists(self):
+        """
+        Verifica se a coleção existe no banco de dados.
+        Se não existir, cria a coleção.
+        """
+        try:
+            db = self.collection.database
+            if self.collection.name not in db.list_collection_names():
+                db.create_collection(self.collection.name)
+                print(f"Collection '{self.collection.name}' created successfully.")
+        except Exception as e:
+            print(f"Error ensuring collection exists: {e}")
+            raise
 
     def add_message(self, message: BaseMessage) -> None:
         """Append the message to MongoDB with user_email, disciplina, and timestamp."""
@@ -153,7 +168,7 @@ class CustomMongoDBChatMessageHistory(MongoDBChatMessageHistory):
         except errors.OperationFailure as error:
             print(f"Error retrieving messages: {error}")
             return []
-
+            
         items = [json.loads(document[self.history_key]) for document in cursor]
         messages = messages_from_dict(items)
         return messages
