@@ -35,6 +35,7 @@ from utils import (
     MONGO_DB_NAME,
     MONGO_URI,
 )
+from agent.agent_test import TutorWorkflow
 
 # Carregue as variáveis de ambiente, se necessário
 # load_dotenv()
@@ -238,7 +239,7 @@ class ChatController:
         disciplina: str,
         qdrant_handler: QdrantHandler,
         image_handler: ImageHandler,
-        retrieval_agent: RetrievalAgent,
+        retrieval_agent: TutorWorkflow,  # Changed type hint to TutorWorkflow
         student_profile: dict,
         mongo_db_name: str,
         mongo_uri: str,
@@ -270,7 +271,7 @@ class ChatController:
         self.db = self.client[MONGO_DB_NAME]
         self.image_collection = self.db["image_collection"]
         self.collection_name = "student_documents"
-        self.retrieval_agent = retrieval_agent
+        self.tutor_workflow = retrieval_agent  # Renamed to indicate it's TutorWorkflow
         
         # Initialize chat history
         self.chat_history = CustomMongoDBChatMessageHistory(
@@ -389,103 +390,54 @@ class ChatController:
             return False
 
     async def handle_user_message(self, user_input: Optional[str] = None, files=None):
-        print("Handling user message")
-        config = {"configurable": {"session_id": self.session_id}}
-
+        print("[DEBUG] Handling user message")
         try:
             if not user_input and not files:
                 return "Nenhuma entrada fornecida."
 
-            print("Obtaining history and preparing input")
-            history_messages = self.chain_with_history.get_session_history(self.session_id).messages
-
-            # Process files if any
-            files_processed = False
             if files:
-                print(f"Processing {len(files)} file(s)...")
-                files_processed = await self._process_files(files)
+                print(f"[DEBUG] Processing {len(files)} file(s)...")
+                await self._process_files(files)
 
-            # Update analytics
-            self.analytics["interaction_count"] += 1
-            start_time = datetime.now()
+            # Get current chat history
+            current_history = self.chat_history.messages
+            print(f"[DEBUG] Retrieved {len(current_history)} messages from history")
 
-            # Prepare inputs
-            inputs = {
-                "input": user_input if user_input else "",
-                "perfil": self.perfil,
-                "plano_execucao": self.plano_execucao,
-            }
-
-            # Save user message
-            if user_input:
-                self.chat_history.add_message(HumanMessage(content=user_input))
-                print(f"Added user message to history: {user_input}")
-
-            # Get orchestrator result
-            print("Sending request to orchestrator")
-            #orchestrator_result = await self.chain_with_history.ainvoke(inputs, config=config)
-            orchestrator_result = user_input
-            print(f"Raw orchestrator result: {orchestrator_result}")
-
-            # # Parse orchestrator result
-            # try:
-            #     if isinstance(orchestrator_result, str):
-            #         import json
-            #         result = json.loads(orchestrator_result)
-            #     else:
-            #         result = orchestrator_result
-            # except json.JSONDecodeError:
-            #     # If the result is not JSON, use it as is for retrieval
-            #     result = {
-            #         "pergunta_reformulada": user_input,
-            #         "agentes_necessarios": [{"agente": "Retrieval Agent", "necessario": True}]
-            #     }
-
-            # # Update agents if files were processed
-            # if files_processed:
-            #     print("Files processed, adjusting Retrieval Agent necessity")
-            #     agents = result.get("agentes_necessarios", [])
-            #     retrieval_found = False
-            #     for agent in agents:
-            #         if agent.get("agente") == "Retrieval Agent":
-            #             agent["necessario"] = True
-            #             retrieval_found = True
-            #             break
-            #     if not retrieval_found:
-            #         agents.append({"agente": "Retrieval Agent", "necessario": True})
-            #     result["agentes_necessarios"] = agents
-
-            # Use retrieval agent
-            retrieval_response = await self.retrieval_agent.invoke(
-                query=orchestrator_result,
+            print(f"[DEBUG] Processing user input: {user_input}")
+            # Call TutorWorkflow with chat history
+            print(f"[DEBUG] Invoking TutorWorkflow")
+            print(f"[DEBUG] Student profile: {self.perfil}")
+            print(f"[DEBUG] Current plan: {self.plano_execucao}")
+            workflow_response = await self.tutor_workflow.invoke(
+                query=user_input,
                 student_profile=self.perfil,
-                execution_plan=self.plano_execucao,
-                config=config,
+                current_plan=self.plano_execucao,
+                chat_history=current_history  # Pass the MongoDB chat history
             )
 
-            # Process response
-            if isinstance(retrieval_response, dict):
-                final_response = retrieval_response.get("guidance", retrieval_response.get("output", "No response generated."))
-            else:
-                final_response = str(retrieval_response)
+            print(f"[DEBUG] Workflow response received")
 
-            # Update analytics
-            end_time = datetime.now()
-            response_time = (end_time - start_time).total_seconds()
-            self.analytics["average_response_time"] = (
-                (self.analytics["average_response_time"] * (self.analytics["interaction_count"] - 1) + response_time)
-                / self.analytics["interaction_count"]
-            )
-
-            # Save AI response
-            #self.chat_history.add_message(AIMessage(content=final_response))
-            return final_response
+            # Handle the response and update history
+            if isinstance(workflow_response, dict):
+                messages = workflow_response.get("messages", [])
+                if messages:
+                    # Get the last AI message
+                    ai_messages = [msg for msg in messages if isinstance(msg, AIMessage)]
+                    if ai_messages:
+                        final_response = ai_messages[-1].content
+                        # Save the interaction to history
+                        self.chat_history.add_message(HumanMessage(content=user_input))
+                        self.chat_history.add_message(AIMessage(content=final_response))
+                        return final_response
+                    
+            return "Desculpe, não foi possível gerar uma resposta adequada."
 
         except Exception as e:
-            print(f"Error handling message: {str(e)}")
+            print(f"[DEBUG] Error in handle_user_message: {str(e)}")
             import traceback
             traceback.print_exc()
             return "Ocorreu um erro ao processar sua mensagem. Por favor, tente novamente."
+
 
     async def get_learning_progress(self):
         """Retrieve learning analytics and progress"""

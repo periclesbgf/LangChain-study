@@ -14,7 +14,7 @@ from datetime import datetime
 from utils import OPENAI_API_KEY
 from agent.agents import RetrievalAgent, ChatAgent
 from database.mongo_database_manager import MongoDatabaseManager
-from agent.agents import ChatAgent
+from agent.agent_test import TutorWorkflow
 #from agent.agent_test import TutorWorkflow
 
 import json
@@ -29,7 +29,8 @@ async def chat_endpoint(
     current_user=Depends(get_current_user)
 ):
     try:
-        # Existing initialization code remains the same
+        print("\n[DEBUG] Starting chat endpoint")
+        # Initialize core components
         embeddings = Embeddings().get_embeddings()
         qdrant_handler = QdrantHandler(
             url=QDRANT_URL,
@@ -39,67 +40,55 @@ async def chat_endpoint(
         image_handler = ImageHandler(OPENAI_API_KEY)
 
         # Get student profile
+        print("[DEBUG] Fetching student profile")
         mongo_manager = MongoDatabaseManager()
         student_profile = await mongo_manager.get_student_profile(
             email=current_user["sub"],
             collection_name="student_learn_preference"
         )
-
         if not student_profile:
             raise HTTPException(status_code=404, detail="Perfil do estudante não encontrado.")
-        print(f"Student profile: {student_profile}")
+        print(f"[DEBUG] Student profile retrieved: {student_profile}")
 
-        # # Initialize TutorWorkflow
-        # tutor_workflow = TutorWorkflow(
-        #     qdrant_handler=qdrant_handler,
-        #     student_email=current_user["sub"],
-        #     disciplina=request.discipline_id
-        # )
-
-        # Initialize other agents as before
-        chat_agent = ChatAgent(
-            student_profile=student_profile,
-            execution_plan=_carregar_json("resources/plano_acao.json"),
-            mongo_uri=MONGO_URI,
-            database_name=MONGO_DB_NAME,
-            session_id=str(request.session_id),
-            user_email=current_user["sub"],
-            disciplina=request.discipline_id
-        )
-
-        retrieval_agent = RetrievalAgent(
+        # Initialize TutorWorkflow
+        print("[DEBUG] Initializing TutorWorkflow")
+        tutor_workflow = TutorWorkflow(
             qdrant_handler=qdrant_handler,
-            embeddings=embeddings,
+            student_email=current_user["sub"],
             disciplina=request.discipline_id,
-            session_id=str(request.session_id),
-            student_email=current_user["sub"]
         )
 
-        # Initialize ChatController with all components
+        # Initialize ChatController with TutorWorkflow
+        print("[DEBUG] Initializing ChatController")
         controller = ChatController(
             session_id=str(request.session_id),
             student_email=current_user["sub"],
             disciplina=request.discipline_id,
             qdrant_handler=qdrant_handler,
             image_handler=image_handler,
-            retrieval_agent=retrieval_agent,
+            retrieval_agent=tutor_workflow,  # Use TutorWorkflow instead of RetrievalAgent
             student_profile=student_profile,
             mongo_db_name=MONGO_DB_NAME,
             mongo_uri=MONGO_URI,
         )
 
-        print(f"Received message: {request.message}")
-        print(f"Received file: {request.file}")
+        print(f"[DEBUG] Received message: {request.message}")
+        print(f"[DEBUG] Received file: {request.file}")
 
         # Process user message
         files = [request.file] if request.file else []
+        print("[DEBUG] Calling handle_user_message")
         response = await controller.handle_user_message(request.message, files)
-        print(f"Response: {response}")
+        print(f"[DEBUG] Response received: {response}")
 
         return {"response": response}
+
     except Exception as e:
-        print(f"Error in chat_endpoint: {e}")
+        print(f"[DEBUG] Error in chat_endpoint: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
 @router_chat.get("/chat_history/{session_id}")
 async def get_chat_history(
     session_id: str,
