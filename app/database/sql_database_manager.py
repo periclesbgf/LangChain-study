@@ -431,3 +431,17 @@ class DatabaseManager:
         except Exception as e:
             print(f"Erro ao buscar sessão de estudo: {e}")
             raise HTTPException(status_code=500, detail="Erro ao buscar sessão de estudo.")
+
+    def get_course_by_id(self, course_id: int):
+        """
+        Função para buscar curso pelo IdCurso.
+        """
+        try:
+            query = select(tabela_cursos).where(tabela_cursos.c.IdCurso == course_id)
+            course = self.session.execute(query).fetchone()
+            if not course:
+                raise HTTPException(status_code=404, detail="Curso não encontrado.")
+            return course
+        except Exception as e:
+            print(f"Erro ao buscar curso {course_id}: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao buscar curso.")

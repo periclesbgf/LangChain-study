@@ -14,6 +14,10 @@ class DisciplineController:
     def get_all_user_disciplines(self, current_user: str):
         return self.dispatcher.get_all_disciplines_for_student(current_user)
 
+    def get_discipline_by_id(self, discipline_id: int, current_user: str):
+        # Call dispatcher to get the discipline by ID
+        return self.dispatcher.get_discipline_by_id(discipline_id, current_user)
+
     def create_discipline(self, nome_curso: str, ementa: str, objetivos: str, current_user: str):
         # Organize discipline data
         discipline_data = {

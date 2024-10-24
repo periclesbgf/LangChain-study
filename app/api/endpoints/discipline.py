@@ -31,6 +31,27 @@ async def get_all_user_disciplines(current_user: dict = Depends(get_current_user
         logger.error(f"Erro ao buscar disciplinas para o usuário: {current_user['sub']} - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router_disciplines.get("/disciplines/{discipline_id}")
+async def get_discipline_by_id(
+    discipline_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    logger.info(f"Buscando disciplina {discipline_id} para o usuário: {current_user['sub']}")
+    try:
+        sql_database_manager = DatabaseManager(session, metadata)
+        dispatcher = DisciplineDispatcher(sql_database_manager)
+        controller = DisciplineController(dispatcher)
+
+        # Fetch the discipline by ID
+        discipline = controller.get_discipline_by_id(discipline_id, current_user['sub'])
+        if not discipline:
+            raise HTTPException(status_code=404, detail="Disciplina não encontrada.")
+
+        logger.info(f"Disciplina {discipline_id} encontrada para o usuário: {current_user['sub']}")
+        return {"discipline_name": discipline["NomeCurso"]}
+    except Exception as e:
+        logger.error(f"Erro ao buscar disciplina {discipline_id} para o usuário: {current_user['sub']} - {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # POST - Create a new discipline
 @router_disciplines.post("/disciplines")

@@ -11,6 +11,7 @@ from api.controllers.auth import hash_password, verify_password
 from sqlalchemy import text
 from api.dispatchers.calendar_dispatcher import CalendarDispatcher
 import json
+from datetime import datetime
 
 class DisciplineDispatcher:
     def __init__(self, database_manager: DatabaseManager):
@@ -228,3 +229,40 @@ class DisciplineDispatcher:
             self.database_manager.session.rollback()
             print(f"Erro ao criar disciplina: {e}")
             raise HTTPException(status_code=500, detail=f"Erro ao criar disciplina: {e}")
+
+    def get_discipline_by_id(self, discipline_id: int, current_user: str):
+        try:
+            # Obter o IdUsuario do estudante com base no e-mail do usuário atual
+            user = self.database_manager.get_user_by_email(current_user)
+            if not user:
+                raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+
+            # Obter a disciplina pelo ID
+            discipline = self.database_manager.get_course_by_id(discipline_id)
+            if not discipline:
+                raise HTTPException(status_code=404, detail="Disciplina não encontrada.")
+
+            print(f"Disciplina encontrada: {discipline}")
+
+            # Desempacotando a tupla da disciplina
+            id_curso, _, _, nome_curso, ementa, objetivos, criado_em = discipline
+
+            # Verificar se 'criado_em' é uma instância de datetime
+            if not isinstance(criado_em, datetime):
+                raise ValueError("O campo 'CriadoEm' não é um datetime válido.")
+            print(discipline)
+            # Construir o dicionário da disciplina
+            discipline_dict = {
+                "IdCurso": id_curso,
+                "NomeCurso": nome_curso,
+                "Ementa": ementa,
+                "Objetivos": objetivos,
+                "CriadoEm": criado_em.isoformat()  # Converter datetime para string
+            }
+            print(discipline_dict)
+            return discipline_dict
+
+        except ValueError as ve:
+            raise HTTPException(status_code=500, detail=f"Erro de valor: {ve}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Erro ao buscar disciplina: {e}")

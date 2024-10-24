@@ -52,21 +52,31 @@ class StudySessionsDispatcher:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error fetching study sessions: {e}")
 
-    def create_study_session(self, user_email: str, discipline_name: str):
+    def create_study_session(self, user_email: str, course_id: int, subject: str):
+        print(f"Dispatcher - Creating new study session")
+        print(f"User email: {user_email}, Course ID: {course_id}, Subject: {subject}")
         try:
             # Busca o ID do estudante pelo e-mail
             student_id = self.get_student_id_by_email(user_email)
 
-            # Cria uma nova sessão de estudo com base no ID do estudante
+            # Cria uma nova sessão de estudo e insere no banco de dados
             new_session = tabela_sessoes_estudo.insert().values(
-                NomeDisciplina=discipline_name,
                 IdEstudante=student_id,
-                CriadoEm=datetime.now(),
-                AtualizadoEm=datetime.now()
+                IdCurso=course_id,  # Usando o ID do curso
+                Assunto=subject,
+                Inicio=datetime.now(),  # Registrando o início da sessão
+                Fim=None,  # Pode ser atualizado depois
+                Produtividade=0,  # Opcional, pode ser preenchido mais tarde
+                FeedbackDoAluno=None,  # Pode ser adicionado depois
+                HistoricoConversa=None  # Inicialmente vazio
             )
+
+            # Executar a inserção no banco de dados
             self.session.execute(new_session)
             self.session.commit()
-            return new_session
+
+            return {"message": "Study session created successfully"}
+
         except Exception as e:
             self.session.rollback()
             raise HTTPException(status_code=500, detail=f"Error creating study session: {e}")

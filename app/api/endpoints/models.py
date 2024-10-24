@@ -3,7 +3,7 @@ from typing import Optional, Dict, List
 from fastapi import Depends,Form, UploadFile, File
 from pydantic import BaseModel, Field, EmailStr
 from api.controllers.auth import get_current_user
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 
 class Question(BaseModel):
@@ -186,4 +186,10 @@ class PlanoExecucao(BaseModel):
     plano_execucao: List[SecaoPlano] = Field(...)
     duracao_total: str = Field(..., example="90 minutos")
     progresso_total: int = Field(..., example=100)
-    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class StudySessionCreate(BaseModel):
+    discipline_id: int = Field(..., description="ID da disciplina associada à sessão de estudo")
+    subject: str = Field(..., description="Assunto da sessão de estudo", min_length=1)
+    start_time: datetime = Field(..., description="Data e hora de início da sessão")
+    end_time: datetime = Field(..., description="Data e hora de término da sessão")

@@ -29,10 +29,13 @@ class StudySessionsController:
         except Exception as e:
             raise Exception(f"Error fetching study sessions: {e}")
 
-    def create_study_session(self, user_email: str, discipline_name: str):
+    def create_study_session(self, user_email: str, discipline_id: str, subject: str):
+        print(f"Creating new study session")
         try:
-            # Usar o dispatcher para criar uma nova sessão de estudo com base no ID do estudante
-            new_session = self.dispatcher.create_study_session(user_email, discipline_name)
+            # Usar o dispatcher para criar a sessão de estudo
+            new_session = self.dispatcher.create_study_session(
+                user_email, discipline_id, subject
+            )
             return new_session
         except Exception as e:
             raise Exception(f"Error creating study session: {e}")
