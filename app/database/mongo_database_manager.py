@@ -122,6 +122,75 @@ class MongoDatabaseManager:
         except errors.PyMongoError as e:
             print(f"Erro ao excluir plano de estudos: {e}")
             return False
+
+    async def get_sessions_without_plan(self, student_email: str, study_sessions) -> List[Dict[str, Any]]:
+        """
+        Recupera as sessões de estudo do estudante que não possuem plano de execução.
+        """
+        try:
+            if not study_sessions:
+                print(f"Nenhuma sessão encontrada para o estudante: {student_email}")
+                return []
+
+            # Convert tuple data to dictionaries
+            study_sessions_list = [
+                {
+                    'IdSessao': session[0],  # Accessing tuple elements by index
+                    'IdEstudante': session[1],
+                    'IdCurso': session[2],
+                    'Assunto': session[3],
+                    'Inicio': session[4],
+                    'Fim': session[5],
+                    'Produtividade': session[6],
+                    'FeedbackDoAluno': session[7]
+                }
+                for session in study_sessions
+            ]
+
+            # Extract session IDs as strings
+            session_ids = [str(session['IdSessao']) for session in study_sessions_list]
+
+            # Access the MongoDB collection for study plans
+            plans_collection = self.db['study_plans']
+
+            # Find all plans for the given session IDs
+            plans = await plans_collection.find(
+                {
+                    "id_sessao": {"$in": session_ids}
+                },
+                {
+                    "_id": 0,
+                    "id_sessao": 1,
+                    "plano_execucao": 1
+                }
+            ).to_list(length=None)
+
+            # Create a set of session IDs that have a non-empty plan
+            sessions_with_plan_ids = {
+                plan['id_sessao'] 
+                for plan in plans 
+                if plan.get('plano_execucao') and len(plan['plano_execucao']) > 0
+            }
+
+            # Find sessions that don't have a plan or have an empty plan
+            sessions_without_plan = [
+                {
+                    "id_sessao": str(session['IdSessao']),
+                    "Assunto": session['Assunto']
+                }
+                for session in study_sessions_list
+                if str(session['IdSessao']) not in sessions_with_plan_ids
+            ]
+
+            print(f"Sessões sem plano para o estudante {student_email}: {sessions_without_plan}")
+            return sessions_without_plan
+
+        except Exception as e:
+            print(f"Erro ao buscar sessões sem plano: {e}")
+            return []
+
+
+
 class CustomMongoDBChatMessageHistory(MongoDBChatMessageHistory):
     def __init__(self, user_email: str, disciplina: str, *args, **kwargs):
         self.user_email = user_email

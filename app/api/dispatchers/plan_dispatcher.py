@@ -1,5 +1,5 @@
 from database.mongo_database_manager import MongoDatabaseManager
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 class PlanDispatcher:
     def __init__(self):
@@ -20,3 +20,15 @@ class PlanDispatcher:
     async def delete_plan(self, id_sessao: str) -> bool:
         success = await self.mongo_manager.delete_study_plan(id_sessao)
         return success
+
+    async def get_sessions_without_plan(self, student_email: str, study_sessions) -> List[Dict[str, Any]]:
+        """
+        Recupera todas as sessões sem plano através do MongoDB Manager.
+        """
+        return await self.mongo_manager.get_sessions_without_plan(student_email, study_sessions)
+
+    async def verify_session_has_plan(self, id_sessao: str) -> bool:
+        """
+        Verifica se uma sessão específica já possui um plano de estudo.
+        """
+        return await self.mongo_manager.verify_session_has_plan(id_sessao)

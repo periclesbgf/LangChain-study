@@ -50,32 +50,39 @@ class DisciplineController:
 
     async def create_discipline_from_pdf(self, text: str, user_email: str):
         try:
+            # Extrair dados do PDF utilizando o método da chain
             data = self.disciplin_chain.create_discipline_from_pdf(text, user_email)
-            print(data)
+            print("Dados extraídos do PDF:", data)
             data = json.loads(data)
-            print("Conversão bem-sucedida.")
 
             # Chamar o dispatcher para criar a disciplina e obter os IDs
             course_id, session_ids = await self.dispatcher.create_discipline_from_pdf(data, user_email)
 
-            # Após criar a disciplina e as sessões, criar planos de estudo vazios
-            for session_id in session_ids:
+            # Criar planos de estudo para cada sessão
+            cronograma_data = data.get('cronograma', [])
+
+            for i, session_id in enumerate(session_ids):
+                encontro = cronograma_data[i]
+
+                # Preencher os dados conforme solicitado
                 empty_plan = {
                     "id_sessao": str(session_id),
                     "disciplina_id": str(course_id),
                     "disciplina": data['curso'].get('nome', 'Sem Nome'),
-                    "descricao": "",  # Descrição vazia
-                    "objetivo_sessao": "",
-                    "plano_execucao": [],
-                    "duracao_total": "",
-                    "progresso_total": 0,
+                    "descricao": encontro.get('conteudo', ""),  # Conteúdo na descrição
+                    "objetivo_sessao": encontro.get('estrategia', ""),  # Estratégia no objetivo
+                    "plano_execucao": [],  # Deve ficar vazio
+                    "duracao_total": "",  # Deve ficar vazio
+                    "progresso_total": 0,  # Deve ficar como 0
                     "created_at": datetime.now(timezone.utc)
                 }
+
+                # Chamar o controller para criar o plano de estudo
                 plan_result = await self.plan_controller.create_study_plan(empty_plan)
                 if not plan_result:
-                    print(f"Falha ao criar plano de estudo vazio para a sessão {session_id}")
+                    print(f"Falha ao criar plano de estudo para a sessão {session_id}")
 
-            print("Disciplina e planos de estudo vazios criados com sucesso.")
+            print("Disciplina e planos de estudo criados com sucesso.")
 
         except Exception as e:
             print(f"Erro ao criar disciplina a partir do PDF: {e}")
