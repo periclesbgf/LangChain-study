@@ -13,39 +13,32 @@ from typing import List, Optional, Dict, Any
 
 class MongoDatabaseManager:
     def __init__(self):
-        mongo_uri = MONGO_URI
-        db_name = MONGO_DB_NAME
-        self.client = motor.motor_asyncio.AsyncIOMotorClient(mongo_uri)
-        self.db = self.client[db_name]
+        """Inicializa a conexão com o banco de dados MongoDB."""
+        self.client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
+        self.db = self.client[MONGO_DB_NAME]
 
+    ### MÉTODOS DE PERFIL DE ESTUDANTE (JÁ EXISTENTES) ###
     async def create_student_profile(self, email: str, profile_data: Dict[str, Any]) -> Optional[str]:
-        """
-        Cria um novo perfil de estudante no MongoDB.
-        """
+        """Cria um novo perfil de estudante no MongoDB."""
         collection = self.db['student_learn_preference']
         try:
-            # Verifica se o perfil já existe
             existing_profile = await collection.find_one({"user_email": email})
             if existing_profile:
                 print(f"Perfil já existe para o email: {email}")
                 return None
 
-            # Insere o novo perfil
             result = await collection.insert_one(profile_data)
             print(f"Perfil criado com sucesso para o email: {email}")
             return str(result.inserted_id)
-
         except errors.PyMongoError as e:
             print(f"Erro ao criar perfil: {e}")
             return None
 
     async def get_student_profile(self, email: str, collection_name: str) -> Optional[Dict[str, Any]]:
-        """
-        Busca o perfil de um estudante pelo e-mail.
-        """
+        """Busca o perfil de um estudante pelo e-mail."""
         collection = self.db[collection_name]
         try:
-            profile = await collection.find_one({"Email": email})  # Correção aqui
+            profile = await collection.find_one({"Email": email})
             if not profile:
                 print(f"Perfil não encontrado para o email: {email}")
                 return None
@@ -54,10 +47,8 @@ class MongoDatabaseManager:
             print(f"Erro ao buscar perfil: {e}")
             return None
 
-    async def update_student_profile(self, email: str, profile_data: Dict[str, Any], collection_name: str):
-        """
-        Atualiza o perfil de um estudante pelo e-mail.
-        """
+    async def update_student_profile(self, email: str, profile_data: Dict[str, Any], collection_name: str) -> bool:
+        """Atualiza o perfil de um estudante pelo e-mail."""
         collection = self.db[collection_name]
         try:
             result = await collection.update_one(
@@ -73,10 +64,8 @@ class MongoDatabaseManager:
             print(f"Erro ao atualizar perfil: {e}")
             return False
 
-    async def delete_student_profile(self, email: str, collection_name: str):
-        """
-        Exclui o perfil de um estudante pelo e-mail.
-        """
+    async def delete_student_profile(self, email: str, collection_name: str) -> bool:
+        """Exclui o perfil de um estudante pelo e-mail."""
         collection = self.db[collection_name]
         try:
             result = await collection.delete_one({"user_email": email})
@@ -89,6 +78,50 @@ class MongoDatabaseManager:
             print(f"Erro ao excluir perfil: {e}")
             return False
 
+    ### MÉTODOS DO PLANO DE ESTUDOS ###
+    async def create_study_plan(self, plan_data: Dict[str, Any]) -> Optional[str]:
+        """Cria um novo plano de estudos no MongoDB."""
+        collection = self.db['study_plans']
+        try:
+            result = await collection.insert_one(plan_data)
+            return str(result.inserted_id)
+        except errors.PyMongoError as e:
+            print(f"Erro ao criar plano de estudos: {e}")
+            return None
+
+    async def get_study_plan(self, id_sessao: str) -> Optional[Dict[str, Any]]:
+        collection = self.db['study_plans']
+        try:
+            plan = await collection.find_one({"id_sessao": id_sessao})
+            if plan:
+                plan["_id"] = str(plan["_id"])  # Converte ObjectId para string
+            return plan
+        except errors.PyMongoError as e:
+            print(f"Erro ao buscar plano de estudos: {e}")
+            return None
+
+    async def update_study_plan(self, id_sessao: str, updated_data: Dict[str, Any]) -> bool:
+        """Atualiza um plano de estudos existente."""
+        collection = self.db['study_plans']
+        try:
+            result = await collection.update_one(
+                {"id_sessao": id_sessao},
+                {"$set": updated_data}
+            )
+            return result.matched_count > 0
+        except errors.PyMongoError as e:
+            print(f"Erro ao atualizar plano de estudos: {e}")
+            return False
+
+    async def delete_study_plan(self, id_sessao: str) -> bool:
+        """Exclui um plano de estudos pelo id_sessao."""
+        collection = self.db['study_plans']
+        try:
+            result = await collection.delete_one({"id_sessao": id_sessao})
+            return result.deleted_count > 0
+        except errors.PyMongoError as e:
+            print(f"Erro ao excluir plano de estudos: {e}")
+            return False
 class CustomMongoDBChatMessageHistory(MongoDBChatMessageHistory):
     def __init__(self, user_email: str, disciplina: str, *args, **kwargs):
         self.user_email = user_email

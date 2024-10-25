@@ -16,7 +16,6 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import tool
-from database.vector_db import QdrantHandler, Embeddings
 from langchain.tools import tool, StructuredTool, BaseTool
 from youtubesearchpython import VideosSearch
 import wikipediaapi
@@ -65,8 +64,9 @@ Given the execution answer plan:
 {plano_de_execucao}
 
 Do NOT answer his question, teach him the critical thinking about the question and how to solve it as best you can. 
-Always try to retrieve the context.
+ALWAYS RETRIEVE CONTEXT.
 Try to ask questions that promote deeper understanding.
+prioritize the tool `retrieve_context` to provide relevant context.
 You have access to the following tools:
 
 {tools}
@@ -182,7 +182,7 @@ class RetrievalAgent:
             disciplina: str,
             student_email: str,
             session_id: str,
-            model_name: str = "gpt-4o-mini",
+            model_name: str = "gpt-4o",
     ):
         self.model = ChatOpenAI(model_name=model_name, api_key=OPENAI_API_KEY)
         self.qdrant_handler = qdrant_handler
@@ -208,7 +208,7 @@ class RetrievalAgent:
             Tool(
                 name="retrieve_context",
                 func=self.retrieve_context,
-                description="Search the knowledge base for relevant educational materials and examples"
+                description="Search the knowledge base for relevant materials and examples"
             ),
             # Tool(
             #     name="search_youtube",
@@ -255,22 +255,24 @@ class RetrievalAgent:
 
         try:
             # Depurar metadados
+            print("Query: ",query)
             self.qdrant_handler.debug_metadata()
-
+            semfiltro = self.qdrant_handler.similarity_search_without_filter(query, k=5)
+            print(f"Sem filtro: {len(semfiltro)}")
             # Busca sem filtro
-            print("🔍 Buscando sem filtro...")
-            no_filter_results = self.qdrant_handler.similarity_search_without_filter(query, k=5)
+            #print("🔍 Buscando sem filtro...")
+            #no_filter_results = self.qdrant_handler.similarity_search_without_filter(query, k=5)
 
             # Busca com filtro
             print("🔍 Buscando com filtro...")
             filter_results = self.qdrant_handler.similarity_search_with_filter(
                 query=query,
-                student_email=self.student_email,
-                disciplina="1",  # Garantir que é string
+                student_email=str(self.student_email),
+                disciplina=str(self.disciplina),  # Garantir que é string
                 k=5
             )
 
-            print(f"Sem filtro: {len(no_filter_results)} | Com filtro: {len(filter_results)}")
+            print(f"Com filtro: {len(filter_results)}")
 
             if filter_results:
                 context = "\n".join([doc.page_content for doc in filter_results])

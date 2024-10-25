@@ -2,7 +2,9 @@
 
 from api.dispatchers.discipline_dispatcher import DisciplineDispatcher
 import json
+from api.controllers.plan_controller import PlanController
 from chains.chain_setup import DisciplinChain
+from datetime import datetime, timezone
 
 
 
@@ -10,6 +12,8 @@ class DisciplineController:
     def __init__(self, dispatcher: DisciplineDispatcher, disciplin_chain: DisciplinChain = None):
         self.dispatcher = dispatcher
         self.disciplin_chain = disciplin_chain
+        self.plan_controller = PlanController()  # Instanciar PlanController
+
 
     def get_all_user_disciplines(self, current_user: str):
         return self.dispatcher.get_all_disciplines_for_student(current_user)
@@ -44,29 +48,35 @@ class DisciplineController:
         # Call dispatcher to delete the discipline
         return self.dispatcher.delete_discipline(discipline_id, current_user)
 
-    def create_discipline_from_pdf(self, text: str, user_email: str):
+    async def create_discipline_from_pdf(self, text: str, user_email: str):
         try:
             data = self.disciplin_chain.create_discipline_from_pdf(text, user_email)
             print(data)
-
-            # saving data into json
-            # with open('output_disciplina.json', 'w') as f:
-            #     json.dump(data, f)
-            # Ler o arquivo disciplin.json, economizando chamadas de API
-            # with open('output_disciplina.json', 'r') as f:
-            #     data = json.load(f)
-            # print("Arquivo JSON lido com sucesso.")
-            # print(data)
-
-            # print("Tentando converter o texto do PDF em JSON...")
             data = json.loads(data)
             print("Conversão bem-sucedida.")
-            # Obtenha o nome do curso diretamente do JSON
-            #discipline_name = data['curso']['nome']
-            #print(f"Disciplina '{discipline_name}' encontrada no PDF.")
-            # Chamar a função create_discipline_from_pdf no dispatcher para inserir os dados no banco de dados
-            self.dispatcher.create_discipline_from_pdf(data, user_email)
-            #print(f"Disciplina '{discipline_name}' e sessões foram salvas com sucesso no banco de dados.")
+
+            # Chamar o dispatcher para criar a disciplina e obter os IDs
+            course_id, session_ids = await self.dispatcher.create_discipline_from_pdf(data, user_email)
+
+            # Após criar a disciplina e as sessões, criar planos de estudo vazios
+            for session_id in session_ids:
+                empty_plan = {
+                    "id_sessao": str(session_id),
+                    "disciplina_id": str(course_id),
+                    "disciplina": data['curso'].get('nome', 'Sem Nome'),
+                    "descricao": "",  # Descrição vazia
+                    "objetivo_sessao": "",
+                    "plano_execucao": [],
+                    "duracao_total": "",
+                    "progresso_total": 0,
+                    "created_at": datetime.now(timezone.utc)
+                }
+                plan_result = await self.plan_controller.create_study_plan(empty_plan)
+                if not plan_result:
+                    print(f"Falha ao criar plano de estudo vazio para a sessão {session_id}")
+
+            print("Disciplina e planos de estudo vazios criados com sucesso.")
 
         except Exception as e:
             print(f"Erro ao criar disciplina a partir do PDF: {e}")
+            raise e

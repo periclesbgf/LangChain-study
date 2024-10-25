@@ -189,7 +189,17 @@ class PlanoExecucao(BaseModel):
     created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class StudySessionCreate(BaseModel):
-    discipline_id: int = Field(..., description="ID da disciplina associada à sessão de estudo")
-    subject: str = Field(..., description="Assunto da sessão de estudo", min_length=1)
-    start_time: datetime = Field(..., description="Data e hora de início da sessão")
-    end_time: datetime = Field(..., description="Data e hora de término da sessão")
+    discipline_id: int
+    subject: str
+    start_time: datetime
+    end_time: datetime
+
+class StudyPlan(BaseModel):
+    id_sessao: str
+    disciplina_id: str
+    disciplina: str
+    descricao: str
+    objetivo_sessao: str
+    plano_execucao: list
+    duracao_total: str
+    progresso_total: int

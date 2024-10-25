@@ -39,50 +39,40 @@ async def get_study_sessions(current_user: dict = Depends(get_current_user)):
 
 @router_study_sessions.post("/study_sessions")
 async def create_study_session(
-    study_sessio_model: StudySessionCreate,
+    study_session_model: StudySessionCreate,
     current_user: dict = Depends(get_current_user)
 ):
     try:
-        # Instanciando classes do controlador
+        # Instanciar os controladores e dispatchers
         sql_database_manager = DatabaseManager(session, metadata)
-        dispatcher = DisciplineDispatcher(sql_database_manager)
-        controller = DisciplineController(dispatcher)
+        discipline_dispatcher = DisciplineDispatcher(sql_database_manager)
+        discipline_controller = DisciplineController(discipline_dispatcher)
 
-        # Obtendo disciplina pelo ID
-        discipline = controller.get_discipline_by_id(study_sessio_model.discipline_id, current_user['sub'])
-        print(f"Creating new study session for user: {current_user['sub']} and discipline: {discipline["NomeCurso"]}")
+        # Obter a disciplina pelo ID
+        discipline = discipline_controller.get_discipline_by_id(
+            study_session_model.discipline_id, current_user['sub']
+        )
+        print(f"Creating new study session for user: {current_user['sub']} and discipline: {discipline['NomeCurso']}")
 
-        # Controladores de calendário e sessões de estudo
-        calendar_dispatcher = CalendarDispatcher(sql_database_manager)
-        calendar_controller = CalendarController(calendar_dispatcher)
-
+        # Instanciar o controlador de sessões de estudo
         study_sessions_dispatcher = StudySessionsDispatcher(sql_database_manager)
         study_sessions_controller = StudySessionsController(study_sessions_dispatcher)
-        print("controllers and dispatchers created")
-        # Criando a sessão de estudo
-        new_session = study_sessions_controller.create_study_session(
+
+        # Criar a sessão de estudo e obter o session_id
+        session_result = await study_sessions_controller.create_study_session(
             user_email=current_user['sub'],
-            discipline_id=study_sessio_model.discipline_id,
-            subject=study_sessio_model.subject,
+            discipline_id=study_session_model.discipline_id,
+            subject=study_session_model.subject,
+            start_time=study_session_model.start_time,
+            end_time=study_session_model.end_time,
         )
+        session_id = session_result['session_id']
 
-        # Criando um evento no calendário
-        calendar_controller.create_event(
-            title=f"{study_sessio_model.subject}",
-            description=study_sessio_model.subject,
-            start_time=study_sessio_model.start_time,
-            end_time=study_sessio_model.end_time,
-            location="Online",
-            current_user=current_user['sub'],
-            course_id=study_sessio_model.discipline_id
-        )
-
-        logger.info(f"New study session created successfully for user: {current_user['sub']}, discipline: {discipline["NomeCurso"]}")
-        return {"new_session": new_session}
+        logger.info(f"New study session and empty plan created successfully for user: {current_user['sub']}, discipline: {discipline['NomeCurso']}")
+        return {"new_session": session_id}
     except Exception as e:
         logger.error(f"Error creating study session: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @router_study_sessions.put("/study_sessions/{session_id}")
 async def update_study_session(session_id: int, session_data: dict, current_user: dict = Depends(get_current_user)):

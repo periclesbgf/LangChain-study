@@ -147,6 +147,7 @@ async def endpoint_create_discipline_from_pdf(
                 text += page.extract_text()
         print("Texto extraído do PDF")
         print(text)
+
         # Instanciar o dispatcher e passar para o controlador
         sql_database_manager = DatabaseManager(session, metadata)
         print("SQL Database Manager: ", sql_database_manager)
@@ -154,10 +155,9 @@ async def endpoint_create_discipline_from_pdf(
         print("Dispatcher: ", dispatcher)
         disciplin_chain = DisciplinChain(OPENAI_API_KEY)
         controller = DisciplineController(dispatcher, disciplin_chain)
-        
 
         # Chamar o controlador para processar a lógica e salvar os dados
-        controller.create_discipline_from_pdf(text, current_user['sub'])
+        await controller.create_discipline_from_pdf(text, current_user['sub'])
 
         return {"message": "Disciplina e sessões de estudo criadas com sucesso"}
     except Exception as e:

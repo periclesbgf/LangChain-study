@@ -123,7 +123,7 @@ class DisciplineDispatcher:
             raise HTTPException(status_code=500, detail=f"Error deleting discipline: {e}")
 
 
-    def create_discipline_from_pdf(self, discipline_json: dict, user_email: str):
+    async def create_discipline_from_pdf(self, discipline_json: dict, user_email: str):
         try:
             # 1. Extrair dados do JSON
             print("Extraindo dados do JSON...")
@@ -166,12 +166,13 @@ class DisciplineDispatcher:
             cronograma_id = cronograma_result.inserted_primary_key[0]
             print(f"Cronograma criado com ID: {cronograma_id} para o curso {course_id}")
 
-            # 5. Inserir cada encontro no banco de dados e no calendário, e criar sessões de estudo
+            # 5. Inserir cada encontro e coletar IDs das sessões
+            session_ids = []
             for encontro in cronograma_data:
                 session_date = datetime.strptime(encontro['data'], "%d/%m/%Y")
                 session_number = encontro['numero_encontro']
                 conteudo = encontro['conteudo'].strip()
-                
+
                 # Inserir o encontro no banco de dados
                 new_session = tabela_encontros.insert().values(
                     IdCronograma=cronograma_id,
@@ -186,13 +187,13 @@ class DisciplineDispatcher:
                 # Inserir o encontro como evento no calendário
                 print(f"Inserindo evento no calendário para o encontro {session_number}...")
                 new_event = tabela_eventos_calendario.insert().values(
-                    GoogleEventId=f"event-{course_id}-{session_number}",  # ID único para o evento
+                    GoogleEventId=f"event-{course_id}-{session_number}",
                     Titulo=f"Encontro {session_number} - {curso_data.get('nome', 'Sem Nome')}",
                     Descricao=conteudo,
                     Inicio=session_date,
-                    Fim=session_date + timedelta(hours=2),  # Supondo que o encontro dure 2 horas
-                    Local="Sala de Aula Física",  # Local pode ser ajustado ou extraído do JSON
-                    CriadoPor=user_id  # Criado pelo aluno
+                    Fim=session_date + timedelta(hours=2),
+                    Local="Sala de Aula Física",
+                    CriadoPor=user_id
                 )
                 self.database_manager.session.execute(new_event)
 
@@ -202,16 +203,18 @@ class DisciplineDispatcher:
                     IdEstudante=user_id,
                     IdCurso=course_id,
                     Assunto=conteudo,
-                    Inicio=session_date,  # Definindo o início da sessão como a data do encontro
-                    Fim=session_date + timedelta(hours=2),  # Supondo que a sessão dure 2 horas
-                    Produtividade=0,  # Inicialmente sem produtividade
+                    Inicio=session_date,
+                    Fim=session_date + timedelta(hours=2),
+                    Produtividade=0,
                     FeedbackDoAluno=None,
                     HistoricoConversa=None
                 )
-                self.database_manager.session.execute(new_study_session)
+                result = self.database_manager.session.execute(new_study_session)
+                session_id = result.inserted_primary_key[0]
+                session_ids.append(session_id)
 
             self.database_manager.session.commit()
-            print(f"Encontros do cronograma inseridos com sucesso para o curso {course_id} e eventos de calendário criados.")
+            print(f"Encontros e eventos de calendário inseridos com sucesso para o curso {course_id}.")
 
             # 6. Associar o curso ao aluno na tabela EstudanteCurso
             print(f"Associando o curso {course_id} ao aluno {user_email}...")
@@ -225,44 +228,10 @@ class DisciplineDispatcher:
             self.database_manager.session.commit()
             print(f"Curso '{curso_data.get('nome', 'Sem Nome')}' associado ao aluno {user_email} com sucesso.")
 
+            # Retornar o course_id e os session_ids
+            return course_id, session_ids
+
         except Exception as e:
             self.database_manager.session.rollback()
             print(f"Erro ao criar disciplina: {e}")
             raise HTTPException(status_code=500, detail=f"Erro ao criar disciplina: {e}")
-
-    def get_discipline_by_id(self, discipline_id: int, current_user: str):
-        try:
-            # Obter o IdUsuario do estudante com base no e-mail do usuário atual
-            user = self.database_manager.get_user_by_email(current_user)
-            if not user:
-                raise HTTPException(status_code=404, detail="Usuário não encontrado.")
-
-            # Obter a disciplina pelo ID
-            discipline = self.database_manager.get_course_by_id(discipline_id)
-            if not discipline:
-                raise HTTPException(status_code=404, detail="Disciplina não encontrada.")
-
-            print(f"Disciplina encontrada: {discipline}")
-
-            # Desempacotando a tupla da disciplina
-            id_curso, _, _, nome_curso, ementa, objetivos, criado_em = discipline
-
-            # Verificar se 'criado_em' é uma instância de datetime
-            if not isinstance(criado_em, datetime):
-                raise ValueError("O campo 'CriadoEm' não é um datetime válido.")
-            print(discipline)
-            # Construir o dicionário da disciplina
-            discipline_dict = {
-                "IdCurso": id_curso,
-                "NomeCurso": nome_curso,
-                "Ementa": ementa,
-                "Objetivos": objetivos,
-                "CriadoEm": criado_em.isoformat()  # Converter datetime para string
-            }
-            print(discipline_dict)
-            return discipline_dict
-
-        except ValueError as ve:
-            raise HTTPException(status_code=500, detail=f"Erro de valor: {ve}")
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Erro ao buscar disciplina: {e}")

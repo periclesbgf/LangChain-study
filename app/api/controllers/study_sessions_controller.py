@@ -8,10 +8,12 @@ from database.vector_db import TextSplitter, Embeddings, QdrantHandler
 from audio.text_to_speech import AudioService
 from fastapi.logger import logger
 from datetime import datetime
-import re
+from api.controllers.plan_controller import PlanController
 from api.dispatchers.study_sessions_dispatcher import StudySessionsDispatcher
 from api.dispatchers.discipline_dispatcher import DisciplineDispatcher
 import json
+from datetime import datetime, timezone
+from typing import Dict, Any
 
 from utils import OPENAI_API_KEY, CODE
 
@@ -20,6 +22,7 @@ class StudySessionsController:
     def __init__(self, dispatcher: StudySessionsDispatcher, disciplin_chain: DisciplinChain = None, discipline_dispatcher:DisciplineDispatcher=None):
         self.dispatcher = dispatcher
         self.disciplin_chain = disciplin_chain
+        self.plan_controller = PlanController()
 
     def get_all_study_sessions(self, user_email: str):
         try:
@@ -29,14 +32,34 @@ class StudySessionsController:
         except Exception as e:
             raise Exception(f"Error fetching study sessions: {e}")
 
-    def create_study_session(self, user_email: str, discipline_id: str, subject: str):
+    async def create_study_session(self, user_email: str, discipline_id: int, subject: str, start_time: datetime = None, end_time: datetime = None) -> Dict[str, Any]:
         print(f"Creating new study session")
         try:
-            # Usar o dispatcher para criar a sessão de estudo
-            new_session = self.dispatcher.create_study_session(
-                user_email, discipline_id, subject
+            # Criar a sessão de estudo usando o dispatcher e obter o session_id
+            session_id = self.dispatcher.create_study_session(
+                user_email, discipline_id, subject, start_time, end_time
             )
-            return new_session
+
+            # Após criar a sessão de estudo, criar um plano de estudo vazio
+            empty_plan = {
+                "id_sessao": str(session_id),
+                "disciplina_id": str(discipline_id),
+                "disciplina": subject,
+                "descricao": "",  # Descrição vazia por enquanto
+                "objetivo_sessao": "",
+                "plano_execucao": [],
+                "duracao_total": "",
+                "progresso_total": 0,
+                "created_at": datetime.now(timezone.utc)
+            }
+
+            # Usar o PlanController para criar o plano vazio
+            plan_result = await self.plan_controller.create_study_plan(empty_plan)
+
+            if not plan_result:
+                print(f"Failed to create empty study plan for session {session_id}")
+
+            return {"session_id": session_id}
         except Exception as e:
             raise Exception(f"Error creating study session: {e}")
 

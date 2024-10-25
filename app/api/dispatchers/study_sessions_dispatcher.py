@@ -1,12 +1,10 @@
 # dispatchers/study_sessions_dispatcher.py
 
 from sqlalchemy.exc import IntegrityError
-from chains.chain_setup import CommandChain, SQLChain, AnswerChain, ClassificationChain, SQLSchoolChain, DefaultChain, RetrievalChain
 from database.sql_database_manager import DatabaseManager
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile
-from passlib.context import CryptContext
 from sql_test.sql_test_create import tabela_cursos, tabela_encontros, tabela_eventos_calendario, tabela_sessoes_estudo, tabela_cronograma, tabela_usuarios, tabela_estudantes
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from api.controllers.auth import hash_password, verify_password
 from sqlalchemy import text
 import json
@@ -52,30 +50,37 @@ class StudySessionsDispatcher:
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error fetching study sessions: {e}")
 
-    def create_study_session(self, user_email: str, course_id: int, subject: str):
+    def create_study_session(self, user_email: str, course_id: int, subject: str, start_time: datetime = None, end_time: datetime = None):
         print(f"Dispatcher - Creating new study session")
         print(f"User email: {user_email}, Course ID: {course_id}, Subject: {subject}")
         try:
             # Busca o ID do estudante pelo e-mail
             student_id = self.get_student_id_by_email(user_email)
 
+            # Usa a data e hora atuais se start_time for None
+            if start_time is None:
+                start_time = datetime.now()
+            if end_time is None:
+                end_time = start_time + timedelta(hours=1)  # Duração padrão de 1 hora
+
             # Cria uma nova sessão de estudo e insere no banco de dados
             new_session = tabela_sessoes_estudo.insert().values(
                 IdEstudante=student_id,
-                IdCurso=course_id,  # Usando o ID do curso
+                IdCurso=course_id,
                 Assunto=subject,
-                Inicio=datetime.now(),  # Registrando o início da sessão
-                Fim=None,  # Pode ser atualizado depois
-                Produtividade=0,  # Opcional, pode ser preenchido mais tarde
-                FeedbackDoAluno=None,  # Pode ser adicionado depois
-                HistoricoConversa=None  # Inicialmente vazio
+                Inicio=start_time,
+                Fim=end_time,
+                Produtividade=0,
+                FeedbackDoAluno=None,
+                HistoricoConversa=None
             )
 
             # Executar a inserção no banco de dados
-            self.session.execute(new_session)
+            result = self.session.execute(new_session)
             self.session.commit()
+            session_id = result.inserted_primary_key[0]
 
-            return {"message": "Study session created successfully"}
+            return session_id
 
         except Exception as e:
             self.session.rollback()
