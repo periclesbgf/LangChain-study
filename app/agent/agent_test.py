@@ -65,27 +65,27 @@ def create_planning_node():
 
     Perfil do Aluno:
     {user_profile}
-    
+
     Plano de Aprendizado:
     {learning_plan}
-    
+
     Pergunta Atual:
     {question}
-    
+
     Histórico da Conversa:
     {chat_history}
-    
+
     Crie um plano detalhado que:
     1. Se adapte às preferências de aprendizado do aluno
     2. Divida o conceito em etapas gerenciáveis
     3. Forneça exemplos e exercícios apropriados
     4. Sugira métodos práticos relevantes
-    
+
     Plano de Aprendizado:"""
-    
+
     prompt = ChatPromptTemplate.from_template(PLANNING_PROMPT)
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-    
+
     def generate_plan(state: AgentState) -> AgentState:
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
         

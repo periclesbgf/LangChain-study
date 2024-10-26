@@ -1,6 +1,8 @@
 # controllers/plan_controller.py
 from typing import Dict, Any, List
 from api.dispatchers.plan_dispatcher import PlanDispatcher
+from agent.plan_agent import SessionPlanWorkflow
+from datetime import datetime, timezone
 
 class PlanController:
     def __init__(self):
@@ -37,3 +39,45 @@ class PlanController:
         Verifica se uma sessão específica já possui um plano de estudo.
         """
         return await self.dispatcher.verify_session_has_plan(id_sessao)
+
+    async def create_automatic_plan(self, student_email: str, session_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Creates an automatic study plan using SessionPlanWorkflow.
+        """
+        try:
+            # Get student profile
+            student_profile = await self.db_manager.get_student_profile(student_email, 'student_learn_preference')
+            if not student_profile:
+                raise Exception("Student profile not found")
+
+            # Initialize workflow
+            workflow = SessionPlanWorkflow(self.db_manager)
+            
+            # Generate plan using the workflow
+            result = await workflow.create_session_plan(
+                topic=session_data.get('descricao', ''),
+                student_profile=student_profile,
+                id_sessao=session_data.get('session_id')
+            )
+
+            if result.get("error"):
+                raise Exception(result["error"])
+
+            # Extract only plano_execucao and duracao_total
+            plan_data = {
+                "plano_execucao": result["plan"]["plano_execucao"],
+                "duracao_total": result["plan"]["duracao_total"]
+            }
+
+            # Update the plan in database
+            await self.dispatcher.update_plan(session_data['session_id'], plan_data)
+
+            return {
+                "id": session_data['session_id'],
+                "plan": result["plan"],
+                "feedback": result["review_feedback"]
+            }
+
+        except Exception as e:
+            print(f"Error in create_automatic_plan: {e}")
+            raise

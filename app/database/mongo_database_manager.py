@@ -189,6 +189,41 @@ class MongoDatabaseManager:
             print(f"Erro ao buscar sessões sem plano: {e}")
             return []
 
+    async def create_automatic_study_plan(self, student_email: str, session_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Creates and saves an automatic study plan.
+        """
+        collection = self.db['study_plans']
+        try:
+            # Check if plan exists
+            existing_plan = await collection.find_one({"id_sessao": session_data['session_id']})
+            
+            if existing_plan:
+                # Update existing plan
+                result = await collection.update_one(
+                    {"id_sessao": session_data['session_id']},
+                    {"$set": {
+                        "plano_execucao": session_data.get('plano_execucao', []),
+                        "duracao_total": session_data.get('duracao', "60 minutos"),
+                        "updated_at": datetime.now(timezone.utc)
+                    }}
+                )
+                return str(existing_plan['_id'])
+            else:
+                # Create new plan
+                plan_data = {
+                    "id_sessao": session_data['session_id'],
+                    "duracao_total": session_data.get('duracao', "60 minutos"),
+                    "plano_execucao": session_data.get('plano_execucao', []),
+                    "progresso_total": 0,
+                    "created_at": datetime.now(timezone.utc)
+                }
+                result = await collection.insert_one(plan_data)
+                return str(result.inserted_id)
+
+        except Exception as e:
+            print(f"Error creating automatic study plan: {e}")
+            raise
 
 
 class CustomMongoDBChatMessageHistory(MongoDBChatMessageHistory):

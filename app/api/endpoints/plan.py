@@ -8,6 +8,8 @@ from api.endpoints.models import StudyPlan
 from api.controllers.study_sessions_controller import StudySessionsController
 from api.dispatchers.study_sessions_dispatcher import StudySessionsDispatcher
 from database.sql_database_manager import DatabaseManager, session, metadata
+from agent.plan_agent import SessionPlanWorkflow
+from database.mongo_database_manager import MongoDatabaseManager
 
 router_study_plan = APIRouter()
 
@@ -158,4 +160,77 @@ async def verify_session_has_plan(
         raise HTTPException(
             status_code=500, 
             detail=f"Erro ao verificar plano da sessão: {str(e)}"
+        )
+
+@router_study_plan.post("/study_plan/auto")
+async def create_automatic_study_plan(
+    session_data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Creates an automatic study plan using SessionPlanWorkflow.
+    """
+    try:
+        print("session_data", session_data)
+        mongo_manager = MongoDatabaseManager()
+        
+        # Get student profile
+        student_profile = await mongo_manager.get_student_profile(
+            current_user["sub"], 
+            'student_learn_preference'
+        )
+        print("Student profile: ", student_profile)
+        
+        if not student_profile:
+            raise HTTPException(
+                status_code=404,
+                detail="Perfil do estudante não encontrado"
+            )
+
+        # Get existing session data from MongoDB
+        session_id = session_data.get('tema', {}).get('session_id')
+        if not session_id:
+            raise HTTPException(
+                status_code=400,
+                detail="ID da sessão não fornecido"
+            )
+
+        # Fetch existing session from MongoDB
+        existing_session = await mongo_manager.get_study_plan(session_id)
+        if not existing_session:
+            raise HTTPException(
+                status_code=404,
+                detail="Sessão de estudo não encontrada"
+            )
+
+        print("initializing workflow")
+        workflow = SessionPlanWorkflow(mongo_manager)
+        print("workflow initialized")
+
+        # Pass the session description from existing data
+        result = await workflow.create_session_plan(
+            topic=existing_session.get('descricao', ''),
+            student_profile=student_profile,
+            id_sessao=session_id
+        )
+
+        if result.get("error"):
+            raise HTTPException(
+                status_code=500,
+                detail=result["error"]
+            )
+
+        return {
+            "message": "Plano de estudos gerado com sucesso",
+            "plano": result["plan"],
+            "feedback": result["feedback"]
+        }
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Erro ao criar plano automático: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao criar plano automático: {str(e)}"
         )

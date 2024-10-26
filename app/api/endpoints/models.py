@@ -196,10 +196,11 @@ class StudySessionCreate(BaseModel):
 
 class StudyPlan(BaseModel):
     id_sessao: str
-    disciplina_id: str
-    disciplina: str
-    descricao: str
-    objetivo_sessao: str
-    plano_execucao: list
+    disciplina_id: Optional[str] = None
+    disciplina: Optional[str] = None
+    descricao: Optional[str] = None
+    objetivo_sessao: Optional[str] = None
+    plano_execucao: Optional[List] = []
     duracao_total: str
-    progresso_total: int
+    progresso_total: Optional[int] = 0
+    created_at: Optional[datetime] = None

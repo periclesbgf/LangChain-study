@@ -32,3 +32,20 @@ class PlanDispatcher:
         Verifica se uma sessão específica já possui um plano de estudo.
         """
         return await self.mongo_manager.verify_session_has_plan(id_sessao)
+
+    async def create_automatic_plan(self, student_email: str, session_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handles the automatic plan creation process.
+        """
+        try:
+            # Verify if session already has a plan
+            existing_plan = await self.mongo_manager.get_study_plan(session_data['session_id'])
+            if existing_plan and existing_plan.get('plano_execucao'):
+                raise Exception("Session already has a plan")
+
+            # Create the plan
+            result = await self.mongo_manager.create_automatic_study_plan(student_email, session_data)
+            return result
+        except Exception as e:
+            print(f"Error in dispatcher create_automatic_plan: {e}")
+            raise
