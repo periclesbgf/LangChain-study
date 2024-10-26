@@ -8,7 +8,7 @@ from pydantic import BaseModel,Field
 import motor.motor_asyncio
 from pymongo import errors
 import json
-from database.mongo_database_manager import MongoDatabaseManager
+from agent.tools import DatabaseUpdateTool
 
 class ActivityResource(BaseModel):
     tipo:str
@@ -44,33 +44,10 @@ class PlanningState(TypedDict):
     id_sessao:str
     update_status:bool|None
 
-class DatabaseUpdateTool:
-    def __init__(self, db_manager: 'MongoDatabaseManager'):
-        self.db_manager = db_manager
-
-    async def update_study_plan(self, id_sessao: str, plan_data: dict) -> bool:
-        try:
-            print("[DEBUG]: Preparing update data", plan_data)
-            
-            # Prepare update data preserving existing fields
-            update_data = {
-                "plano_execucao": plan_data.get("plano_execucao", []),
-                "duracao_total": plan_data.get("duracao_total", ""),
-                "updated_at": datetime.now(timezone.utc)
-            }
-            
-            print("[DEBUG]: Update data", update_data)
-            success = await self.db_manager.update_study_plan(id_sessao, update_data)
-            print("[DEBUG]: Update success status", success)
-            return success
-        except Exception as e:
-            print(f"[DEBUG]: Error updating study plan: {e}")
-            return False
 
 class SessionPlanWorkflow:
-    def __init__(self, db_manager: MongoDatabaseManager):
-        self.db_manager = db_manager
-        self.db_tool = DatabaseUpdateTool(db_manager)
+    def __init__(self, db_tool: DatabaseUpdateTool):
+        self.db_tool = db_tool
         self.workflow = self.create_workflow()
 
     def create_workflow(self) -> Graph:
@@ -103,6 +80,7 @@ class SessionPlanWorkflow:
         3. Inclua atividades e recursos apropriados ao estilo do aluno
         4. Foque em ensinar o tópico de forma eficaz e envolvente
         5. Seja específico para o tema da programação, incluindo exemplos práticos e exercícios de código
+        6. SEMPRE FOQUE EM EXPLICAR O ASSUNTO ANTES DE FAZER QUALQUER ATIVIDADE
 
         Regras importantes:
         1. SEMPRE retorne um JSON válido

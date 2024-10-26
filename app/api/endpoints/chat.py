@@ -5,6 +5,7 @@ from api.controllers.chat_controller import ChatController
 from api.controllers.auth import get_current_user
 from api.endpoints.models import MessageRequest
 from pymongo import MongoClient
+from api.controllers.plan_controller import PlanController
 from utils import MONGO_URI, MONGO_DB_NAME, QDRANT_URL
 from typing import Optional
 from database.vector_db import QdrantHandler
@@ -20,6 +21,12 @@ import json
 import os
 
 router_chat = APIRouter()
+
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
 
 # Update the chat endpoint to include TutorWorkflow
 @router_chat.post("/chat")
@@ -38,9 +45,11 @@ async def chat_endpoint(
         )
         image_handler = ImageHandler(OPENAI_API_KEY)
 
-        # Get student profile
-        print("[DEBUG] Fetching student profile")
+        # Get student profile and study plan
+        print("[DEBUG] Fetching student profile and study plan")
         mongo_manager = MongoDatabaseManager()
+        
+        # Get student profile
         student_profile = await mongo_manager.get_student_profile(
             email=current_user["sub"],
             collection_name="student_learn_preference"
@@ -48,6 +57,16 @@ async def chat_endpoint(
         if not student_profile:
             raise HTTPException(status_code=404, detail="Perfil do estudante não encontrado.")
         print(f"[DEBUG] Student profile retrieved: {student_profile}")
+
+        # Get study plan using MongoDatabaseManager
+        print(f"[DEBUG] Fetching study plan for session {request.session_id}")
+        plano_execucao_raw = await mongo_manager.get_study_plan(str(request.session_id))
+        if not plano_execucao_raw:
+            raise HTTPException(status_code=404, detail="Plano de estudo não encontrado.")
+        
+        # Converter para JSON usando o encoder personalizado
+        plano_execucao = json.dumps(plano_execucao_raw, cls=DateTimeEncoder)
+        print(f"[DEBUG] Study plan processed successfully")
 
         # Initialize TutorWorkflow
         print("[DEBUG] Initializing TutorWorkflow")
@@ -65,11 +84,13 @@ async def chat_endpoint(
             disciplina=request.discipline_id,
             qdrant_handler=qdrant_handler,
             image_handler=image_handler,
-            retrieval_agent=tutor_workflow,  # Use TutorWorkflow instead of RetrievalAgent
+            retrieval_agent=tutor_workflow,
             student_profile=student_profile,
             mongo_db_name=MONGO_DB_NAME,
             mongo_uri=MONGO_URI,
+            plano_execucao=plano_execucao
         )
+        
 
         print(f"[DEBUG] Received message: {request.message}")
         print(f"[DEBUG] Received file: {request.file}")

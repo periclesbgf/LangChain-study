@@ -243,13 +243,14 @@ class ChatController:
         student_profile: dict,
         mongo_db_name: str,
         mongo_uri: str,
+        plano_execucao: dict
     ):
         print("Initializing ChatController")
         self.session_id = session_id
         self.student_email = student_email
         self.disciplina = disciplina
         self.perfil = student_profile
-        self.plano_execucao = self._carregar_json("resources/plano_acao.json")
+        self.plano_execucao = plano_execucao
 
         # Initialize core components
         self.llm = ChatOpenAI(
@@ -293,6 +294,57 @@ class ChatController:
             "learning_objectives_met": set(),
             "average_response_time": 0
         }
+
+
+
+    async def handle_user_message(self, user_input: Optional[str] = None, files=None):
+        print("[DEBUG] Handling user message")
+        try:
+            if not user_input and not files:
+                return "Nenhuma entrada fornecida."
+
+            if files:
+                print(f"[DEBUG] Processing {len(files)} file(s)...")
+                await self._process_files(files)
+
+            # Get current chat history
+            current_history = self.chat_history.messages
+            print(f"[DEBUG] Retrieved {len(current_history)} messages from history")
+
+            print(f"[DEBUG] Processing user input: {user_input}")
+            # Call TutorWorkflow with chat history
+            print(f"[DEBUG] Invoking TutorWorkflow")
+            print(f"[DEBUG] Student profile: {self.perfil}")
+            print(f"[DEBUG] Current plan: {self.plano_execucao}")
+            workflow_response = await self.tutor_workflow.invoke(
+                query=user_input,
+                student_profile=self.perfil,
+                current_plan=self.plano_execucao,
+                chat_history=current_history  # Pass the MongoDB chat history
+            )
+
+            print(f"[DEBUG] Workflow response received")
+
+            # Handle the response and update history
+            if isinstance(workflow_response, dict):
+                messages = workflow_response.get("messages", [])
+                if messages:
+                    # Get the last AI message
+                    ai_messages = [msg for msg in messages if isinstance(msg, AIMessage)]
+                    if ai_messages:
+                        final_response = ai_messages[-1].content
+                        # Save the interaction to history
+                        self.chat_history.add_message(HumanMessage(content=user_input))
+                        self.chat_history.add_message(AIMessage(content=final_response))
+                        return final_response
+                    
+            return "Desculpe, não foi possível gerar uma resposta adequada."
+
+        except Exception as e:
+            print(f"[DEBUG] Error in handle_user_message: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return "Ocorreu um erro ao processar sua mensagem. Por favor, tente novamente."
 
     def _carregar_json(self, caminho_arquivo: str):
         """Carrega dados de um arquivo JSON."""
@@ -388,55 +440,6 @@ class ChatController:
         except Exception as e:
             print(f"Error processing files: {e}")
             return False
-
-    async def handle_user_message(self, user_input: Optional[str] = None, files=None):
-        print("[DEBUG] Handling user message")
-        try:
-            if not user_input and not files:
-                return "Nenhuma entrada fornecida."
-
-            if files:
-                print(f"[DEBUG] Processing {len(files)} file(s)...")
-                await self._process_files(files)
-
-            # Get current chat history
-            current_history = self.chat_history.messages
-            print(f"[DEBUG] Retrieved {len(current_history)} messages from history")
-
-            print(f"[DEBUG] Processing user input: {user_input}")
-            # Call TutorWorkflow with chat history
-            print(f"[DEBUG] Invoking TutorWorkflow")
-            print(f"[DEBUG] Student profile: {self.perfil}")
-            print(f"[DEBUG] Current plan: {self.plano_execucao}")
-            workflow_response = await self.tutor_workflow.invoke(
-                query=user_input,
-                student_profile=self.perfil,
-                current_plan=self.plano_execucao,
-                chat_history=current_history  # Pass the MongoDB chat history
-            )
-
-            print(f"[DEBUG] Workflow response received")
-
-            # Handle the response and update history
-            if isinstance(workflow_response, dict):
-                messages = workflow_response.get("messages", [])
-                if messages:
-                    # Get the last AI message
-                    ai_messages = [msg for msg in messages if isinstance(msg, AIMessage)]
-                    if ai_messages:
-                        final_response = ai_messages[-1].content
-                        # Save the interaction to history
-                        self.chat_history.add_message(HumanMessage(content=user_input))
-                        self.chat_history.add_message(AIMessage(content=final_response))
-                        return final_response
-                    
-            return "Desculpe, não foi possível gerar uma resposta adequada."
-
-        except Exception as e:
-            print(f"[DEBUG] Error in handle_user_message: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return "Ocorreu um erro ao processar sua mensagem. Por favor, tente novamente."
 
 
     async def get_learning_progress(self):

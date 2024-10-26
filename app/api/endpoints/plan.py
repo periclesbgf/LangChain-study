@@ -3,13 +3,14 @@ from datetime import datetime, timezone
 from typing import Dict, Any
 from api.controllers.auth import get_current_user
 from pydantic import BaseModel
-from api.controllers.plan_controller import PlanController  # Importa o Controller
+from api.controllers.plan_controller import PlanController
 from api.endpoints.models import StudyPlan
 from api.controllers.study_sessions_controller import StudySessionsController
 from api.dispatchers.study_sessions_dispatcher import StudySessionsDispatcher
 from database.sql_database_manager import DatabaseManager, session, metadata
 from agent.plan_agent import SessionPlanWorkflow
 from database.mongo_database_manager import MongoDatabaseManager
+from agent.tools import DatabaseUpdateTool
 
 router_study_plan = APIRouter()
 
@@ -173,7 +174,7 @@ async def create_automatic_study_plan(
     try:
         print("session_data", session_data)
         mongo_manager = MongoDatabaseManager()
-        
+        db_tool = DatabaseUpdateTool(mongo_manager)
         # Get student profile
         student_profile = await mongo_manager.get_student_profile(
             current_user["sub"], 
@@ -204,7 +205,7 @@ async def create_automatic_study_plan(
             )
 
         print("initializing workflow")
-        workflow = SessionPlanWorkflow(mongo_manager)
+        workflow = SessionPlanWorkflow(db_tool)
         print("workflow initialized")
 
         # Pass the session description from existing data

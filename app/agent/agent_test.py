@@ -1,4 +1,4 @@
-from typing import TypedDict, Annotated, Sequence, List, Literal
+from typing import TypedDict, List, Dict, Optional
 from typing_extensions import TypeVar
 from langgraph.graph import END, StateGraph, START, Graph
 from langgraph.prebuilt import ToolExecutor
@@ -12,15 +12,28 @@ from utils import OPENAI_API_KEY
 import json
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
+from agent.tools import DatabaseUpdateTool
+from dataclasses import dataclass
+
+
+@dataclass
+class ExecutionStep:
+    titulo: str
+    duracao: str
+    descricao: str
+    conteudo: List[str]
+    recursos: List[Dict]
+    atividade: Dict
+    progresso: int
 
 class AgentState(TypedDict):
-    messages: Sequence[BaseMessage]
+    messages: List[BaseMessage]
     current_plan: str
     user_profile: dict
     extracted_context: str
     next_step: str | None
     iteration_count: int
-    chat_history: List[BaseMessage]  # Added chat history
+    chat_history: List[BaseMessage]
 
 class RetrievalTools:
     def __init__(self, qdrant_handler, student_email, disciplina):
@@ -49,9 +62,9 @@ class RetrievalTools:
 def create_retrieval_node(tools: RetrievalTools):
     def retrieve_context(state: AgentState) -> AgentState:
         latest_message = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1]
-        
+
         result = tools.retrieve_context(latest_message.content)
-        
+
         new_state = state.copy()
         new_state["extracted_context"] = result
         new_state["iteration_count"] = state.get("iteration_count", 0) + 1
@@ -59,54 +72,104 @@ def create_retrieval_node(tools: RetrievalTools):
 
     return retrieve_context
 
-def create_planning_node():
-    PLANNING_PROMPT = """Você é um assistente educacional que cria planos de aprendizado personalizados.
-    Com base no perfil do aluno e no contexto, crie um plano de aprendizado que se adapte ao estilo de aprendizagem dele.
+def identify_current_step(plano_execucao: List[Dict]) -> ExecutionStep:
+    """Identifica a etapa atual do plano de execução baseado no progresso"""
+    sorted_steps = sorted(plano_execucao, key=lambda x: x["progresso"])
+    
+    # Encontra o primeiro passo que não está 100% completo
+    current_step = next(
+        (step for step in sorted_steps if step["progresso"] < 100),
+        sorted_steps[-1]  # Se todos estiverem completos, retorna o último
+    )
+    
+    return ExecutionStep(**current_step)
+
+def create_answer_plan_node():
+    PLANNING_PROMPT = """Você é um assistente educacional que cria planos de resposta adaptados ao perfil do aluno e ao momento atual do plano de execução.
 
     Perfil do Aluno:
     {user_profile}
 
-    Plano de Aprendizado:
-    {learning_plan}
-
-    Pergunta Atual:
+    Etapa Atual do Plano:
+    Título: {current_step_title}
+    Descrição: {current_step_description}
+    Progresso: {current_step_progress}%
+    
+    Pergunta do Aluno:
     {question}
 
     Histórico da Conversa:
     {chat_history}
 
-    Crie um plano detalhado que:
-    1. Se adapte às preferências de aprendizado do aluno
-    2. Divida o conceito em etapas gerenciáveis
-    3. Forneça exemplos e exercícios apropriados
-    4. Sugira métodos práticos relevantes
+    Baseado no estilo de aprendizagem do aluno ({learning_style}), crie um plano de resposta que:
 
-    Plano de Aprendizado:"""
+    1. IDENTIFICAÇÃO DO CONTEXTO:
+    - Identifique exatamente em qual parte do conteúdo a pergunta se encaixa
+    - Avalie se a pergunta está alinhada com o momento atual do plano
+    
+    2. ESTRUTURA DE RESPOSTA:
+    - Adapte a explicação ao estilo {learning_style}
+    - Divida a resposta em no máximo 3 partes
+    - Para cada parte, defina um objetivo mensurável
+    
+    3. RECURSOS E ATIVIDADES:
+    - Sugira recursos baseado no perfil do aluno (priorize o perfil de aprendizagem do aluno)
+    - Selecione recursos específicos do plano que se aplicam
+    - Sugira exercícios práticos adaptados ao perfil
+    
+    4. PRÓXIMOS PASSOS:
+    - Defina claramente o que o aluno deve fazer após a explicação
+    - Estabeleça indicadores de compreensão
+
+    Forneça o plano de resposta no seguinte formato JSON:
+    
+        "contexto_identificado": "string",
+        "alinhamento_plano": boolean,
+        "estrutura_resposta": [
+            "parte": "string", "objetivo": "string"
+        ],
+        "recursos_sugeridos": ["string"],
+        "atividade_pratica": "string",
+        "indicadores_compreensao": ["string"],
+        "proxima_acao": "string"
+    
+    """
 
     prompt = ChatPromptTemplate.from_template(PLANNING_PROMPT)
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
     def generate_plan(state: AgentState) -> AgentState:
+        # Extrai a última pergunta
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
         
-        # Format chat history
+        # Identifica a etapa atual do plano
+        plano_execucao = json.loads(state["current_plan"])["plano_execucao"]
+        current_step = identify_current_step(plano_execucao)
+        
+        # Formata o histórico do chat
         chat_history = "\n".join([
             f"{'Aluno' if isinstance(m, HumanMessage) else 'Tutor'}: {m.content}"
-            for m in state["chat_history"][-3:]  # Only last 3 messages
+            for m in state["chat_history"][-3:]
         ])
-        
+
+        # Gera o plano de resposta
         response = model.invoke(prompt.format(
             user_profile=state["user_profile"],
-            learning_plan=state["current_plan"],
+            current_step_title=current_step.titulo,
+            current_step_description=current_step.descricao,
+            current_step_progress=current_step.progresso,
             question=latest_question,
-            chat_history=chat_history
+            chat_history=chat_history,
+            learning_style=state["user_profile"]["EstiloAprendizagem"]
         ))
-        
+
+        # Atualiza o estado com o novo plano
         new_state = state.copy()
         new_state["current_plan"] = response.content
-        print(f"[DEBUG] Generated plan: {response.content}")
+        print(f"[DEBUG] Generated answer plan: {response.content}")
+        
         return new_state
-    
+
     return generate_plan
 
 def create_teaching_node():
@@ -134,6 +197,7 @@ def create_teaching_node():
     3. Aponte conceitos-chave
     4. Incentive a autodescoberta
     
+    
     Lembre-se: 
         - O usuario é LEIGO, entao tome a liderança na explicação.
         - Responda SEMPRE em português do Brasil de forma clara e objetiva.
@@ -144,7 +208,7 @@ def create_teaching_node():
     Sua resposta:"""
     
     prompt = ChatPromptTemplate.from_template(TEACHING_PROMPT)
-    model = ChatOpenAI(model="gpt-4o-mini", temperature=0.1)
+    model = ChatOpenAI(model="gpt-4o-mini", temperature=0.5)
     
     def generate_teaching_response(state: AgentState) -> AgentState:
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
@@ -190,7 +254,7 @@ class TutorWorkflow:
     
     def create_workflow(self) -> Graph:
         retrieval_node = create_retrieval_node(self.tools)
-        planning_node = create_planning_node()
+        planning_node = create_answer_plan_node()
         teaching_node = create_teaching_node()
         
         workflow = Graph()

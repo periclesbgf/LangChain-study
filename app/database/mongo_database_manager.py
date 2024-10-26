@@ -90,14 +90,19 @@ class MongoDatabaseManager:
             return None
 
     async def get_study_plan(self, id_sessao: str) -> Optional[Dict[str, Any]]:
+        """Busca um plano de estudos pelo id_sessao."""
         collection = self.db['study_plans']
         try:
-            plan = await collection.find_one({"id_sessao": id_sessao})
+            print(f"[DEBUG] Buscando plano para sessão: {id_sessao}")
+            plan = await collection.find_one({"id_sessao": str(id_sessao)})
             if plan:
                 plan["_id"] = str(plan["_id"])  # Converte ObjectId para string
-            return plan
+                print(f"[DEBUG] Plano encontrado: {plan}")
+                return plan
+            print(f"[DEBUG] Nenhum plano encontrado para sessão: {id_sessao}")
+            return None
         except errors.PyMongoError as e:
-            print(f"Erro ao buscar plano de estudos: {e}")
+            print(f"[DEBUG] Erro ao buscar plano de estudos: {e}")
             return None
 
     async def update_study_plan(self, id_sessao: str, updated_data: Dict[str, Any]) -> bool:
