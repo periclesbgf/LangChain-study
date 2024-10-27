@@ -8,11 +8,13 @@ import fitz  # Biblioteca PyMuPDF para manipulação de PDFs
 import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional
+import pandas as pd
 
 from pymongo import MongoClient, errors
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
-
+import pdfplumber
+import io
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.schema import AIMessage, HumanMessage, BaseMessage, message_to_dict, messages_from_dict
@@ -320,7 +322,7 @@ class ChatController:
                 query=user_input,
                 student_profile=self.perfil,
                 current_plan=self.plano_execucao,
-                chat_history=current_history  # Pass the MongoDB chat history
+                chat_history=current_history
             )
 
             print(f"[DEBUG] Workflow response received")
@@ -339,6 +341,13 @@ class ChatController:
                         return final_response
                     
             return "Desculpe, não foi possível gerar uma resposta adequada."
+
+        except Exception as e:
+            print(f"[DEBUG] Error in handle_user_message: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return "Ocorreu um erro ao processar sua mensagem. Por favor, tente novamente."
+
 
         except Exception as e:
             print(f"[DEBUG] Error in handle_user_message: {str(e)}")
@@ -422,26 +431,6 @@ class ChatController:
         )
         return chain_with_history
 
-    async def _process_files(self, files: List) -> bool:
-        """Process uploaded files and store in vector database"""
-        try:
-            for file in files:
-                content = await file.read()
-                self.qdrant_handler.add_document(
-                    content=content,
-                    metadata={
-                        "student_email": self.student_email,
-                        "disciplina": self.disciplina,
-                        "filename": file.filename,
-                        "timestamp": datetime.now()
-                    }
-                )
-            return True
-        except Exception as e:
-            print(f"Error processing files: {e}")
-            return False
-
-
     async def get_learning_progress(self):
         """Retrieve learning analytics and progress"""
         return {
@@ -451,84 +440,145 @@ class ChatController:
             "objectives_met": list(self.analytics["learning_objectives_met"]),
             "average_response_time": self.analytics["average_response_time"]
         }
-    
 
     async def _process_files(self, files):
         """
-        Processes the uploaded files: extracts text, images, and stores embeddings.
+        Processes the uploaded files: extracts text, images, tables, and stores embeddings.
         """
         print(f"Processing {len(files)} file(s)")
         for file in files:
             filename = file.filename
             print(f"Processing file: {filename}")
-            content = await file.read()  # Adiciona 'await' aqui
+            content = await file.read()  # Read file content asynchronously
             if filename.lower().endswith(".pdf"):
                 print(f"Processing PDF file: {filename}")
-                await self._process_pdf(content)  # Adiciona 'await' aqui
+                await self._process_pdf(content)
             elif filename.lower().endswith((".jpg", ".jpeg", ".png")):
                 print(f"Processing image file: {filename}")
-                await self._process_image(content)  # Adiciona 'await' aqui
+                await self._process_image(content)
             else:
                 print(f"Unsupported file type: {filename}")
 
     async def _process_pdf(self, content: bytes):
         """
-        Processes PDF files: extracts text and images, generates embeddings, 
-        and avoids adding duplicate content to Qdrant.
-        :param content: Binary content of the PDF file.
+        Processa arquivos PDF inteiramente em memória: extrai texto, tabelas, imagens,
+        gera embeddings internamente via vector_store, e evita adicionar conteúdo duplicado ao Qdrant.
+        :param content: Conteúdo binário do arquivo PDF.
         """
-        print("Opening PDF document")
+        print("Abrindo documento PDF na memória")
+        # Abre o PDF na memória usando PyMuPDF
         pdf_document = fitz.open(stream=content, filetype="pdf")
-
-        # Extrair texto de cada página
-        text = ""
         num_pages = len(pdf_document)
-        print(f"PDF has {num_pages} pages")
+        print(f"O PDF tem {num_pages} páginas")
+
+        # Inicializa variáveis para conteúdo de texto
+        full_text = ""
+
+        # Processa cada página
         for page_num in range(num_pages):
+            # Extrai texto usando PyMuPDF
             page = pdf_document[page_num]
             page_text = page.get_text()
-            print(f"Extracted text from page {page_num + 1}")
-            text += page_text
+            print(f"Texto extraído da página {page_num + 1}")
+            full_text += page_text
 
-        # Calcular o hash do conteúdo para verificar duplicação
-        content_hash = hashlib.sha256(text.encode('utf-8')).hexdigest()
+            # Extrai imagens da página e processa
+            image_list = page.get_images(full=True)
+            for image_index, img in enumerate(image_list):
+                xref = img[0]
+                base_image = pdf_document.extract_image(xref)
+                image_bytes = base_image["image"]
+                image_ext = base_image["ext"]
+                print(f"Processando imagem da página {page_num + 1}, imagem {image_index + 1}")
+                await self._process_image(image_bytes)
 
-        # Verificar se o documento já existe no Qdrant
+        pdf_document.close()
+
+        # Agora usa pdfplumber para extrair tabelas em memória
+        print("Extraindo tabelas do PDF na memória")
+        with pdfplumber.open(io.BytesIO(content)) as pdf:
+            for page_num, page in enumerate(pdf.pages):
+                tables = page.extract_tables()
+                print(f"Encontradas {len(tables)} tabelas na página {page_num + 1}")
+                for table_index, table in enumerate(tables):
+                    # Converte dados da tabela em DataFrame
+                    df = pd.DataFrame(table[1:], columns=table[0])
+                    table_text = df.to_csv(index=False)
+
+                    # Processa a tabela como um documento
+                    content_hash = hashlib.sha256(table_text.encode('utf-8')).hexdigest()
+
+                    # Verifica se a tabela já existe no Qdrant
+                    if self.qdrant_handler.document_exists(content_hash, self.student_email, self.disciplina):
+                        print("Tabela já existe no Qdrant. Pulando inserção.")
+                        continue
+
+                    metadata_extra = {
+                        "content_hash": content_hash,  # Armazena o hash para evitar duplicatas
+                        "type": "table",
+                        "page_number": page_num + 1,
+                        "table_number": table_index + 1
+                    }
+
+                    # Adiciona o documento ao Qdrant (embeddings gerados internamente)
+                    self.qdrant_handler.add_document(
+                        student_email=self.student_email,
+                        session_id=self.session_id,
+                        content=table_text,
+                        access_level="session",
+                        disciplina_id=self.disciplina,
+                        specific_file_id=None,
+                        metadata_extra=metadata_extra
+                    )
+                    print(f"Adicionada tabela {table_index + 1} da página {page_num + 1} ao Qdrant")
+
+        # Processa o conteúdo de texto completo
+        content_hash = hashlib.sha256(full_text.encode('utf-8')).hexdigest()
+
+        # Verifica se o documento já existe no Qdrant
         if self.qdrant_handler.document_exists(content_hash, self.student_email, self.disciplina):
-            print("Document already exists in Qdrant. Skipping insertion.")
-            pdf_document.close()
+            print("Documento já existe no Qdrant. Pulando inserção.")
             return
 
-        # Split the text into smaller documents
-        documents = [Document(page_content=text)]
+        # Divide o texto em documentos menores
+        documents = [Document(page_content=full_text)]
         text_docs = self.text_splitter.split_documents(documents)
-        print(f"Split text into {len(text_docs)} documents")
+        print(f"Dividido o texto em {len(text_docs)} documentos")
 
-        # Adicionar documentos no Qdrant usando QdrantVectorStore
+        # Adiciona documentos ao Qdrant usando QdrantVectorStore
         for idx, doc in enumerate(text_docs):
             metadata_extra = {
                 "content_hash": content_hash,  # Armazena o hash para evitar duplicatas
+                "type": "text",
+                "chunk_number": idx + 1
             }
+
+            # Adiciona o documento ao Qdrant (embeddings gerados internamente)
             self.qdrant_handler.add_document(
                 student_email=self.student_email,
-                disciplina=self.disciplina,
+                session_id=self.session_id,
                 content=doc.page_content,
-                metadata_extra=metadata_extra,
+                access_level="session",
+                disciplina_id=self.disciplina,
+                specific_file_id=None,
+                metadata_extra=metadata_extra
             )
-            print(f"Added document {idx + 1}/{len(text_docs)} to Qdrant")
+            print(f"Adicionado pedaço de texto {idx + 1}/{len(text_docs)} ao Qdrant")
 
-        pdf_document.close()
-        print("PDF processing complete")
+        print("Processamento do PDF completo")
+
 
     async def _process_image(self, content: bytes):
         """
-        Processes image files: stores the image in MongoDB, generates description using VLM,
-        stores embeddings, and references the UUID in Qdrant.
-        :param content: Binary content of the image file.
+        Processa arquivos de imagem: armazena a imagem no MongoDB, gera descrição usando VLM,
+        e armazena a descrição no Qdrant com referência ao UUID da imagem.
+        :param content: Conteúdo binário do arquivo de imagem.
         """
-        print("Processing image")
-        # Store the image in MongoDB
+        print("Processando imagem")
+        # Gera um UUID para a imagem
         image_uuid = str(uuid.uuid4())
+        
+        # Armazena a imagem no MongoDB
         image_document = {
             "_id": image_uuid,
             "student_email": self.student_email,
@@ -537,32 +587,33 @@ class ChatController:
             "timestamp": datetime.now(timezone.utc)
         }
         self.image_collection.insert_one(image_document)
-        print(f"Image stored in MongoDB with UUID: {image_uuid}")
-
-        # Get the description of the image using VLM
+        print(f"Imagem armazenada no MongoDB com UUID: {image_uuid}")
+        
+        # Obtém a descrição da imagem usando VLM
         img_base64 = self.image_handler.encode_image_bytes(content)
-        description = self.image_handler.image_summarize(img_base64)  # Sem await
-        print(f"Image description: {description}")
-
-        # Generate embedding of the description
-        embedding = self.embeddings.embed_query(description)
-
-        # Store the description and embedding in Qdrant
-        metadata = {
+        description = self.image_handler.image_summarize(img_base64)
+        print(f"Descrição da imagem: {description}")
+        
+        # Armazena a descrição no Qdrant com referência ao image_uuid
+        metadata_extra = {
             "type": "image",
-            "description": description,
-            "image_uuid": image_uuid,  # Reference to the image UUID in MongoDB
+            "image_uuid": image_uuid,  # Referência ao UUID da imagem no MongoDB
             "student_email": self.student_email,
             "disciplina": self.disciplina,
         }
+        
+        # Adiciona o documento ao Qdrant (embeddings gerados internamente)
         self.qdrant_handler.add_document(
             student_email=self.student_email,
-            disciplina=self.disciplina,
-            content=description,  # Store the description as content
-            embedding=embedding,
-            metadata=metadata,
+            session_id=self.session_id,
+            content=description,
+            access_level="session",
+            disciplina_id=self.disciplina,
+            specific_file_id=None,
+            metadata_extra=metadata_extra
         )
-        print("Image description stored in Qdrant with reference to MongoDB.")
+        print("Descrição da imagem armazenada no Qdrant com referência ao MongoDB.")
+
 
     def retrieve_image_and_description(self, image_uuid: str):
         """
@@ -577,33 +628,31 @@ class ChatController:
 
             if not image_data:
                 print(f"Imagem com UUID {image_uuid} não encontrada no MongoDB.")
-                return {"error": "Image not found in MongoDB"}
+                return {"error": "Imagem não encontrada no MongoDB"}
 
             # Imagem encontrada
             print(f"Imagem com UUID {image_uuid} recuperada do MongoDB.")
             image_bytes = image_data.get("image_data")
 
-            # Recuperar a descrição da imagem do Qdrant usando o UUID como chave de metadados
-            query = {
-                "filter": {
-                    "must": [
-                        {"key": "image_uuid", "match": {"value": image_uuid}}
-                    ]
-                }
-            }
-            results = self.qdrant_handler.similarity_search(
-                query=query,
+            # Recuperar a descrição da imagem do Qdrant usando o image_uuid nos metadados
+            results = self.qdrant_handler.similarity_search_with_filter(
+                query="",
                 student_email=self.student_email,
-                disciplina=self.disciplina,
+                session_id=self.session_id,
+                disciplina_id=self.disciplina,
                 k=1,  # Esperamos um único resultado, já que UUIDs são únicos
+                specific_file_id=None,
+                use_global=False,
+                use_discipline=False,
+                specific_metadata={"image_uuid": image_uuid}  # Novo parâmetro para filtrar por metadados
             )
 
             if not results:
                 print(f"Descrição da imagem com UUID {image_uuid} não encontrada no Qdrant.")
-                return {"error": "Image description not found in Qdrant"}
+                return {"error": "Descrição da imagem não encontrada no Qdrant"}
 
             # Descrição encontrada
-            image_description = results[0].get("content")
+            image_description = results[0].page_content
             print(f"Descrição da imagem com UUID {image_uuid} recuperada do Qdrant.")
 
             return {
@@ -613,26 +662,7 @@ class ChatController:
 
         except Exception as e:
             print(f"Erro ao recuperar a imagem ou descrição: {e}")
-            return {"error": "Failed to retrieve image or description"}
-
-    @tool
-    def retrieve_context(self, query: str) -> List[str]:
-        """
-        Retrieves relevant documents from the vector store based on the query.
-        :param query: The user's question.
-        :return: List of relevant documents' content.
-        """
-        print(f"Retrieving context for query: {query}")
-        embedding = self.embeddings.embed_query(query)
-        results = self.qdrant_handler.similarity_search(
-            embedding,
-            student_email=self.student_email,
-            disciplina=self.disciplina,
-            k=5,
-        )
-        print(f"Retrieved {len(results)} relevant documents")
-        context = [result['content'] for result in results]
-        return context
+            return {"error": "Falha ao recuperar a imagem ou descrição"}
 
     async def _generate_response(self, user_input: str, context: List[str]) -> str:
         """

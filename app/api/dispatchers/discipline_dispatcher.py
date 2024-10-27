@@ -123,40 +123,42 @@ class DisciplineDispatcher:
             raise HTTPException(status_code=500, detail=f"Error deleting discipline: {e}")
 
 
-    async def create_discipline_from_pdf(self, discipline_json: dict, user_email: str):
+    async def create_discipline_from_pdf(self, discipline_json: dict, user_email: str, horario_inicio: str, horario_fim: str, turno_estudo: str):
         try:
             # 1. Extrair dados do JSON
-            print("Extraindo dados do JSON...")
             curso_data = discipline_json.get('curso', {})
-            cronograma_data = discipline_json.get('cronograma', [])
+            encontros_data = discipline_json.get('cronograma', [])  # Renomeado para evitar conflito
             professores = curso_data.get('professores', [])
-            print(f"Curso: {curso_data}")
-            print(f"Cronograma: {cronograma_data}")
-            print(f"Professores: {professores}")
 
-            # 2. Buscar o ID do usuário com base no e-mail
-            print(f"Buscando ID do usuário com e-mail: {user_email}")
+            # 2. Buscar o ID do usuário e do estudante
             user = self.database_manager.get_user_by_email(user_email)
             if not user:
                 raise Exception(f"Usuário com e-mail {user_email} não encontrado.")
             user_id = user.IdUsuario
-            print(f"ID do usuário: {user_id}")
 
-            # 3. Inserir a disciplina no banco de dados
-            print("Inserindo nova disciplina no banco de dados...")
+            # 3. Buscar o ID do estudante
+            student_id = self.database_manager.get_student_by_user_id(user_id)
+            if not student_id:
+                raise Exception(f"Estudante não encontrado para o usuário {user_id}")
+
+            # 4. Converter horários para objetos TIME
+            horario_inicio_obj = datetime.strptime(horario_inicio, '%H:%M').time()
+            horario_fim_obj = datetime.strptime(horario_fim, '%H:%M').time()
+
+            # 5. Inserir a disciplina no banco de dados
             new_course = tabela_cursos.insert().values(
                 NomeCurso=curso_data.get('nome', 'Sem Nome'),
                 Ementa=curso_data.get('ementa', 'Sem Ementa'),
                 Objetivos=json.dumps(curso_data.get('objetivos', [])),
+                HorarioInicio=horario_inicio_obj,
+                HorarioFim=horario_fim_obj,
                 CriadoEm=datetime.now()
             )
             result = self.database_manager.session.execute(new_course)
             self.database_manager.session.commit()
             course_id = result.inserted_primary_key[0]
-            print(f"Curso criado com ID: {course_id}")
 
-            # 4. Inserir o cronograma e encontros no banco de dados
-            print(f"Inserindo cronograma para o curso ID: {course_id}")
+            # 6. Inserir o cronograma
             cronograma_query = tabela_cronograma.insert().values(
                 IdCurso=course_id,
                 NomeCronograma=f"Cronograma de {curso_data.get('nome', 'Sem Nome')}"
@@ -164,71 +166,66 @@ class DisciplineDispatcher:
             cronograma_result = self.database_manager.session.execute(cronograma_query)
             self.database_manager.session.commit()
             cronograma_id = cronograma_result.inserted_primary_key[0]
-            print(f"Cronograma criado com ID: {cronograma_id} para o curso {course_id}")
 
-            # 5. Inserir cada encontro e coletar IDs das sessões
+            # 7. Inserir encontros e criar sessões de estudo
             session_ids = []
-            for encontro in cronograma_data:
+            for encontro in encontros_data:  # Usando a nova variável encontros_data
+                # Converter a data do encontro
                 session_date = datetime.strptime(encontro['data'], "%d/%m/%Y")
                 session_number = encontro['numero_encontro']
                 conteudo = encontro['conteudo'].strip()
 
-                # Inserir o encontro no banco de dados
+                # Inserir o encontro
                 new_session = tabela_encontros.insert().values(
                     IdCronograma=cronograma_id,
                     NumeroEncontro=session_number,
                     DataEncontro=session_date,
                     Conteudo=conteudo,
                     Estrategia=encontro.get('estrategia', 'Não especificada'),
-                    Avaliacao=encontro.get('avaliacao')
+                    Avaliacao=encontro.get('avaliacao'),
+                    HorarioInicio=horario_inicio_obj,
+                    HorarioFim=horario_fim_obj
                 )
                 self.database_manager.session.execute(new_session)
 
-                # Inserir o encontro como evento no calendário
-                print(f"Inserindo evento no calendário para o encontro {session_number}...")
+                # Inserir evento no calendário
                 new_event = tabela_eventos_calendario.insert().values(
                     GoogleEventId=f"event-{course_id}-{session_number}",
                     Titulo=f"Encontro {session_number} - {curso_data.get('nome', 'Sem Nome')}",
                     Descricao=conteudo,
-                    Inicio=session_date,
-                    Fim=session_date + timedelta(hours=2),
+                    Inicio=datetime.combine(session_date.date(), horario_inicio_obj),
+                    Fim=datetime.combine(session_date.date(), horario_fim_obj),
                     Local="Sala de Aula Física",
                     CriadoPor=user_id
                 )
                 self.database_manager.session.execute(new_event)
 
-                # Inserir a sessão de estudo
-                print(f"Inserindo sessão de estudo para o encontro {session_number}...")
+                # Criar sessão de estudo
                 new_study_session = tabela_sessoes_estudo.insert().values(
-                    IdEstudante=user_id,
+                    IdEstudante=student_id,
                     IdCurso=course_id,
                     Assunto=conteudo,
-                    Inicio=session_date,
-                    Fim=session_date + timedelta(hours=2),
+                    Inicio=datetime.combine(session_date.date(), horario_inicio_obj),  # Definindo horário inicial
+                    Fim=datetime.combine(session_date.date(), horario_fim_obj),        # Definindo horário final
                     Produtividade=0,
                     FeedbackDoAluno=None,
-                    HistoricoConversa=None
+                    HistoricoConversa=None,
+                    PreferenciaHorario=turno_estudo
                 )
                 result = self.database_manager.session.execute(new_study_session)
                 session_id = result.inserted_primary_key[0]
                 session_ids.append(session_id)
 
-            self.database_manager.session.commit()
-            print(f"Encontros e eventos de calendário inseridos com sucesso para o curso {course_id}.")
-
-            # 6. Associar o curso ao aluno na tabela EstudanteCurso
-            print(f"Associando o curso {course_id} ao aluno {user_email}...")
+            # 8. Associar o curso ao estudante
             self.database_manager.session.execute(
                 tabela_estudante_curso.insert().values(
-                    IdEstudante=user_id,
+                    IdEstudante=student_id,
                     IdCurso=course_id,
                     CriadoEm=datetime.now()
                 )
             )
             self.database_manager.session.commit()
-            print(f"Curso '{curso_data.get('nome', 'Sem Nome')}' associado ao aluno {user_email} com sucesso.")
 
-            # Retornar o course_id e os session_ids
             return course_id, session_ids
 
         except Exception as e:

@@ -191,12 +191,7 @@ def create_teaching_node():
     Pergunta:
     {question}
     
-    Forneça orientação que:
-    1. Faça perguntas que estimulem o pensamento
-    2. Sugira exemplos relevantes
-    3. Aponte conceitos-chave
-    4. Incentive a autodescoberta
-    
+
     
     Lembre-se: 
         - O usuario é LEIGO, entao tome a liderança na explicação.

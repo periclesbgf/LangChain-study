@@ -56,47 +56,195 @@ class QdrantHandler:
         else:
             print(f"Coleção '{self.collection_name}' já existe.")
 
-    def add_document(self, student_email: str, disciplina: str, content: str, metadata_extra: Optional[dict] = None):
-        print(f"Adicionando documento: student_email={student_email}, disciplina={disciplina}")
-        print(f"Tipo de 'disciplina' antes do armazenamento: {type(disciplina)}")
+    def add_document(
+        self,
+        student_email: str,
+        session_id: str,  # Obrigatório para associar o documento à sessão
+        content: str,
+        access_level: str = "session",  # Pode ser "global", "discipline", ou "session"
+        disciplina_id: Optional[str] = None,  # Opcional, necessário se o acesso for por disciplina
+        specific_file_id: Optional[str] = None,  # ID do arquivo, se aplicável
+        metadata_extra: Optional[dict] = None,  # Metadados adicionais opcionais
+        embedding: Optional[List[float]] = None  # Novo parâmetro para o embedding
+    ):
+        """
+        Adiciona um documento no banco de vetores com metadados completos para filtragem.
 
+        Args:
+            student_email (str): E-mail do estudante dono do documento.
+            session_id (str): ID da sessão associada ao documento.
+            content (str): Conteúdo do documento.
+            access_level (str): Nível de acesso ("global", "discipline", "session").
+            disciplina_id (Optional[str]): ID da disciplina, necessário se for por disciplina.
+            specific_file_id (Optional[str]): ID específico do arquivo, se houver.
+            metadata_extra (Optional[dict]): Metadados adicionais opcionais.
+            embedding (Optional[List[float]]): Embedding do conteúdo, se disponível.
+        """
+        print(f"Adicionando documento com metadados: student_email={student_email}, session_id={session_id}")
+        print(f"Nível de acesso: {access_level}, Disciplina: {disciplina_id}, Arquivo: {specific_file_id}")
+
+        # Gera um hash do conteúdo para evitar duplicações
         content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
+
+        # Metadados principais do documento
         metadata = {
             "student_email": student_email,
-            "disciplina": str(disciplina),  # Forçando para string
-            "content_hash": content_hash
+            "session_id": session_id,
+            "content_hash": content_hash,
+            "access_level": access_level
         }
 
+        # Adiciona o ID da disciplina, se aplicável
+        if disciplina_id and access_level == "discipline":
+            metadata["discipline_id"] = disciplina_id
+
+        # Adiciona o ID do arquivo, se aplicável
+        if specific_file_id:
+            metadata["file_id"] = specific_file_id
+
+        # Adiciona metadados extras, se fornecidos
         if metadata_extra:
             metadata.update(metadata_extra)
 
+        # Cria o documento com o conteúdo e metadados
         document = Document(page_content=content, metadata=metadata)
-        self.vector_store.add_documents([document])
-        print("Documento adicionado com sucesso.")
 
-        # Recuperar e exibir os metadados logo após a inserção
-        self.debug_metadata()
+        # Adiciona o documento no banco de vetores (Qdrant)
+        try:
+            # Se o embedding for fornecido, utilizá-lo ao adicionar o documento
+            if embedding is not None:
+                self.vector_store.add_documents([document], embeddings=[embedding])
+            else:
+                # Caso contrário, o vector_store gerará o embedding internamente
+                self.vector_store.add_documents([document])
+            print("Documento adicionado com sucesso.")
+        except Exception as e:
+            print(f"Erro ao adicionar documento: {e}")
 
-
-    def similarity_search_with_filter(self, query: str, student_email: str, disciplina: str, k: int = 5):
+    def similarity_search_with_filter(
+        self,
+        query: str,
+        student_email: str,
+        session_id: str,  # Agora obrigatório
+        disciplina_id: Optional[str] = None,  # Opcional
+        k: int = 5,
+        use_global: bool = True,  # Controla se materiais globais serão incluídos
+        use_discipline: bool = True,  # Controla se materiais da disciplina serão incluídos
+        specific_file_id: Optional[str] = None,  # Para buscar um arquivo específico da sessão
+        specific_metadata: Optional[dict] = None  # Novo parâmetro para filtrar por metadados específicos
+    ):
         """
-        Realiza uma busca de similaridade no Qdrant utilizando filtros.
+        Realiza uma busca de similaridade no Qdrant utilizando filtros com controle granular de escopo.
+        
+        Args:
+            query (str): Query de busca
+            student_email (str): Email do estudante
+            session_id (str): ID da sessão de estudos (obrigatório)
+            disciplina_id (Optional[str]): ID da disciplina (opcional)
+            k (int): Número de resultados a retornar
+            use_global (bool): Se deve incluir materiais globais
+            use_discipline (bool): Se deve incluir materiais da disciplina
+            specific_file_id (Optional[str]): ID de um arquivo específico da sessão
+            
+        Returns:
+            List[Document]: Lista de documentos encontrados
         """
-        print(f"Realizando busca com filtro: query={query}, student_email={student_email}, disciplina={disciplina}")
-        print(f"Tipos: query={type(query)}, student_email={type(student_email)}, disciplina={type(disciplina)}")
+        print(f"Realizando busca com filtro:")
+        print(f"- Query: {query}")
+        print(f"- Student: {student_email}")
+        print(f"- Session: {session_id}")
+        print(f"- Discipline: {disciplina_id}")
+        print(f"- Use Global: {use_global}")
+        print(f"- Use Discipline: {use_discipline}")
+        print(f"- Specific File: {specific_file_id}")
 
-        # Ajustar filtro para considerar o formato dos metadados aninhados
-        query_filter = models.Filter(
-            must=[
+        # Lista para armazenar todas as condições de acesso
+        access_conditions = []
+
+        # 1. Se use_global=True, adiciona condição para materiais globais
+        if use_global:
+            access_conditions.append(
                 models.FieldCondition(
-                    key="metadata.student_email",  # Acessando corretamente o campo aninhado
-                    match=models.MatchValue(value=student_email)
+                    key="metadata.access_level",
+                    match=models.MatchValue(value="global")
+                )
+            )
+
+        # 2. Se use_discipline=True e disciplina_id fornecido, adiciona condição para materiais da disciplina
+        if use_discipline and disciplina_id:
+            access_conditions.append(
+                models.FieldCondition(
+                    key="metadata.access_level",
+                    match=models.MatchValue(value="discipline")
+                )
+            )
+            access_conditions.append(
+                models.FieldCondition(
+                    key="metadata.discipline_id",
+                    match=models.MatchValue(value=str(disciplina_id))
+                )
+            )
+        if specific_metadata:
+            for key, value in specific_metadata.items():
+                must_conditions.append(
+                    models.FieldCondition(
+                        key=f"metadata.{key}",
+                        match=models.MatchValue(value=value)
+                    )
+                )
+
+        # 3. Condição para materiais da sessão
+        session_condition = models.FieldCondition(
+            key="metadata.access_level",
+            match=models.MatchValue(value="session")
+        )
+
+        # Se specific_file_id fornecido, adiciona condição para arquivo específico
+        if specific_file_id:
+            session_conditions = [
+                session_condition,
+                models.FieldCondition(
+                    key="metadata.file_id",
+                    match=models.MatchValue(value=specific_file_id)
                 ),
                 models.FieldCondition(
-                    key="metadata.disciplina",  # Acessando corretamente o campo aninhado
-                    match=models.MatchValue(value=str(disciplina))  # Garantir string
-                ),
+                    key="metadata.session_id",
+                    match=models.MatchValue(value=session_id)
+                )
             ]
+        else:
+            # Caso contrário, inclui todos os materiais da sessão
+            session_conditions = [
+                session_condition,
+                models.FieldCondition(
+                    key="metadata.session_id",
+                    match=models.MatchValue(value=session_id)
+                )
+            ]
+
+        access_conditions.extend(session_conditions)
+
+        # Condições base que sempre devem ser aplicadas
+        must_conditions = [
+            models.FieldCondition(
+                key="metadata.student_email",
+                match=models.MatchValue(value=student_email)
+            )
+        ]
+
+        # Se temos múltiplas condições de acesso, usamos should para OU lógico
+        if len(access_conditions) > 1:
+            must_conditions.append(
+                models.FieldCondition(
+                    should=access_conditions
+                )
+            )
+        elif access_conditions:  # Se só temos uma condição
+            must_conditions.append(access_conditions[0])
+
+        # Construir o filtro final
+        query_filter = models.Filter(
+            must=must_conditions
         )
 
         print(f"Filtro construído: {query_filter}")
@@ -111,7 +259,6 @@ class QdrantHandler:
         except Exception as e:
             print(f"Erro na busca com filtro: {e}")
             return []
-
 
 
     def similarity_search_without_filter(self, query: str, k: int = 5):

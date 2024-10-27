@@ -4,6 +4,8 @@ from fastapi import Depends,Form, UploadFile, File
 from pydantic import BaseModel, Field, EmailStr
 from api.controllers.auth import get_current_user
 from datetime import datetime, date, timezone
+from enum import Enum
+from uuid import UUID
 
 
 class Question(BaseModel):
@@ -61,13 +63,20 @@ class DisciplineCreate(BaseModel):
     ementa: Optional[str] = None
     objetivos: Optional[str] = None
     educator: Optional[str] = None
+    turno_estudo: str  # 'manha', 'tarde', 'noite'
+    horario_inicio: str  # formato HH:MM
+    horario_fim: str    # formato HH:MM
 
     class Config:
         json_schema_extra = {
             "example": {
                 "nome_curso": "Computer Science 101",
                 "ementa": "Introduction to Computer Science fundamentals",
-                "objetivos": "Teach students the basics of computer programming, algorithms, and data structures."
+                "objetivos": "Teach students the basics of computer programming, algorithms, and data structures.",
+                "educator": "John Doe",
+                "turno_estudo": "manha",
+                "horario_inicio": "08:00",
+                "horario_fim": "10:00"
             }
         }
 
@@ -75,16 +84,35 @@ class DisciplineUpdate(BaseModel):
     nome_curso: Optional[str] = None
     ementa: Optional[str] = None
     objetivos: Optional[str] = None
+    turno_estudo: Optional[str] = None
+    horario_inicio: Optional[str] = None
+    horario_fim: Optional[str] = None
 
     class Config:
         json_schema_extra = {
             "example": {
                 "nome_curso": "Advanced Computer Science",
-                "ementa": "Advanced topics in Computer Science including algorithms, AI, and networking.",
-                "objetivos": "Provide a deeper understanding of complex computer science concepts."
+                "ementa": "Advanced topics in Computer Science",
+                "objetivos": "Provide a deeper understanding of concepts",
+                "turno_estudo": "tarde",
+                "horario_inicio": "14:00",
+                "horario_fim": "16:00"
             }
         }
 
+class DisciplinePDFCreate(BaseModel):
+    turno_estudo: str
+    horario_inicio: str
+    horario_fim: str
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "turno_estudo": "manha",
+                "horario_inicio": "08:00",
+                "horario_fim": "10:00"
+            }
+        }
 class StudentCreate(BaseModel):
     name: str
     matricula: Optional[str] = None
@@ -204,3 +232,20 @@ class StudyPlan(BaseModel):
     duracao_total: str
     progresso_total: Optional[int] = 0
     created_at: Optional[datetime] = None
+
+class AccessLevel(str, Enum):
+    GLOBAL = "global"
+    DISCIPLINE = "discipline"
+    SESSION = "session"
+
+class Material(BaseModel):
+    id: str
+    name: str
+    type: str  # "pdf", "image", "doc"
+    access_level: AccessLevel
+    discipline_id: Optional[str]
+    session_id: Optional[str]
+    student_email: str
+    content_hash: str
+    created_at: datetime
+    updated_at: datetime

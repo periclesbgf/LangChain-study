@@ -1,8 +1,8 @@
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey
+from sqlalchemy import and_, create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey, select, join
 from sqlalchemy.orm import sessionmaker
 import os
 from dotenv import load_dotenv
-from sql_test.sql_test_create import tabela_usuarios, tabela_educadores, tabela_cursos, tabela_sessoes_estudo, tabela_estudante_curso, tabela_eventos_calendario, tabela_estudantes, tabela_perfil_aprendizado_aluno
+from sql_test.sql_test_create import tabela_usuarios, tabela_educadores, tabela_cursos,tabela_encontros,tabela_cronograma, tabela_sessoes_estudo, tabela_estudante_curso, tabela_eventos_calendario, tabela_estudantes, tabela_perfil_aprendizado_aluno
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from sqlalchemy.sql import text
@@ -445,3 +445,215 @@ class DatabaseManager:
         except Exception as e:
             print(f"Erro ao buscar curso {course_id}: {e}")
             raise HTTPException(status_code=500, detail="Erro ao buscar curso.")
+
+    def update_session_start_time(self, session_id: int, start_datetime: str, end_datetime: str):
+        """
+        Atualiza o horário de início e fim da sessão no banco de dados SQL.
+        """
+        try:
+            # Atualize o horário de início e fim da sessão
+            self.session.execute(
+                tabela_sessoes_estudo.update()
+                .where(tabela_sessoes_estudo.c.IdSessao == session_id)
+                .values(Inicio=start_datetime, Fim=end_datetime)
+            )
+            self.session.commit()
+            print(f"Horários da sessão {session_id} atualizados para Início: {start_datetime}, Fim: {end_datetime}.")
+        except Exception as e:
+            self.session.rollback()
+            print(f"Erro ao atualizar os horários da sessão no SQL: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao atualizar os horários da sessão.")
+
+    def get_encontro_horarios(self, session_id: str) -> dict:
+        """
+        Busca os horários do encontro relacionado à sessão de estudo usando SQLAlchemy
+        """
+        print(f"\n[DEBUG] Iniciando get_encontro_horarios para session_id: {session_id}")
+        
+        if not session_id:
+            print("[ERROR] Session ID não fornecido")
+            raise HTTPException(
+                status_code=400,
+                detail="ID da sessão é obrigatório"
+            )
+
+        try:
+            # Verificar se a sessão existe e obter seu assunto
+            print(f"[DEBUG] Verificando existência da sessão {session_id}")
+            session_exists = select(
+                tabela_sessoes_estudo.c.IdSessao,
+                tabela_sessoes_estudo.c.Assunto,
+                tabela_sessoes_estudo.c.IdCurso,
+                tabela_sessoes_estudo.c.PreferenciaHorario
+            ).where(
+                tabela_sessoes_estudo.c.IdSessao == session_id
+            )
+            session_result = self.session.execute(session_exists).first()
+            
+            print(f"[DEBUG] Resultado da verificação da sessão: {session_result}")
+            
+            if not session_result:
+                print(f"[ERROR] Sessão {session_id} não encontrada no banco")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Sessão {session_id} não encontrada"
+                )
+
+            # Construir a query usando SQLAlchemy para encontrar o encontro específico
+            print("[DEBUG] Construindo query para buscar horários")
+            query = select(
+                tabela_encontros.c.HorarioInicio,
+                tabela_encontros.c.HorarioFim,
+                tabela_encontros.c.DataEncontro,
+                tabela_sessoes_estudo.c.PreferenciaHorario
+            ).select_from(
+                join(
+                    tabela_encontros,
+                    tabela_cronograma,
+                    tabela_encontros.c.IdCronograma == tabela_cronograma.c.IdCronograma
+                ).join(
+                    tabela_sessoes_estudo,
+                    and_(
+                        tabela_cronograma.c.IdCurso == tabela_sessoes_estudo.c.IdCurso,
+                        tabela_encontros.c.Conteudo == tabela_sessoes_estudo.c.Assunto
+                    )
+                )
+            ).where(
+                tabela_sessoes_estudo.c.IdSessao == session_id
+            )
+
+            print(f"[DEBUG] Query SQL gerada: {query}")
+            
+            result = self.session.execute(query).first()
+            print(f"[DEBUG] Resultado da query: {result}")
+            
+            if not result:
+                print(f"[ERROR] Nenhum resultado encontrado para a sessão {session_id}")
+                return None
+
+            # Log dos dados retornados
+            horarios = {
+                "horario_inicio": result.HorarioInicio,
+                "horario_fim": result.HorarioFim,
+                "data_encontro": result.DataEncontro,
+                "preferencia_horario": result.PreferenciaHorario
+            }
+            
+            print("[DEBUG] Dados formatados do encontro:")
+            print(f"  Horário Início: {horarios['horario_inicio']}")
+            print(f"  Horário Fim: {horarios['horario_fim']}")
+            print(f"  Data Encontro: {horarios['data_encontro']}")
+            print(f"  Preferência Horário: {horarios['preferencia_horario']}")
+            
+            return horarios
+                
+        except HTTPException as he:
+            raise he
+        except Exception as e:
+            print(f"[ERROR] Erro inesperado ao buscar horários do encontro: {str(e)}")
+            print(f"[ERROR] Tipo do erro: {type(e)}")
+            import traceback
+            print(f"[ERROR] Traceback completo: {traceback.format_exc()}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Erro ao buscar horários do encontro: {str(e)}"
+            )
+
+    def update_session_times(self, session_id: str, start_time: datetime, end_time: datetime) -> bool:
+        """
+        Atualiza os horários de início e fim de uma sessão de estudo
+        
+        Args:
+            session_id: ID da sessão de estudo
+            start_time: Novo horário de início (datetime)
+            end_time: Novo horário de fim (datetime)
+            
+        Returns:
+            bool: True se a atualização foi bem sucedida, False caso contrário
+        """
+        try:
+            if not session_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="ID da sessão é obrigatório"
+                )
+
+            if not start_time or not end_time:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Horários de início e fim são obrigatórios"
+                )
+
+            if end_time <= start_time:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Horário de fim deve ser posterior ao horário de início"
+                )
+
+            # Verificar se a sessão existe
+            session_exists = select(tabela_sessoes_estudo).where(
+                tabela_sessoes_estudo.c.IdSessao == session_id
+            )
+            if not self.session.execute(session_exists).first():
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Sessão {session_id} não encontrada"
+                )
+
+            # Construir o update
+            update_stmt = (
+                tabela_sessoes_estudo.update()
+                .where(tabela_sessoes_estudo.c.IdSessao == session_id)
+                .values(
+                    Inicio=start_time,
+                    Fim=end_time
+                )
+            )
+            
+            # Executar o update
+            result = self.session.execute(update_stmt)
+            self.session.commit()
+
+            # Verificar se a atualização foi bem sucedida
+            rows_affected = result.rowcount
+            success = rows_affected > 0
+
+            if success:
+                print(f"Horários da sessão {session_id} atualizados com sucesso")
+                return True
+            else:
+                print(f"Nenhuma alteração realizada para a sessão {session_id}")
+                return False
+
+        except HTTPException as he:
+            self.session.rollback()
+            raise he
+        except Exception as e:
+            self.session.rollback()
+            print(f"Erro ao atualizar horários da sessão: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Erro ao atualizar horários da sessão: {str(e)}"
+            )
+
+    def get_student_by_user_id(self, user_id: int) -> int:
+        """
+        Busca o ID do estudante com base no ID do usuário
+        """
+        try:
+            query = select(tabela_estudantes.c.IdEstudante).where(
+                tabela_estudantes.c.IdUsuario == user_id
+            )
+            result = self.session.execute(query).first()
+            if not result:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Estudante não encontrado para o usuário {user_id}"
+                )
+            return result.IdEstudante
+        except Exception as e:
+            print(f"Erro ao buscar estudante: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Erro ao buscar estudante: {str(e)}"
+            )

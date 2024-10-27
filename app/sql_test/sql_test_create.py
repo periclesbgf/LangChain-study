@@ -1,9 +1,10 @@
 # app/sql_test/sql_test_create.py
 
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey, Date, DateTime, Boolean, Enum, JSON, TIMESTAMP, text, Text
+from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey, Date, DateTime, Boolean, Enum, JSON, TIMESTAMP, text, Text, TIME
 from sqlalchemy.dialects.postgresql import UUID
 import os
 from dotenv import load_dotenv
+
 
 load_dotenv()
 
@@ -53,6 +54,8 @@ tabela_cursos = Table('Cursos', metadata,
     Column('NomeCurso', String(100), nullable=False),
     Column('Ementa', Text),
     Column('Objetivos', Text),
+    Column('HorarioInicio', TIME, nullable=False),      # Horário de início da aula
+    Column('HorarioFim', TIME, nullable=False),         # Horário de fim da aula
     Column('CriadoEm', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'))
 )
 
@@ -77,7 +80,9 @@ tabela_encontros = Table('Encontros', metadata,
     Column('DataEncontro', Date, nullable=False),
     Column('Conteudo', Text, nullable=False),
     Column('Estrategia', Text, nullable=True),
-    Column('Avaliacao', String(100), nullable=True)  # Pode ser nulo
+    Column('Avaliacao', String(100), nullable=True),
+    Column('HorarioInicio', TIME, nullable=False),      # Horário de início do encontro
+    Column('HorarioFim', TIME, nullable=False),         # Horário de fim do encontro
 )
 
 tabela_atividades = Table('Atividades', metadata,
@@ -101,11 +106,12 @@ tabela_sessoes_estudo = Table('SessoesEstudo', metadata,
     Column('IdEstudante', Integer, ForeignKey('Estudantes.IdEstudante'), nullable=False, index=True),
     Column('IdCurso', Integer, ForeignKey('Cursos.IdCurso'), nullable=False, index=True),
     Column('Assunto', String(200), nullable=False),
-    Column('Inicio', DateTime, server_default=text('CURRENT_TIMESTAMP')),
-    Column('Fim', DateTime),
-    Column('Produtividade', Integer),
-    Column('FeedbackDoAluno', Text),
-    Column('HistoricoConversa', JSON, nullable=True)  # Armazenando o histórico da conversa em JSON
+    Column('Inicio', DateTime, nullable=True),
+    Column('Fim', DateTime, nullable=True),
+    Column('Produtividade', Integer, nullable=True),
+    Column('FeedbackDoAluno', Text, nullable=True),
+    Column('HistoricoConversa', JSON, nullable=True),
+    Column('PreferenciaHorario', String(50), nullable=True),
 )
 
 tabela_recursos_aprendizagem = Table('RecursosAprendizagem', metadata,
@@ -134,7 +140,7 @@ tabela_feedback_ia = Table('FeedbackIAPerfil', metadata,
 
 tabela_eventos_calendario = Table('EventosCalendario', metadata,
     Column('IdEvento', Integer, primary_key=True),
-    Column('GoogleEventId', String(100), nullable=False, unique=True),
+    Column('GoogleEventId', String(250), nullable=False, unique=True),
     Column('Titulo', String(200), nullable=False),
     Column('Descricao', Text),
     Column('Inicio', DateTime, nullable=False),

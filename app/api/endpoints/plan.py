@@ -11,6 +11,8 @@ from database.sql_database_manager import DatabaseManager, session, metadata
 from agent.plan_agent import SessionPlanWorkflow
 from database.mongo_database_manager import MongoDatabaseManager
 from agent.tools import DatabaseUpdateTool
+from api.controllers.calendar_controller import CalendarController
+from api.dispatchers.calendar_dispatcher import CalendarDispatcher
 
 router_study_plan = APIRouter()
 
@@ -55,7 +57,8 @@ async def get_study_plan(
 
         if not plan:
             raise HTTPException(status_code=404, detail="Plano de estudos não encontrado.")
-
+        print("Endpoint get_study_plan")
+        print(plan)
         return plan
 
     except Exception as e:
@@ -168,35 +171,51 @@ async def create_automatic_study_plan(
     session_data: dict,
     current_user: dict = Depends(get_current_user)
 ):
-    """
-    Creates an automatic study plan using SessionPlanWorkflow.
-    """
     try:
         print("session_data", session_data)
         mongo_manager = MongoDatabaseManager()
         db_tool = DatabaseUpdateTool(mongo_manager)
-        # Get student profile
+
+        # Obter o perfil do estudante
         student_profile = await mongo_manager.get_student_profile(
             current_user["sub"], 
             'student_learn_preference'
         )
         print("Student profile: ", student_profile)
-        
+
         if not student_profile:
             raise HTTPException(
                 status_code=404,
                 detail="Perfil do estudante não encontrado"
             )
 
-        # Get existing session data from MongoDB
-        session_id = session_data.get('tema', {}).get('session_id')
+        # Obter o ID da sessão e tema
+        session_id = session_data.get('session_id')
+        topic = session_data.get('tema')  # Usando o campo 'tema' do session_data
+
         if not session_id:
             raise HTTPException(
                 status_code=400,
                 detail="ID da sessão não fornecido"
             )
 
-        # Fetch existing session from MongoDB
+        if not topic:
+            raise HTTPException(
+                status_code=400,
+                detail="Tema da sessão não fornecido"
+            )
+
+        # Instanciar o DatabaseManager e buscar horários
+        sql_manager = DatabaseManager(session, metadata)
+        encontro_info = sql_manager.get_encontro_horarios(session_id)
+
+        if not encontro_info:
+            raise HTTPException(
+                status_code=404,
+                detail="Informações do encontro não encontradas"
+            )
+
+        # Buscar a sessão existente do MongoDB
         existing_session = await mongo_manager.get_study_plan(session_id)
         if not existing_session:
             raise HTTPException(
@@ -204,13 +223,25 @@ async def create_automatic_study_plan(
                 detail="Sessão de estudo não encontrada"
             )
 
+        # Adicionar informações de horário e período ao perfil do estudante
+        student_profile["horarios"] = {
+            "encontro": {
+                "inicio": encontro_info["horario_inicio"].strftime("%H:%M"),
+                "fim": encontro_info["horario_fim"].strftime("%H:%M"),
+                "data": encontro_info["data_encontro"].strftime("%Y-%m-%d")
+            },
+            "preferencia": session_data.get('periodo', encontro_info["preferencia_horario"])
+        }
+        print("")
+        print("student_profile", student_profile)
+        print("")
         print("initializing workflow")
         workflow = SessionPlanWorkflow(db_tool)
         print("workflow initialized")
 
-        # Pass the session description from existing data
+        # Passar o tema explicitamente
         result = await workflow.create_session_plan(
-            topic=existing_session.get('descricao', ''),
+            topic=topic,  # Usando o tema obtido do session_data
             student_profile=student_profile,
             id_sessao=session_id
         )
@@ -221,10 +252,42 @@ async def create_automatic_study_plan(
                 detail=result["error"]
             )
 
+        # Atualizar os horários da sessão de estudo
+        if result.get("scheduled_time"):
+            data = result["scheduled_time"]["data"]
+            inicio = result["scheduled_time"]["inicio"]
+            fim = result["scheduled_time"]["fim"]
+            
+            # Converter para datetime
+            start_datetime = datetime.strptime(f"{data} {inicio}", "%Y-%m-%d %H:%M")
+            end_datetime = datetime.strptime(f"{data} {fim}", "%Y-%m-%d %H:%M")
+            
+            # Atualizar a sessão de estudo
+            sql_manager.update_session_times(
+                session_id=session_id,
+                start_time=start_datetime,
+                end_time=end_datetime
+            )
+
+            # Criar evento no calendário
+            event_title = f"Sessão de Estudo - {topic}"
+            
+            dispatcher = CalendarDispatcher(sql_manager)
+            controller = CalendarController(dispatcher)
+
+            controller.create_event(
+                title=event_title,
+                description=result["plan"].get("descricao", ""),
+                start_time=start_datetime,
+                end_time=end_datetime,
+                location="Online",
+                current_user=current_user['sub'],
+                course_id=session_data.get('disciplina')
+            )
+
         return {
             "message": "Plano de estudos gerado com sucesso",
             "plano": result["plan"],
-            "feedback": result["feedback"]
         }
 
     except HTTPException as he:
