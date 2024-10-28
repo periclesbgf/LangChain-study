@@ -206,32 +206,43 @@ class SecaoPlano(BaseModel):
     atividade: Optional[Atividade] = None
     progresso: int = Field(..., example=25)
 
-class PlanoExecucao(BaseModel):
-    id_sessao: int = Field(..., example=1)  # Novo campo para associar à sessão de estudos
-    disciplina: str = Field(..., example="Programação Imperativa e Funcional")
-    descricao: Optional[str] = Field(None, example="Revisão detalhada dos principais conceitos de programação imperativa e funcional.")
-    objetivo_sessao: str = Field(..., example="Introdução e revisão de conceitos fundamentais.")
-    plano_execucao: List[SecaoPlano] = Field(...)
-    duracao_total: str = Field(..., example="90 minutos")
-    progresso_total: int = Field(..., example=100)
-    created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
-
 class StudySessionCreate(BaseModel):
     discipline_id: int
     subject: str
     start_time: datetime
     end_time: datetime
 
+class ExecutionStep(BaseModel):
+    titulo: str
+    duracao: str
+    descricao: str
+    conteudo: List[str]
+    recursos: List[Dict]
+    atividade: Dict
+    progresso: int = 0
+
+
 class StudyPlan(BaseModel):
+    # Campos de identificação
     id_sessao: str
     disciplina_id: Optional[str] = None
     disciplina: Optional[str] = None
+    
+    # Campos de conteúdo
     descricao: Optional[str] = None
     objetivo_sessao: Optional[str] = None
-    plano_execucao: Optional[List] = []
+    plano_execucao: List[ExecutionStep] = Field(default_factory=list)
+    
+    # Campos de controle
     duracao_total: str
-    progresso_total: Optional[int] = 0
-    created_at: Optional[datetime] = None
+    progresso_total: int = Field(default=0, ge=0, le=100)
+    
+    # Campos de timestamp
+    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    
+    # Campos de feedback e análise
+    feedback_geral: Dict = Field(default_factory=dict)
 
 class AccessLevel(str, Enum):
     GLOBAL = "global"

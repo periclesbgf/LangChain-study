@@ -210,16 +210,16 @@ class RetrievalAgent:
                 func=self.retrieve_context,
                 description="Search the knowledge base for relevant materials and examples"
             ),
-            # Tool(
-            #     name="search_youtube",
-            #     func=self.search_youtube,
-            #     description="Search YouTube for relevant educational videos"
-            # ),
-            # Tool(
-            #     name="search_wikipedia",
-            #     func=self.search_wikipedia,
-            #     description="Search Wikipedia for detailed information and explanations"
-            # )
+            Tool(
+                name="search_youtube",
+                func=self.search_youtube,
+                description="Search YouTube for relevant educational videos"
+            ),
+            Tool(
+                name="search_wikipedia",
+                func=self.search_wikipedia,
+                description="Search Wikipedia for detailed information and explanations"
+            )
         ]
 
 

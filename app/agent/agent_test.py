@@ -13,6 +13,7 @@ import json
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 from agent.tools import DatabaseUpdateTool
+from database.vector_db import QdrantHandler
 from dataclasses import dataclass
 
 
@@ -36,7 +37,7 @@ class AgentState(TypedDict):
     chat_history: List[BaseMessage]
 
 class RetrievalTools:
-    def __init__(self, qdrant_handler, student_email, disciplina):
+    def __init__(self, qdrant_handler: QdrantHandler, student_email, disciplina):
         self.qdrant_handler = qdrant_handler
         self.student_email = student_email
         self.disciplina = disciplina
@@ -46,10 +47,9 @@ class RetrievalTools:
             filter_results = self.qdrant_handler.similarity_search_with_filter(
                 query=query,
                 student_email=self.student_email,
-                disciplina=self.disciplina,
-                k=3  # Reduzido para 3 resultados mais relevantes
+                k=5
             )
-            
+            print(f"[DEBUG] Filter results: {filter_results}")
             if filter_results:
                 context = "\n".join([doc.page_content for doc in filter_results])
                 return context
@@ -203,11 +203,11 @@ def create_teaching_node():
     Sua resposta:"""
     
     prompt = ChatPromptTemplate.from_template(TEACHING_PROMPT)
-    model = ChatOpenAI(model="gpt-4o-mini", temperature=0.5)
+    model = ChatOpenAI(model="gpt-4o", temperature=0.5)
     
     def generate_teaching_response(state: AgentState) -> AgentState:
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
-        
+
         # Format chat history
         chat_history = "\n".join([
             f"{'Aluno' if isinstance(m, HumanMessage) else 'Tutor'}: {m.content}"

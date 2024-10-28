@@ -91,8 +91,11 @@ class DisciplineController:
                     "plano_execucao": [],
                     "duracao_total": "",
                     "progresso_total": 0,
-                    "created_at": datetime.now(timezone.utc)
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),  # Novo
+                    "feedback_geral": {}  # Novo
                 }
+                
 
                 plan_result = await self.plan_controller.create_study_plan(empty_plan)
                 if not plan_result:

@@ -50,7 +50,9 @@ class StudySessionsController:
                 "plano_execucao": [],
                 "duracao_total": "",
                 "progresso_total": 0,
-                "created_at": datetime.now(timezone.utc)
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),  # Novo
+                "feedback_geral": {}  # Novo
             }
 
             # Usar o PlanController para criar o plano vazio
