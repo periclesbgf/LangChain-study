@@ -125,141 +125,131 @@ class QdrantHandler:
         self,
         query: str,
         student_email: str,
-        session_id: str,  # Agora obrigatório
-        disciplina_id: Optional[str] = None,  # Opcional
+        session_id: Optional[str] = None,
+        disciplina_id: Optional[str] = None,
         k: int = 5,
-        use_global: bool = True,  # Controla se materiais globais serão incluídos
-        use_discipline: bool = True,  # Controla se materiais da disciplina serão incluídos
-        specific_file_id: Optional[str] = None,  # Para buscar um arquivo específico da sessão
-        specific_metadata: Optional[dict] = None  # Novo parâmetro para filtrar por metadados específicos
-    ):
+        use_global: bool = True,
+        use_discipline: bool = True,
+        use_session: bool = True,
+        specific_file_id: Optional[str] = None,
+        specific_metadata: Optional[dict] = None
+    ) -> List[Document]:
         """
-        Realiza uma busca de similaridade no Qdrant utilizando filtros com controle granular de escopo.
-        
-        Args:
-            query (str): Query de busca
-            student_email (str): Email do estudante
-            session_id (str): ID da sessão de estudos (obrigatório)
-            disciplina_id (Optional[str]): ID da disciplina (opcional)
-            k (int): Número de resultados a retornar
-            use_global (bool): Se deve incluir materiais globais
-            use_discipline (bool): Se deve incluir materiais da disciplina
-            specific_file_id (Optional[str]): ID de um arquivo específico da sessão
-            
-        Returns:
-            List[Document]: Lista de documentos encontrados
+        Realiza busca por similaridade com filtros flexíveis usando a estrutura correta do Qdrant.
         """
-        print(f"Realizando busca com filtro:")
-        print(f"- Query: {query}")
-        print(f"- Student: {student_email}")
-        print(f"- Session: {session_id}")
-        print(f"- Discipline: {disciplina_id}")
-        print(f"- Use Global: {use_global}")
-        print(f"- Use Discipline: {use_discipline}")
-        print(f"- Specific File: {specific_file_id}")
+        print(f"\n[SEARCH] Iniciando busca com filtros:")
+        print(f"[SEARCH] Query: {query}")
+        print(f"[SEARCH] Student: {student_email}")
+        print(f"[SEARCH] Config: global={use_global}, discipline={use_discipline}, session={use_session}")
 
-        # Lista para armazenar todas as condições de acesso
-        access_conditions = []
+        try:
+            # Busca por ID específico
+            if specific_file_id:
+                search_filter = models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="metadata.student_email",
+                            match=models.MatchValue(value=student_email)
+                        ),
+                        models.FieldCondition(
+                            key="metadata.file_id",
+                            match=models.MatchValue(value=specific_file_id)
+                        )
+                    ]
+                )
+                return self._execute_search(query, search_filter, k)
 
-        # 1. Se use_global=True, adiciona condição para materiais globais
-        if use_global:
-            access_conditions.append(
-                models.FieldCondition(
-                    key="metadata.access_level",
-                    match=models.MatchValue(value="global")
-                )
-            )
-
-        # 2. Se use_discipline=True e disciplina_id fornecido, adiciona condição para materiais da disciplina
-        if use_discipline and disciplina_id:
-            access_conditions.append(
-                models.FieldCondition(
-                    key="metadata.access_level",
-                    match=models.MatchValue(value="discipline")
-                )
-            )
-            access_conditions.append(
-                models.FieldCondition(
-                    key="metadata.discipline_id",
-                    match=models.MatchValue(value=str(disciplina_id))
-                )
-            )
-        if specific_metadata:
-            for key, value in specific_metadata.items():
-                must_conditions.append(
+            # Busca por metadados específicos
+            if specific_metadata:
+                must_conditions = [
                     models.FieldCondition(
                         key=f"metadata.{key}",
-                        match=models.MatchValue(value=value)
+                        match=models.MatchValue(value=str(value))
+                    )
+                    for key, value in specific_metadata.items()
+                ]
+                must_conditions.append(
+                    models.FieldCondition(
+                        key="metadata.student_email",
+                        match=models.MatchValue(value=student_email)
+                    )
+                )
+                search_filter = models.Filter(must=must_conditions)
+                return self._execute_search(query, search_filter, k)
+
+            # Busca por níveis de acesso
+            should_conditions = []
+
+            # Global access
+            if use_global:
+                should_conditions.append(
+                    models.FieldCondition(
+                        key="metadata.access_level",
+                        match=models.MatchValue(value="global")
                     )
                 )
 
-        # 3. Condição para materiais da sessão
-        session_condition = models.FieldCondition(
-            key="metadata.access_level",
-            match=models.MatchValue(value="session")
-        )
-
-        # Se specific_file_id fornecido, adiciona condição para arquivo específico
-        if specific_file_id:
-            session_conditions = [
-                session_condition,
-                models.FieldCondition(
-                    key="metadata.file_id",
-                    match=models.MatchValue(value=specific_file_id)
-                ),
-                models.FieldCondition(
-                    key="metadata.session_id",
-                    match=models.MatchValue(value=session_id)
+            # Discipline access
+            if use_discipline and disciplina_id:
+                should_conditions.append(
+                    models.FieldCondition(
+                        key="metadata.access_level",
+                        match=models.MatchValue(value="discipline")
+                    )
                 )
-            ]
-        else:
-            # Caso contrário, inclui todos os materiais da sessão
-            session_conditions = [
-                session_condition,
-                models.FieldCondition(
-                    key="metadata.session_id",
-                    match=models.MatchValue(value=session_id)
+
+            # Session access
+            if use_session and session_id:
+                should_conditions.append(
+                    models.FieldCondition(
+                        key="metadata.access_level",
+                        match=models.MatchValue(value="session")
+                    )
                 )
-            ]
 
-        access_conditions.extend(session_conditions)
-
-        # Condições base que sempre devem ser aplicadas
-        must_conditions = [
-            models.FieldCondition(
-                key="metadata.student_email",
-                match=models.MatchValue(value=student_email)
+            # Construir filtro final
+            search_filter = models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="metadata.student_email",
+                        match=models.MatchValue(value=student_email)
+                    )
+                ],
+                should=should_conditions
             )
-        ]
 
-        # Se temos múltiplas condições de acesso, usamos should para OU lógico
-        if len(access_conditions) > 1:
-            must_conditions.append(
-                models.FieldCondition(
-                    should=access_conditions
-                )
-            )
-        elif access_conditions:  # Se só temos uma condição
-            must_conditions.append(access_conditions[0])
+            print(f"[SEARCH] Filtro construído: {search_filter}")
+            return self._execute_search(query, search_filter, k)
 
-        # Construir o filtro final
-        query_filter = models.Filter(
-            must=must_conditions
-        )
-
-        print(f"Filtro construído: {query_filter}")
-
-        try:
-            # Realizando a busca com filtro
-            results = self.vector_store.similarity_search(query=query, k=k, filter=query_filter)
-            print(f"{len(results)} documentos encontrados com filtro.")
-            for doc in results:
-                print(f"Conteúdo: {doc.page_content} | Metadados: {doc.metadata}")
-            return results
         except Exception as e:
-            print(f"Erro na busca com filtro: {e}")
+            print(f"[ERROR] Erro durante a busca: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return []
 
+    def _execute_search(self, query: str, search_filter: models.Filter, k: int) -> List[Document]:
+        """
+        Executa a busca com o filtro construído e trata os resultados.
+        """
+        try:
+            print(f"[SEARCH] Executando busca com filtro: {search_filter}")
+            results = self.vector_store.similarity_search(
+                query=query,
+                k=k,
+                filter=search_filter
+            )
+
+            print(f"[SEARCH] Encontrados {len(results)} resultados")
+            for i, doc in enumerate(results, 1):
+                print(f"[SEARCH] Resultado {i}:")
+                print(f"  - Nível de acesso: {doc.metadata.get('access_level')}")
+                print(f"  - Preview: {doc.page_content[:100]}...")
+
+            return results
+
+        except Exception as e:
+            print(f"[ERROR] Erro na execução da busca: {str(e)}")
+            raise
 
     def similarity_search_without_filter(self, query: str, k: int = 5):
         print(f"Realizando busca sem filtro: query={query}")

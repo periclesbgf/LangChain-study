@@ -36,52 +36,83 @@ class AgentState(TypedDict):
     iteration_count: int
     chat_history: List[BaseMessage]
 
+
 class RetrievalTools:
-    def __init__(self, qdrant_handler: QdrantHandler, student_email, disciplina):
+    def __init__(self, qdrant_handler: QdrantHandler, student_email: str, disciplina: str):
+        print(f"[RETRIEVAL] Initializing RetrievalTools:")
+        print(f"[RETRIEVAL] - Student: {student_email}")
+        print(f"[RETRIEVAL] - Disciplina: {disciplina}")
         self.qdrant_handler = qdrant_handler
         self.student_email = student_email
         self.disciplina = disciplina
 
-    def retrieve_context(self, query: str) -> str:
+    def retrieve_context(
+        self,
+        query: str,
+        session_id: str = '1',
+        use_global: bool = True,
+        use_discipline: bool = True,
+        use_session: bool = True,
+        specific_file_id: Optional[str] = None,
+        specific_metadata: Optional[dict] = None
+    ) -> str:
+        """
+        Recupera contexto usando a estrutura correta de filtros do Qdrant.
+        """
+        print(f"\n[RETRIEVAL] Buscando contexto para query: {query}")
+        
         try:
             filter_results = self.qdrant_handler.similarity_search_with_filter(
                 query=query,
                 student_email=self.student_email,
-                k=5
+                session_id=session_id,
+                disciplina_id=self.disciplina,
+                use_global=use_global,
+                use_discipline=use_discipline,
+                use_session=use_session,
+                specific_file_id=specific_file_id,
+                specific_metadata=specific_metadata
             )
-            print(f"[DEBUG] Filter results: {filter_results}")
+            
             if filter_results:
                 context = "\n".join([doc.page_content for doc in filter_results])
+                print(f"[RETRIEVAL] Contexto extraído: {len(context)} caracteres")
                 return context
                 
+            print("[RETRIEVAL] Nenhum contexto relevante encontrado")
             return "Nenhum contexto relevante encontrado."
             
         except Exception as e:
+            print(f"[RETRIEVAL] Erro durante a recuperação: {str(e)}")
             return "Nenhum contexto relevante encontrado."
 
 def create_retrieval_node(tools: RetrievalTools):
     def retrieve_context(state: AgentState) -> AgentState:
+        print("\n[NODE:RETRIEVAL] Starting retrieval node execution")
         latest_message = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1]
+        print(f"[NODE:RETRIEVAL] Processing message: {latest_message.content}")
 
         result = tools.retrieve_context(latest_message.content)
+        print(f"[NODE:RETRIEVAL] Retrieved context: {result}")
 
         new_state = state.copy()
         new_state["extracted_context"] = result
         new_state["iteration_count"] = state.get("iteration_count", 0) + 1
+        print(f"[NODE:RETRIEVAL] Updated iteration count: {new_state['iteration_count']}")
         return new_state
 
     return retrieve_context
 
 def identify_current_step(plano_execucao: List[Dict]) -> ExecutionStep:
-    """Identifica a etapa atual do plano de execução baseado no progresso"""
+    print("\n[PLAN] Identifying current execution step")
     sorted_steps = sorted(plano_execucao, key=lambda x: x["progresso"])
     
-    # Encontra o primeiro passo que não está 100% completo
     current_step = next(
         (step for step in sorted_steps if step["progresso"] < 100),
-        sorted_steps[-1]  # Se todos estiverem completos, retorna o último
+        sorted_steps[-1]
     )
     
+    print(f"[PLAN] Selected step: {current_step['titulo']} (Progress: {current_step['progresso']}%)")
     return ExecutionStep(**current_step)
 
 def create_answer_plan_node():
@@ -108,7 +139,7 @@ def create_answer_plan_node():
     - Avalie se a pergunta está alinhada com o momento atual do plano
     
     2. ESTRUTURA DE RESPOSTA:
-    - Adapte a explicação ao estilo {learning_style}
+    - Adapte a explicação ao estilo de aprendizagem do aluno
     - Divida a resposta em no máximo 3 partes
     - Para cada parte, defina um objetivo mensurável
     
@@ -132,27 +163,26 @@ def create_answer_plan_node():
         "atividade_pratica": "string",
         "indicadores_compreensao": ["string"],
         "proxima_acao": "string"
-    
     """
 
     prompt = ChatPromptTemplate.from_template(PLANNING_PROMPT)
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
     def generate_plan(state: AgentState) -> AgentState:
-        # Extrai a última pergunta
+        print("\n[NODE:PLANNING] Starting plan generation")
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
+        print(f"[NODE:PLANNING] Processing question: {latest_question}")
         
-        # Identifica a etapa atual do plano
         plano_execucao = json.loads(state["current_plan"])["plano_execucao"]
         current_step = identify_current_step(plano_execucao)
         
-        # Formata o histórico do chat
         chat_history = "\n".join([
             f"{'Aluno' if isinstance(m, HumanMessage) else 'Tutor'}: {m.content}"
             for m in state["chat_history"][-3:]
         ])
+        print("[NODE:PLANNING] Formatted chat history")
 
-        # Gera o plano de resposta
+        print(f"[NODE:PLANNING] Generating response with learning style: {state['user_profile']['EstiloAprendizagem']}")
         response = model.invoke(prompt.format(
             user_profile=state["user_profile"],
             current_step_title=current_step.titulo,
@@ -163,10 +193,10 @@ def create_answer_plan_node():
             learning_style=state["user_profile"]["EstiloAprendizagem"]
         ))
 
-        # Atualiza o estado com o novo plano
         new_state = state.copy()
         new_state["current_plan"] = response.content
-        print(f"[DEBUG] Generated answer plan: {response.content}")
+        print("[NODE:PLANNING] Plan generated successfully")
+        print(f"[NODE:PLANNING] Generated plan: {response.content[:200]}...")
         
         return new_state
 
@@ -191,8 +221,6 @@ def create_teaching_node():
     Pergunta:
     {question}
     
-
-    
     Lembre-se: 
         - O usuario é LEIGO, entao tome a liderança na explicação.
         - Responda SEMPRE em português do Brasil de forma clara e objetiva.
@@ -206,14 +234,17 @@ def create_teaching_node():
     model = ChatOpenAI(model="gpt-4o", temperature=0.5)
     
     def generate_teaching_response(state: AgentState) -> AgentState:
+        print("\n[NODE:TEACHING] Starting teaching response generation")
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
+        print(f"[NODE:TEACHING] Processing question: {latest_question}")
 
-        # Format chat history
         chat_history = "\n".join([
             f"{'Aluno' if isinstance(m, HumanMessage) else 'Tutor'}: {m.content}"
-            for m in state["chat_history"][-3:]  # Only last 3 messages
+            for m in state["chat_history"][-3:]
         ])
         
+        print(f"[NODE:TEACHING] Context length: {len(state['extracted_context'])}")
+        print(f"[NODE:TEACHING] Context preview: {state['extracted_context'][:200]}...")
         response = model.invoke(prompt.format(
             learning_plan=state["current_plan"],
             user_profile=state["user_profile"],
@@ -221,6 +252,9 @@ def create_teaching_node():
             question=latest_question,
             chat_history=chat_history
         ))
+        
+        print("[NODE:TEACHING] Generated teaching response")
+        print(f"[NODE:TEACHING] Response preview: {response.content[:200]}...")
         
         new_state = state.copy()
         new_state["messages"] = list(state["messages"]) + [AIMessage(content=response.content)]
@@ -233,21 +267,26 @@ def create_teaching_node():
     return generate_teaching_response
 
 def should_continue(state: AgentState) -> str:
-    MAX_ITERATIONS = 1  # Reduzido para 1 iteração para resposta mais rápida
+    MAX_ITERATIONS = 1
     current_iterations = state.get("iteration_count", 0)
     
+    print(f"\n[WORKFLOW] Checking continuation - Current iterations: {current_iterations}")
     if current_iterations >= MAX_ITERATIONS:
+        print("[WORKFLOW] Max iterations reached, ending workflow")
         return "end"
     
-    # Simplified continue check
-    return "end"  # Always end after first iteration
+    print("[WORKFLOW] Continuing to next iteration")
+    return "end"
 
 class TutorWorkflow:
     def __init__(self, qdrant_handler, student_email, disciplina):
+        print(f"\n[WORKFLOW] Initializing TutorWorkflow")
+        print(f"[WORKFLOW] Parameters: student_email={student_email}, disciplina={disciplina}")
         self.tools = RetrievalTools(qdrant_handler, student_email, disciplina)
         self.workflow = self.create_workflow()
     
     def create_workflow(self) -> Graph:
+        print("[WORKFLOW] Creating workflow graph")
         retrieval_node = create_retrieval_node(self.tools)
         planning_node = create_answer_plan_node()
         teaching_node = create_teaching_node()
@@ -259,7 +298,6 @@ class TutorWorkflow:
         workflow.add_node("teach", teaching_node)
         
         workflow.add_edge("generate_plan", "retrieve_context")
-
         workflow.add_edge("retrieve_context", "teach")
         workflow.add_conditional_edges(
             "teach",
@@ -271,26 +309,21 @@ class TutorWorkflow:
         )
         
         workflow.set_entry_point("generate_plan")
+        print("[WORKFLOW] Workflow graph created successfully")
         return workflow.compile()
     
     async def invoke(self, query: str, student_profile: dict, current_plan=None, chat_history=None) -> dict:
-        """
-        Invokes the tutor workflow
-        :param query: User's question
-        :param student_profile: Student profile data
-        :param current_plan: Current learning plan (if any)
-        :param chat_history: List of messages from CustomMongoDBChatMessageHistory
-        """
-        print(f"[DEBUG] Invoking workflow with query: {query}")
+        print(f"\n[WORKFLOW] Starting workflow invocation")
+        print(f"[WORKFLOW] Query: {query}")
+        print(f"[WORKFLOW] Student profile: {student_profile.get('EstiloAprendizagem', 'Not found')}")
         
-        # Convert MongoDB history to a list if it's not already
         if chat_history is None:
             chat_history = []
         elif not isinstance(chat_history, list):
-            chat_history = list(chat_history)  # Convert to list if it's a cursor
+            chat_history = list(chat_history)
             
-        # Limit history to last 5 interactions for context
-        recent_history = chat_history[-10:]  
+        recent_history = chat_history[-10:]
+        print(f"[WORKFLOW] Using {len(recent_history)} recent chat messages")
             
         initial_state = AgentState(
             messages=[HumanMessage(content=query)],
@@ -303,9 +336,9 @@ class TutorWorkflow:
         )
 
         try:
-            print("[DEBUG] Starting workflow execution")
+            print("[WORKFLOW] Executing workflow")
             result = await self.workflow.ainvoke(initial_state)
-            print("[DEBUG] Workflow execution completed")
+            print("[WORKFLOW] Workflow execution completed successfully")
             
             return {
                 "messages": result["messages"],
@@ -313,7 +346,7 @@ class TutorWorkflow:
                 "chat_history": result["chat_history"]
             }
         except Exception as e:
-            print(f"[DEBUG] Workflow execution failed: {str(e)}")
+            print(f"[WORKFLOW] Error during workflow execution: {str(e)}")
             import traceback
             traceback.print_exc()
             return {
