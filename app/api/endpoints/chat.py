@@ -16,6 +16,7 @@ from utils import OPENAI_API_KEY
 from agent.agents import RetrievalAgent, ChatAgent
 from database.mongo_database_manager import MongoDatabaseManager
 from agent.agent_test import TutorWorkflow
+import base64
 
 import json
 import os
@@ -36,7 +37,6 @@ async def chat_endpoint(
 ):
     try:
         print("\n[DEBUG] Starting chat endpoint")
-        # Initialize core components
         embeddings = Embeddings().get_embeddings()
         qdrant_handler = QdrantHandler(
             url=QDRANT_URL,
@@ -45,8 +45,7 @@ async def chat_endpoint(
         )
         image_handler = ImageHandler(OPENAI_API_KEY)
 
-        # Get student profile and study plan
-        print("[DEBUG] Fetching student profile and study plan")
+        # Initialize MongoDB manager
         mongo_manager = MongoDatabaseManager()
         
         # Get student profile
@@ -56,28 +55,24 @@ async def chat_endpoint(
         )
         if not student_profile:
             raise HTTPException(status_code=404, detail="Perfil do estudante não encontrado.")
-        print(f"[DEBUG] Student profile retrieved: {student_profile}")
 
-        # Get study plan using MongoDatabaseManager
-        print(f"[DEBUG] Fetching study plan for session {request.session_id}")
+        # Get study plan
         plano_execucao_raw = await mongo_manager.get_study_plan(str(request.session_id))
         if not plano_execucao_raw:
             raise HTTPException(status_code=404, detail="Plano de estudo não encontrado.")
         
-        # Converter para JSON usando o encoder personalizado
         plano_execucao = json.dumps(plano_execucao_raw, cls=DateTimeEncoder)
-        print(f"[DEBUG] Study plan processed successfully")
 
-        # Initialize TutorWorkflow
-        print("[DEBUG] Initializing TutorWorkflow")
+        # Initialize TutorWorkflow with Motor async collection
         tutor_workflow = TutorWorkflow(
             qdrant_handler=qdrant_handler,
             student_email=current_user["sub"],
             disciplina=request.discipline_id,
+            session_id=str(request.session_id),
+            image_collection=mongo_manager.db.image_collection  # Use the Motor collection
         )
 
-        # Initialize ChatController with TutorWorkflow
-        print("[DEBUG] Initializing ChatController")
+        # Initialize ChatController
         controller = ChatController(
             session_id=str(request.session_id),
             student_email=current_user["sub"],
@@ -90,18 +85,17 @@ async def chat_endpoint(
             mongo_uri=MONGO_URI,
             plano_execucao=plano_execucao
         )
-        
 
-        print(f"[DEBUG] Received message: {request.message}")
-        print(f"[DEBUG] Received file: {request.file}")
-
-        # Process user message
         files = [request.file] if request.file else []
-        print("[DEBUG] Calling handle_user_message")
         response = await controller.handle_user_message(request.message, files)
-        print(f"[DEBUG] Response received: {response}")
 
         return {"response": response}
+
+    except Exception as e:
+        print(f"[DEBUG] Error in chat_endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
     except Exception as e:
         print(f"[DEBUG] Error in chat_endpoint: {e}")

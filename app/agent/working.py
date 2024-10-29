@@ -1,4 +1,4 @@
-from typing import Any, TypedDict, List, Dict, Optional, Union
+from typing import TypedDict, List, Dict, Optional
 from typing_extensions import TypeVar
 from langgraph.graph import END, StateGraph, START, Graph
 from langgraph.prebuilt import ToolExecutor
@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from agent.tools import DatabaseUpdateTool
 from database.vector_db import QdrantHandler
 from dataclasses import dataclass
-import base64
+
 
 @dataclass
 class ExecutionStep:
@@ -38,29 +38,26 @@ class AgentState(TypedDict):
 
 
 class RetrievalTools:
-    def __init__(self, qdrant_handler: QdrantHandler, student_email: str, disciplina: str, image_collection, session_id: str):
+    def __init__(self, qdrant_handler: QdrantHandler, student_email: str, disciplina: str):
         print(f"[RETRIEVAL] Initializing RetrievalTools:")
         print(f"[RETRIEVAL] - Student: {student_email}")
         print(f"[RETRIEVAL] - Disciplina: {disciplina}")
-        print(f"[RETRIEVAL] - Session: {session_id}")
         self.qdrant_handler = qdrant_handler
         self.student_email = student_email
         self.disciplina = disciplina
-        self.session_id = session_id
-        self.image_collection = image_collection
 
-    async def retrieve_context(
+    def retrieve_context(
         self,
         query: str,
+        session_id: str = '1',
         use_global: bool = True,
         use_discipline: bool = True,
         use_session: bool = True,
         specific_file_id: Optional[str] = None,
         specific_metadata: Optional[dict] = None
-    ) -> Union[str, Dict[str, Any]]:
+    ) -> str:
         """
-        Recupera contexto ou imagem baseado na query e filtros.
-        Retorna string para contexto textual ou dicionário para imagens.
+        Recupera contexto usando a estrutura correta de filtros do Qdrant.
         """
         print(f"\n[RETRIEVAL] Buscando contexto para query: {query}")
         
@@ -68,7 +65,7 @@ class RetrievalTools:
             filter_results = self.qdrant_handler.similarity_search_with_filter(
                 query=query,
                 student_email=self.student_email,
-                session_id=self.session_id,
+                session_id=session_id,
                 disciplina_id=self.disciplina,
                 use_global=use_global,
                 use_discipline=use_discipline,
@@ -78,14 +75,6 @@ class RetrievalTools:
             )
             
             if filter_results:
-                # Verifica se o resultado é uma descrição de imagem
-                for doc in filter_results:
-                    if doc.metadata.get("type") == "image":
-                        image_uuid = doc.metadata.get("image_uuid")
-                        if image_uuid:
-                            return await self.retrieve_image_and_description(image_uuid)
-                
-                # Se não for imagem, retorna o contexto normal
                 context = "\n".join([doc.page_content for doc in filter_results])
                 print(f"[RETRIEVAL] Contexto extraído: {len(context)} caracteres")
                 return context
@@ -97,70 +86,13 @@ class RetrievalTools:
             print(f"[RETRIEVAL] Erro durante a recuperação: {str(e)}")
             return "Nenhum contexto relevante encontrado."
 
-    async def retrieve_image_and_description(self, image_uuid: str) -> Dict[str, Any]:
-        """
-        Recupera a imagem e sua descrição de forma assíncrona.
-        """
-        try:
-            print(f"[RETRIEVAL] Recuperando imagem com UUID: {image_uuid}")
-            image_data = await self.image_collection.find_one({"_id": image_uuid})
-
-            if not image_data:
-                print(f"[RETRIEVAL] Imagem não encontrada: {image_uuid}")
-                return {"type": "error", "message": "Imagem não encontrada"}
-
-            # Garantir que temos os bytes da imagem
-            image_bytes = image_data.get("image_data")
-            if not image_bytes:
-                print("[RETRIEVAL] Dados da imagem ausentes")
-                return {"type": "error", "message": "Dados da imagem ausentes"}
-
-            # Se os bytes já estiverem em formato binário, use-os diretamente
-            if isinstance(image_bytes, bytes):
-                processed_bytes = image_bytes
-            # Se estiver em outro formato, converta para bytes
-            elif isinstance(image_bytes, str):
-                processed_bytes = image_bytes.encode('utf-8')
-            else:
-                print(f"[RETRIEVAL] Formato de imagem não suportado: {type(image_bytes)}")
-                return {"type": "error", "message": "Formato de imagem não suportado"}
-            
-            # Busca a descrição da imagem
-            results = self.qdrant_handler.similarity_search_with_filter(
-                query="",
-                student_email=self.student_email,
-                session_id=self.session_id,
-                disciplina_id=self.disciplina,
-                k=1,
-                use_global=False,
-                use_discipline=False,
-                use_session=True,
-                specific_metadata={"image_uuid": image_uuid, "type": "image"}
-            )
-
-            if not results:
-                return {"type": "error", "message": "Descrição da imagem não encontrada"}
-
-            print("[RETRIEVAL] Imagem e descrição recuperadas com sucesso")
-            return {
-                "type": "image",
-                "image_bytes": processed_bytes,
-                "description": results[0].page_content
-            }
-
-        except Exception as e:
-            print(f"[RETRIEVAL] Erro ao recuperar imagem: {e}")
-            import traceback
-            traceback.print_exc()
-            return {"type": "error", "message": str(e)}
-
 def create_retrieval_node(tools: RetrievalTools):
-    async def retrieve_context(state: AgentState) -> AgentState:
+    def retrieve_context(state: AgentState) -> AgentState:
         print("\n[NODE:RETRIEVAL] Starting retrieval node execution")
         latest_message = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1]
         print(f"[NODE:RETRIEVAL] Processing message: {latest_message.content}")
 
-        result = await tools.retrieve_context(latest_message.content)
+        result = tools.retrieve_context(latest_message.content)
         print(f"[NODE:RETRIEVAL] Retrieved context: {result}")
 
         new_state = state.copy()
@@ -271,45 +203,7 @@ def create_answer_plan_node():
     return generate_plan
 
 def create_teaching_node():
-    # Prompt para verificar relevância do contexto
-    RELEVANCE_PROMPT = """Você é um assistente que avalia a relevância do contexto recuperado para a pergunta do usuário.
-
-    Pergunta do usuário: {question}
-    
-    Contexto recuperado: {context}
-    
-    Avalie se o contexto é realmente útil e relevante para responder à pergunta do usuário.
-    Retorne APENAS "sim" ou "não", sem explicações adicionais.
-    """
-    
-    TEACHING_PROMPT = """Você é um tutor personalizado que ajuda os alunos a entender conceitos através do pensamento crítico.
-    
-    Plano de Aprendizado:
-    {learning_plan}
-    
-    Perfil do Aluno:
-    {user_profile}
-    
-    Descrição da Imagem:
-    {context}
-    
-    Histórico da Conversa:
-    {chat_history}
-    
-    Pergunta:
-    {question}
-    
-    Baseado na descrição da imagem fornecida, elabore uma explicação clara e didática sobre o conceito apresentado.
-    
-    Lembre-se: 
-        - O usuário é LEIGO, então tome a liderança na explicação
-        - Responda SEMPRE em português do Brasil de forma clara e objetiva
-        - Foque em ajudar o aluno a entender o conceito usando a imagem como referência
-        - Referencie elementos específicos da imagem na sua explicação
-        - Forneça exemplos práticos relacionados ao conceito mostrado
-    """
-    
-    TEXT_PROMPT = """Você é um tutor personalizado que ajuda os alunos através do pensamento crítico.
+    TEACHING_PROMPT = """Você é um tutor personalizado que ajuda os alunos através do pensamento crítico.
     Em vez de fornecer respostas diretas, guie-os através do processo de resolução de problemas.
     
     Plano de Aprendizado:
@@ -330,14 +224,13 @@ def create_teaching_node():
     Lembre-se: 
         - O usuario é LEIGO, entao tome a liderança na explicação.
         - Responda SEMPRE em português do Brasil de forma clara e objetiva.
-        - Evite respostas longas e complexas.
+        - evite respostas longas e complexas.
         - Foque em respostas que ajudem o aluno a entender o conceito.
-        - Forneca exemplos e exercícios práticos sempre que possível.
-    """
+        - Forneca exemlos e exercícios práticos sempre que possível.
     
-    relevance_prompt = ChatPromptTemplate.from_template(RELEVANCE_PROMPT)
-    image_prompt = ChatPromptTemplate.from_template(TEACHING_PROMPT)
-    text_prompt = ChatPromptTemplate.from_template(TEXT_PROMPT)
+    Sua resposta:"""
+    
+    prompt = ChatPromptTemplate.from_template(TEACHING_PROMPT)
     model = ChatOpenAI(model="gpt-4o", temperature=0.5)
     
     def generate_teaching_response(state: AgentState) -> AgentState:
@@ -350,84 +243,24 @@ def create_teaching_node():
             for m in state["chat_history"][-3:]
         ])
         
-        context = state["extracted_context"]
-        print(f"[NODE:TEACHING] Context type: {type(context)}")
+        print(f"[NODE:TEACHING] Context length: {len(state['extracted_context'])}")
+        print(f"[NODE:TEACHING] Context preview: {state['extracted_context'][:200]}...")
+        response = model.invoke(prompt.format(
+            learning_plan=state["current_plan"],
+            user_profile=state["user_profile"],
+            context=state["extracted_context"],
+            question=latest_question,
+            chat_history=chat_history
+        ))
         
-        # Verifica se o contexto é uma imagem
-        if isinstance(context, dict) and context.get("type") == "image":
-            print("[NODE:TEACHING] Processing potential image response")
-            
-            # Verifica relevância da imagem/descrição
-            relevance_check = model.invoke(relevance_prompt.format(
-                question=latest_question,
-                context=context["description"]
-            ))
-            
-            is_relevant = relevance_check.content.lower().strip() == "sim"
-            print(f"[NODE:TEACHING] Image relevance check: {is_relevant}")
-            
-            if is_relevant:
-                try:
-                    # Gera a explicação baseada na descrição da imagem
-                    explanation = model.invoke(image_prompt.format(
-                        learning_plan=state["current_plan"],
-                        user_profile=state["user_profile"],
-                        context=context["description"],
-                        question=latest_question,
-                        chat_history=chat_history
-                    ))
-                    
-                    # Converte os bytes da imagem para base64
-                    image_bytes = context.get("image_bytes")
-                    if image_bytes:
-                        base64_image = base64.b64encode(image_bytes).decode('utf-8')
-                        response_content = {
-                            "type": "image",
-                            "content": explanation.content,
-                            "image": f"data:image/jpeg;base64,{base64_image}"
-                        }
-                        print("[NODE:TEACHING] Image response processed successfully")
-                        response = AIMessage(content=json.dumps(response_content))
-                    else:
-                        print("[NODE:TEACHING] Falling back to text response due to missing image bytes")
-                        response = explanation  # Usa apenas a explicação sem a imagem
-                        
-                except Exception as e:
-                    print(f"[NODE:TEACHING] Error processing image: {str(e)}")
-                    # Cai para resposta em texto em caso de erro
-                    response = model.invoke(text_prompt.format(
-                        learning_plan=state["current_plan"],
-                        user_profile=state["user_profile"],
-                        context="",  # Contexto vazio para resposta genérica
-                        question=latest_question,
-                        chat_history=chat_history
-                    ))
-            else:
-                # Se a imagem não for relevante, processa como texto normal
-                print("[NODE:TEACHING] Image not relevant, processing as text response")
-                response = model.invoke(text_prompt.format(
-                    learning_plan=state["current_plan"],
-                    user_profile=state["user_profile"],
-                    context="",  # Contexto vazio para resposta genérica
-                    question=latest_question,
-                    chat_history=chat_history
-                ))
-        else:
-            # Processamento normal de texto
-            print(f"[NODE:TEACHING] Processing text response")
-            response = model.invoke(text_prompt.format(
-                learning_plan=state["current_plan"],
-                user_profile=state["user_profile"],
-                context=context if isinstance(context, str) else "",
-                question=latest_question,
-                chat_history=chat_history
-            ))
+        print("[NODE:TEACHING] Generated teaching response")
+        print(f"[NODE:TEACHING] Response preview: {response.content[:200]}...")
         
         new_state = state.copy()
-        new_state["messages"] = list(state["messages"]) + [response]
+        new_state["messages"] = list(state["messages"]) + [AIMessage(content=response.content)]
         new_state["chat_history"] = list(state["chat_history"]) + [
             HumanMessage(content=latest_question),
-            response
+            AIMessage(content=response.content)
         ]
         return new_state
     
@@ -446,27 +279,10 @@ def should_continue(state: AgentState) -> str:
     return "end"
 
 class TutorWorkflow:
-    def __init__(self, qdrant_handler, student_email: str, disciplina: str, session_id: str, image_collection):
-        """
-        Initializes TutorWorkflow with all required parameters.
-        
-        Args:
-            qdrant_handler: QdrantHandler instance for vector search
-            student_email (str): Student's email
-            disciplina (str): Discipline ID
-            session_id (str): Current session ID
-            image_collection: MongoDB collection for images
-        """
+    def __init__(self, qdrant_handler, student_email, disciplina):
         print(f"\n[WORKFLOW] Initializing TutorWorkflow")
-        print(f"[WORKFLOW] Parameters: student_email={student_email}, disciplina={disciplina}, session_id={session_id}")
-        
-        self.tools = RetrievalTools(
-            qdrant_handler=qdrant_handler,
-            student_email=student_email,
-            disciplina=disciplina,
-            session_id=session_id,
-            image_collection=image_collection
-        )
+        print(f"[WORKFLOW] Parameters: student_email={student_email}, disciplina={disciplina}")
+        self.tools = RetrievalTools(qdrant_handler, student_email, disciplina)
         self.workflow = self.create_workflow()
     
     def create_workflow(self) -> Graph:
