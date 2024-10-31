@@ -22,6 +22,19 @@ import pytesseract
 import docx
 from qdrant_client import models
 
+class Material(BaseModel):
+    id: str  # content_hash ou image_uuid
+    name: str  # nome do arquivo
+    type: str  # 'pdf', 'doc', 'image'
+    access_level: str
+    discipline_id: Optional[str]
+    session_id: Optional[str]
+    student_email: str
+    content_hash: str
+    size: Optional[int]  # tamanho do arquivo
+    created_at: datetime
+    updated_at: datetime
+
 class WorkspaceHandler:
     def __init__(self, mongo_manager: MongoDatabaseManager, qdrant_handler: QdrantHandler, image_handler: ImageHandler, text_splitter:TextSplitter):
         self.mongo_manager = mongo_manager
@@ -57,15 +70,18 @@ class WorkspaceHandler:
             
             # Metadata para o Qdrant
             metadata = {
+                "id": image_uuid,
+                "name": filename,
                 "student_email": student_email,
                 "session_id": session_id,
                 "content_hash": content_hash,
                 "access_level": access_level.lower(),
                 "type": file_type,
-                "image_uuid": image_uuid,
+                "size": len(file_content),
+                "created_at": datetime.now().timestamp(),
+                "updated_at": datetime.now().timestamp(),
                 "disciplina": discipline_id
             }
-            
             # Adiciona ao Qdrant
             self.qdrant_handler.add_document(
                 student_email=student_email,
@@ -79,11 +95,16 @@ class WorkspaceHandler:
             
             # Metadata para o Qdrant
             metadata = {
+                "id": content_hash,
+                "name": filename,
                 "student_email": student_email,
                 "session_id": session_id,
                 "content_hash": content_hash,
                 "access_level": access_level.lower(),
                 "type": file_type,
+                "size": len(file_content),
+                "created_at": datetime.now().timestamp(),
+                "updated_at": datetime.now().timestamp(),
                 "disciplina": discipline_id
             }
             
@@ -198,7 +219,7 @@ class WorkspaceHandler:
         except Exception as e:
             print(f"[ERROR] Erro ao processar material {material.id}: {str(e)}")
             raise
-    
+
     async def get_materials(
         self,
         student_email: str,
@@ -206,51 +227,83 @@ class WorkspaceHandler:
         session_id: Optional[str] = None
     ) -> List[Material]:
         """
-        Recupera materiais baseado no nível de acesso e contexto.
-        Retorna materiais que são:
-        1. Globais (acessíveis a todas as disciplinas)
-        2. Específicos da disciplina (se discipline_id for fornecido)
-        3. Específicos da sessão (se session_id for fornecido)
+        Recupera materiais do Qdrant baseado no nível de acesso e contexto.
         """
-        query = {"student_email": student_email}
-        
-        if session_id:
-            # Para contexto de sessão, obtém:
-            # - Materiais globais
-            # - Materiais da disciplina específica
-            # - Materiais da sessão específica
-            query["$or"] = [
-                {"access_level": AccessLevel.GLOBAL},
-                {
-                    "access_level": AccessLevel.DISCIPLINE,
-                    "discipline_id": discipline_id
-                },
-                {
-                    "access_level": AccessLevel.SESSION,
-                    "session_id": session_id
-                }
-            ]
-        elif discipline_id:
-            # Para contexto de disciplina, obtém:
-            # - Materiais globais
-            # - Materiais da disciplina específica
-            query["$or"] = [
-                {"access_level": AccessLevel.GLOBAL},
-                {
-                    "access_level": AccessLevel.DISCIPLINE,
-                    "discipline_id": discipline_id
-                }
-            ]
-        else:
-            # Apenas materiais globais
-            query["access_level"] = AccessLevel.GLOBAL
+        try:
+            # Define filtro base
+            base_filter = {
+                "student_email": student_email
+            }
 
-        cursor = self.mongo_manager.db['student_learn_preference'].find(query)
-        materials = []
-        async for doc in cursor:
-            materials.append(Material(**doc))
-        return materials
+            if session_id:
+                # Para sessão, inclui globais + disciplina + sessão específica
+                filter_conditions = [
+                    {"access_level": "global"},
+                    {"access_level": "discipline", "discipline_id": discipline_id},
+                    {"access_level": "session", "session_id": session_id}
+                ]
+            elif discipline_id:
+                # Para disciplina, inclui globais + disciplina específica
+                filter_conditions = [
+                    {"access_level": "global"},
+                    {"access_level": "discipline", "discipline_id": discipline_id}
+                ]
+            else:
+                # Apenas globais
+                filter_conditions = [{"access_level": "global"}]
 
+            # Busca no Qdrant usando o filtro composto
+            query_filter = models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="student_email",
+                        match=models.MatchValue(value=student_email)
+                    )
+                ],
+                should=[
+                    models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key=key,
+                                match=models.MatchValue(value=value)
+                            ) for key, value in condition.items()
+                        ]
+                    ) for condition in filter_conditions
+                ]
+            )
+
+            # Realiza a busca no Qdrant
+            results = self.qdrant_handler.search(
+                collection_name="student_documents",
+                query_filter=query_filter
+            )
+
+            # Converte resultados para Material
+            materials = []
+            seen_ids = set()  # Para evitar duplicatas
+            
+            for result in results:
+                metadata = result.metadata
+                if metadata["id"] not in seen_ids:
+                    materials.append(Material(
+                        id=metadata["id"],
+                        name=metadata["name"],
+                        type=metadata["type"],
+                        access_level=metadata["access_level"],
+                        discipline_id=metadata.get("discipline_id"),
+                        session_id=metadata.get("session_id"),
+                        student_email=metadata["student_email"],
+                        content_hash=metadata["content_hash"],
+                        created_at=datetime.fromtimestamp(metadata["created_at"]),
+                        updated_at=datetime.fromtimestamp(metadata["updated_at"])
+                    ))
+                    seen_ids.add(metadata["id"])
+
+            return materials
+
+        except Exception as e:
+            print(f"[ERROR] Erro ao recuperar materiais: {str(e)}")
+            raise
     async def _store_image_in_mongodb(self, image_uuid: str, content: bytes, student_email: str):
         """Armazena imagem no MongoDB usando o formato correto."""
         document = {

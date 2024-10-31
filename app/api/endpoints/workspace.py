@@ -1,35 +1,24 @@
 from fastapi import APIRouter, Depends, File, UploadFile, Form, HTTPException, status
 from typing import Optional, List
 from agent.image_handler import ImageHandler
-from database.vector_db import QdrantHandler, Embeddings
-from database.sql_database_manager import DatabaseManager
-from database.workspace_handler import WorkspaceHandler
+from database.vector_db import QdrantHandler, Embeddings, Material
 from api.controllers.auth import get_current_user
 from datetime import datetime
-from api.endpoints.models import AccessLevel, Material
-from database.mongo_database_manager import MongoDatabaseManager
+from api.endpoints.models import AccessLevel
 from utils import QDRANT_URL, OPENAI_API_KEY
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import traceback
 
 router_workspace = APIRouter()
 
-def get_workspace_handler():
-    """Factory para criar instância do WorkspaceHandler com dependências."""
+def get_qdrant_handler():
+    """Factory para criar instância do QdrantHandler com dependências."""
     try:
         # Inicializa embeddings
         embeddings = Embeddings().get_embeddings()
         
-        # Configura Qdrant
-        qdrant_handler = QdrantHandler(
-            url=QDRANT_URL,
-            collection_name="student_documents",
-            embeddings=embeddings
-        )
-        
-        # Configura handlers
+        # Configura image handler
         image_handler = ImageHandler(OPENAI_API_KEY)
-        mongo_manager = MongoDatabaseManager()
         
         # Configura text splitter para chunking
         text_splitter = RecursiveCharacterTextSplitter(
@@ -38,15 +27,16 @@ def get_workspace_handler():
             length_function=len,
         )
         
-        # Cria WorkspaceHandler
-        return WorkspaceHandler(
-            mongo_manager=mongo_manager,
-            qdrant_handler=qdrant_handler,
+        # Cria QdrantHandler
+        return QdrantHandler(
+            url=QDRANT_URL,
+            collection_name="student_documents",
+            embeddings=embeddings,
             image_handler=image_handler,
             text_splitter=text_splitter
         )
     except Exception as e:
-        print(f"[ERROR] Falha ao criar WorkspaceHandler: {str(e)}")
+        print(f"[ERROR] Falha ao criar QdrantHandler: {str(e)}")
         traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -67,15 +57,6 @@ async def upload_material(
 ):
     """
     Upload de novo material com processamento automático de conteúdo.
-    
-    Args:
-        file: Arquivo a ser processado (PDF, DOC, ou imagem)
-        access_level: Nível de acesso do material
-        discipline_id: ID opcional da disciplina
-        session_id: ID opcional da sessão
-        
-    Returns:
-        Material: Objeto com metadados do material processado
     """
     try:
         # Valida tipo do arquivo
@@ -106,9 +87,9 @@ async def upload_material(
                 detail="session_id obrigatório para acesso SESSION"
             )
             
-        # Processa material
-        workspace_handler = get_workspace_handler()
-        material = await workspace_handler.add_material(
+        # Processa material usando QdrantHandler
+        qdrant_handler = get_qdrant_handler()
+        material = await qdrant_handler.add_material(
             file_content=content,
             filename=file.filename,
             student_email=current_user["sub"],
@@ -143,24 +124,15 @@ async def get_materials(
 ):
     """
     Recupera materiais baseado no contexto e nível de acesso.
-    
-    Args:
-        discipline_id: Filtro opcional por disciplina
-        session_id: Filtro opcional por sessão
-        
-    Returns:
-        List[Material]: Lista de materiais disponíveis
     """
     try:
-        workspace_handler = get_workspace_handler()
-        materials = await workspace_handler.get_materials(
+        qdrant_handler = get_qdrant_handler()
+        materials = await qdrant_handler.get_materials(
             student_email=current_user["sub"],
             discipline_id=discipline_id,
             session_id=session_id
         )
-        print(f"[INFO] Materiais recuperados: {materials}")
         print(f"[INFO] Materiais recuperados: {len(materials)}")
-
         return materials
         
     except Exception as e:
@@ -184,12 +156,6 @@ async def update_material_access(
 ):
     """
     Atualiza nível de acesso de um material.
-    
-    Args:
-        material_id: ID do material
-        access_level: Novo nível de acesso
-        discipline_id: Nova disciplina opcional
-        session_id: Nova sessão opcional
     """
     try:
         # Valida contexto para níveis específicos
@@ -205,8 +171,8 @@ async def update_material_access(
                 detail="session_id obrigatório para acesso SESSION"
             )
             
-        workspace_handler = get_workspace_handler()
-        await workspace_handler.update_material_access(
+        qdrant_handler = get_qdrant_handler()
+        await qdrant_handler.update_material_access(
             material_id=material_id,
             new_access_level=access_level,
             discipline_id=discipline_id,
@@ -233,13 +199,10 @@ async def delete_material(
 ):
     """
     Remove um material e seus dados associados.
-    
-    Args:
-        material_id: ID do material a ser removido
     """
     try:
-        workspace_handler = get_workspace_handler()
-        await workspace_handler.delete_material(material_id)
+        qdrant_handler = get_qdrant_handler()
+        await qdrant_handler.delete_material(material_id)
         
     except Exception as e:
         print(f"[ERROR] Falha ao deletar material: {str(e)}")
