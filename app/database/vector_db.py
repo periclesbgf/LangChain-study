@@ -141,84 +141,82 @@ class QdrantHandler:
         print(f"[SEARCH] Query: {query}")
         print(f"[SEARCH] Student: {student_email}")
         print(f"[SEARCH] Config: global={use_global}, discipline={use_discipline}, session={use_session}")
+        print(f"[SEARCH] Disciplina: {disciplina_id}, Session: {session_id}")
 
         try:
+            # Inicializa as condições must com o email do estudante
+            must_conditions = [
+                models.FieldCondition(
+                    key="metadata.student_email",
+                    match=models.MatchValue(value=student_email)
+                )
+            ]
+
             # Busca por ID específico
             if specific_file_id:
-                search_filter = models.Filter(
-                    must=[
-                        models.FieldCondition(
-                            key="metadata.student_email",
-                            match=models.MatchValue(value=student_email)
-                        ),
-                        models.FieldCondition(
-                            key="metadata.file_id",
-                            match=models.MatchValue(value=specific_file_id)
-                        )
-                    ]
-                )
-                return self._execute_search(query, search_filter, k)
-
-            # Busca por metadados específicos
-            if specific_metadata:
-                must_conditions = [
-                    models.FieldCondition(
-                        key=f"metadata.{key}",
-                        match=models.MatchValue(value=str(value))
-                    )
-                    for key, value in specific_metadata.items()
-                ]
+                print(f"[SEARCH] Buscando por ID específico: {specific_file_id}")
                 must_conditions.append(
                     models.FieldCondition(
-                        key="metadata.student_email",
-                        match=models.MatchValue(value=student_email)
+                        key="metadata.file_id",
+                        match=models.MatchValue(value=specific_file_id)
                     )
                 )
-                search_filter = models.Filter(must=must_conditions)
-                return self._execute_search(query, search_filter, k)
+            
+            # Adiciona metadados específicos se fornecidos
+            if specific_metadata:
+                print(f"[SEARCH] Adicionando metadados específicos: {specific_metadata}")
+                for key, value in specific_metadata.items():
+                    must_conditions.append(
+                        models.FieldCondition(
+                            key=f"metadata.{key}",
+                            match=models.MatchValue(value=str(value))
+                        )
+                    )
 
-            # Busca por níveis de acesso
-            should_conditions = []
-
+            # Lista para armazenar os níveis de acesso permitidos
+            allowed_access_levels = []
+            
             # Global access
             if use_global:
-                should_conditions.append(
-                    models.FieldCondition(
-                        key="metadata.access_level",
-                        match=models.MatchValue(value="global")
-                    )
-                )
+                print("[SEARCH] Adicionando acesso global aos níveis permitidos")
+                allowed_access_levels.append("global")
 
             # Discipline access
             if use_discipline and disciplina_id:
-                should_conditions.append(
+                print(f"[SEARCH] Adicionando acesso de disciplina aos níveis permitidos: {disciplina_id}")
+                allowed_access_levels.append("discipline")
+                must_conditions.append(
                     models.FieldCondition(
-                        key="metadata.access_level",
-                        match=models.MatchValue(value="discipline")
+                        key="metadata.discipline_id",
+                        match=models.MatchValue(value=disciplina_id)
                     )
                 )
 
             # Session access
             if use_session and session_id:
-                should_conditions.append(
+                print(f"[SEARCH] Adicionando acesso de sessão aos níveis permitidos: {session_id}")
+                allowed_access_levels.append("session")
+                must_conditions.append(
                     models.FieldCondition(
-                        key="metadata.access_level",
-                        match=models.MatchValue(value="session")
+                        key="metadata.session_id",
+                        match=models.MatchValue(value=session_id)
                     )
                 )
 
-            # Construir filtro final
-            search_filter = models.Filter(
-                must=[
+            # Adiciona o filtro de níveis de acesso permitidos
+            if allowed_access_levels:
+                print(f"[SEARCH] Níveis de acesso permitidos: {allowed_access_levels}")
+                must_conditions.append(
                     models.FieldCondition(
-                        key="metadata.student_email",
-                        match=models.MatchValue(value=student_email)
+                        key="metadata.access_level",
+                        match=models.MatchAny(any=allowed_access_levels)
                     )
-                ],
-                should=should_conditions
-            )
+                )
 
-            print(f"[SEARCH] Filtro construído: {search_filter}")
+            # Cria o filtro final com todas as condições must
+            search_filter = models.Filter(must=must_conditions)
+            
+            print(f"[SEARCH] Filtro final construído: {search_filter}")
             return self._execute_search(query, search_filter, k)
 
         except Exception as e:

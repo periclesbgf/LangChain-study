@@ -17,6 +17,39 @@ class DisciplineDispatcher:
     def __init__(self, database_manager: DatabaseManager):
         self.database_manager = database_manager
 
+    def get_discipline_by_id(self, discipline_id: int, current_user: str):
+        """
+        Busca uma disciplina específica, verificando se o usuário atual tem acesso a ela.
+        """
+        try:
+            # Obter o ID do estudante
+            student_id = self.database_manager.get_student_by_user_email(current_user)
+            if not student_id:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Estudante não encontrado."
+                )
+
+            # Buscar os detalhes da disciplina
+            discipline = self.database_manager.get_discipline_details(discipline_id, student_id)
+            if not discipline:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Disciplina não encontrada ou você não tem acesso a ela."
+                )
+
+            # Retornar diretamente o objeto discipline sem envolvê-lo em outro dicionário
+            return discipline
+
+        except HTTPException as http_error:
+            raise http_error
+        except Exception as e:
+            print(f"Erro ao buscar disciplina: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Erro interno ao buscar disciplina: {str(e)}"
+            )
+
     def get_all_disciplines_for_student(self, current_user: str):
         try:
             # Primeiro, obtenha o IdUsuario do estudante com base no e-mail do current_user

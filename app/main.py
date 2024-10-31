@@ -12,7 +12,7 @@ from api.endpoints.student import router_student
 from api.endpoints.chat import router_chat
 from api.endpoints.student_profile import router_profiles
 from api.endpoints.plan import router_study_plan
-
+from api.endpoints.workspace import router_workspace
 load_dotenv()
 
 app = FastAPI()
@@ -34,6 +34,7 @@ app.include_router(router_student)
 app.include_router(router_chat)
 app.include_router(router_profiles)
 app.include_router(router_study_plan)
+app.include_router(router_workspace)
 
 if __name__ == '__main__':
     uvicorn.run(app, host="127.0.0.1", port=8000)

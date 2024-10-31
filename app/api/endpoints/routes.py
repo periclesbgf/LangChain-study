@@ -11,7 +11,6 @@ from api.controllers.controller import (
 from api.dispatchers.login_dispatcher import CredentialsDispatcher
 from database.sql_database_manager import DatabaseManager, session, metadata
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile, Depends, HTTPException
-from agent.chat import ConversationHistory
 from fastapi.logger import logger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import insert
@@ -21,7 +20,6 @@ from utils import SECRET_EDUCATOR_CODE
 from database.mongo_database_manager import MongoDatabaseManager
 from datetime import datetime, timezone
 
-history = ConversationHistory()
 
 router = APIRouter()
 

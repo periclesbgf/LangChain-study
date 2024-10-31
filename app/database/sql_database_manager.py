@@ -1,14 +1,15 @@
+from typing import Any, Dict, Optional
 from sqlalchemy import and_, create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey, select, join
 from sqlalchemy.orm import sessionmaker
 import os
 from dotenv import load_dotenv
 from sql_test.sql_test_create import tabela_usuarios, tabela_educadores, tabela_cursos,tabela_encontros,tabela_cronograma, tabela_sessoes_estudo, tabela_estudante_curso, tabela_eventos_calendario, tabela_estudantes, tabela_perfil_aprendizado_aluno
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from fastapi import HTTPException
 from sqlalchemy.sql import text
 import json
 from sqlalchemy.sql import select
-from datetime import datetime
+from datetime import datetime, time
 
 # Carregar variáveis de ambiente
 load_dotenv()
@@ -656,4 +657,142 @@ class DatabaseManager:
             raise HTTPException(
                 status_code=500,
                 detail=f"Erro ao buscar estudante: {str(e)}"
+            )
+
+    def format_time(self, t: Optional[time]) -> Optional[str]:
+        """Helper method to format time objects."""
+        return t.strftime('%H:%M') if t else None
+
+    def format_datetime(self, dt: Optional[datetime]) -> Optional[str]:
+        """Helper method to format datetime objects."""
+        return dt.isoformat() if dt else None
+
+    def parse_objectives(self, objectives: str) -> list:
+        """
+        Parse JSON objectives with proper error handling.
+        """
+        if not objectives:
+            return []
+        
+        try:
+            if isinstance(objectives, str):
+                return json.loads(objectives)
+            elif isinstance(objectives, list):
+                return objectives
+            else:
+                print(f"AVISO: Tipo inesperado para objetivos: {type(objectives)}")
+                return []
+        except json.JSONDecodeError as e:
+            print(f"ERRO: Falha ao interpretar JSON dos objetivos: {e}")
+            return []
+
+    def safe_get(self, dict_data: Dict, key: str, default: Any = None) -> Any:
+        """
+        Safely get a value from a dictionary with detailed logging.
+        """
+        try:
+            value = dict_data.get(key, default)
+            print(f"Acessando chave '{key}': {value}")
+            return value
+        except Exception as e:
+            print(f"ERRO ao acessar chave '{key}': {e}")
+            return default
+
+    def get_discipline_details(self, discipline_id: int, student_id: int) -> Dict[str, Any]:
+        """
+        Get complete details of a discipline, verifying student access.
+        """
+        try:
+            print(f"Buscando detalhes da disciplina {discipline_id} para o estudante {student_id}")
+
+            # Check student enrollment
+            enrollment_query = select(tabela_estudante_curso.c.Id).where(
+                and_(
+                    tabela_estudante_curso.c.IdEstudante == student_id,
+                    tabela_estudante_curso.c.IdCurso == discipline_id
+                )
+            )
+            
+            print(f"Query de matrícula gerada: {enrollment_query}")
+            enrollment = self.session.execute(enrollment_query).first()
+            
+            if not enrollment:
+                print(f"AVISO: Estudante {student_id} não está matriculado na disciplina {discipline_id}")
+                raise HTTPException(
+                    status_code=404,
+                    detail="Estudante não matriculado na disciplina"
+                )
+
+            # Get discipline details
+            discipline_query = select(
+                tabela_cursos.c.IdCurso,
+                tabela_cursos.c.NomeCurso,
+                tabela_cursos.c.Ementa,
+                tabela_cursos.c.Objetivos,
+                tabela_cursos.c.HorarioInicio,
+                tabela_cursos.c.HorarioFim,
+                tabela_cursos.c.CriadoEm,
+                tabela_cursos.c.IdEducador,
+                tabela_cursos.c.NomeEducador
+            ).where(tabela_cursos.c.IdCurso == discipline_id)
+
+            print(f"Query de disciplina gerada: {discipline_query}")
+            result = self.session.execute(discipline_query).mappings().first()
+            
+            if not result:
+                print(f"ERRO: Disciplina {discipline_id} não encontrada")
+                raise HTTPException(
+                    status_code=404,
+                    detail="Disciplina não encontrada"
+                )
+
+            print(f"Tipo do resultado: {type(result)}")
+            print(f"Chaves disponíveis: {result.keys() if hasattr(result, 'keys') else 'Sem chaves disponíveis'}")
+            print(f"Resultado da query: {result}")
+
+            try:
+                # Transform the result into the desired format with safe access
+                discipline_details = {
+                    "IdCurso": self.safe_get(result, "IdCurso"),
+                    "NomeCurso": self.safe_get(result, "NomeCurso"),
+                    "Ementa": self.safe_get(result, "Ementa"),
+                    "Objetivos": self.parse_objectives(self.safe_get(result, "Objetivos")),
+                    "HorarioInicio": self.format_time(self.safe_get(result, "HorarioInicio")),
+                    "HorarioFim": self.format_time(self.safe_get(result, "HorarioFim")),
+                    "CriadoEm": self.format_datetime(self.safe_get(result, "CriadoEm")),
+                    "IdEducador": self.safe_get(result, "IdEducador"),
+                    "NomeEducador": self.safe_get(result, "NomeEducador")
+                }
+
+                print(f"Detalhes da disciplina formatados com sucesso: {discipline_details}")
+                return discipline_details
+
+            except Exception as e:
+                print(f"ERRO durante a formatação dos detalhes: {e}")
+                print(f"Stack trace completo:", exc_info=True)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Erro ao formatar detalhes da disciplina: {str(e)}"
+                )
+
+        except SQLAlchemyError as e:
+            print(f"ERRO: Erro no banco de dados ao buscar detalhes da disciplina: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Erro no banco de dados ao buscar detalhes da disciplina"
+            )
+        
+        except json.JSONDecodeError as e:
+            print(f"ERRO: Erro ao interpretar JSON dos dados da disciplina: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Erro ao interpretar dados da disciplina"
+            )
+        
+        except Exception as e:
+            print(f"ERRO: Erro inesperado em get_discipline_details: {e}")
+            print("Stack trace completo:", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail="Ocorreu um erro inesperado"
             )

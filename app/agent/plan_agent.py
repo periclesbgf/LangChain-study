@@ -126,7 +126,7 @@ class SessionPlanWorkflow:
                 "justificativa": "Explique a escolha do horário em relação à data do encontro"
 
         Adapte as atividades e recursos ao estilo de aprendizagem:
-        - Para aluno Visual: Priorize recursos visuais como videos
+        - Para aluno Visual: Priorize recursos visuais como videos ou busca no banco de dados vetorial de imagens
         - Para aluno Verbal: Foque em explicações escritas e discussões
         - Para aluno Ativo: Inclua exercícios práticos e experimentação
         - Para aluno Reflexivo: Adicione momentos de análise e reflexão
@@ -134,6 +134,8 @@ class SessionPlanWorkflow:
         - Para aluno Global: Forneça visão geral e conexões com outros temas
 
         NOTA: LIMITE o TITULO e DESCRICAO a 100 caracteres.
+
+        ATENCAO: Se o aluno estiver aprendendo funcoes na linguagem C, ou em qualquer outra linguagem explique a utilizacao dessa linguagem no plano. 
 
         Retorne APENAS o JSON do plano, sem explicações adicionais."""
 
@@ -201,7 +203,7 @@ class SessionPlanWorkflow:
         
         Verifique:
         1. Se os títulos são claros e bem estruturados
-        2. Se as descrições são informativas e adequadas
+        2. Se as descrições são informativas e adequadas ao conteudo
         3. Se as atividades estão alinhadas com o estilo de aprendizagem
         4. Se a distribuição do tempo é apropriada
         5. Se os recursos são relevantes e bem escolhidos
@@ -222,7 +224,10 @@ class SessionPlanWorkflow:
             
         
         
-        Retorne APENAS o JSON, sem explicações adicionais."""
+        Retorne APENAS o JSON, sem explicações adicionais.
+        
+        NOTA: Se uma disciplina for funcoes na linguagem C, explicite a utilizacao dessa linguagem no plano.
+        """
 
         prompt = ChatPromptTemplate.from_template(REVIEW_PROMPT)
         model = ChatOpenAI(model="gpt-4o", temperature=0.3)
