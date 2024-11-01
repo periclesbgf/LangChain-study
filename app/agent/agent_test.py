@@ -38,6 +38,54 @@ class AgentState(TypedDict):
     iteration_count: int
     chat_history: List[BaseMessage]
 
+def filter_chat_history(messages: List[BaseMessage]) -> List[BaseMessage]:
+    """
+    Filtra o histórico do chat para remover conteúdo de imagem e manter apenas texto.
+    """
+    filtered_messages = []
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            filtered_messages.append(msg)
+        elif isinstance(msg, AIMessage):
+            try:
+                # Verifica se é uma mensagem multimodal (JSON)
+                content = json.loads(msg.content)
+                if isinstance(content, dict):
+                    if content.get("type") == "multimodal":
+                        # Remove o campo 'image' e mantém apenas o texto
+                        filtered_content = {
+                            "type": "multimodal",
+                            "content": content["content"]
+                        }
+                        filtered_messages.append(AIMessage(content=filtered_content["content"]))
+                    else:
+                        # Mensagem JSON sem imagem
+                        filtered_messages.append(msg)
+                else:
+                    # Não é um objeto JSON válido
+                    filtered_messages.append(msg)
+            except json.JSONDecodeError:
+                # Mensagem regular sem JSON
+                filtered_messages.append(msg)
+    return filtered_messages
+
+def format_chat_history(messages: List[BaseMessage], max_messages: int = 3) -> str:
+    """
+    Formata o histórico do chat filtrado para uso em prompts.
+    """
+    # Primeiro filtra o histórico
+    filtered_messages = filter_chat_history(messages[-max_messages:])
+    
+    # Então formata as mensagens filtradas
+    formatted_history = []
+    for msg in filtered_messages:
+        role = 'Aluno' if isinstance(msg, HumanMessage) else 'Tutor'
+        content = msg.content
+        if isinstance(content, str):
+            formatted_history.append(f"{role}: {content}")
+            
+    return "\n".join(formatted_history)
+
 class RetrievalTools:
     def __init__(self, qdrant_handler: QdrantHandler, student_email: str, disciplina: str, image_collection, session_id: str, state: AgentState):
         print(f"[RETRIEVAL] Initializing RetrievalTools:")
@@ -100,12 +148,8 @@ class RetrievalTools:
             "table": "dados estruturados, estatísticas e comparações numéricas"
         }
         
-        # Formata o histórico de chat das últimas 4 mensagens
-        chat_history = self.state["chat_history"][-4:] if self.state["chat_history"] else []
-        formatted_history = "\n".join([
-            f"{'Aluno' if isinstance(m, HumanMessage) else 'Tutor'}: {m.content}"
-            for m in chat_history
-        ])
+        # Usa a nova função de formatação do histórico
+        formatted_history = format_chat_history(self.state["chat_history"], max_messages=4)
         
         print(f"[RETRIEVAL] Using chat history for question transformation:")
         print(formatted_history)
@@ -123,26 +167,20 @@ class RetrievalTools:
         return transformed_question
 
     async def parallel_context_retrieval(self, question: str) -> Dict[str, Any]:
-        """
-        Executa buscas paralelas por diferentes tipos de contexto.
-        """
         print(f"\n[RETRIEVAL] Starting parallel context retrieval for: {question}")
         
-        # Transform questions for each context type
         text_question, image_question, table_question = await asyncio.gather(
             self.transform_question(question, "text"),
             self.transform_question(question, "image"),
             self.transform_question(question, "table")
         )
         
-        # Execute parallel context retrieval
         text_context, image_context, table_context = await asyncio.gather(
             self.retrieve_text_context(text_question),
             self.retrieve_image_context(image_question),
             self.retrieve_table_context(table_question)
         )
         
-        # Analyze relevance
         relevance_analysis = await self.analyze_context_relevance(
             original_question=question,
             text_context=text_context,
@@ -158,7 +196,6 @@ class RetrievalTools:
         }
 
     async def retrieve_text_context(self, query: str) -> str:
-        """Recupera contexto textual."""
         try:
             results = self.qdrant_handler.similarity_search_with_filter(
                 query=query,
@@ -173,7 +210,6 @@ class RetrievalTools:
             return ""
 
     async def retrieve_image_context(self, query: str) -> Dict[str, Any]:
-        """Recupera contexto de imagem."""
         try:
             results = self.qdrant_handler.similarity_search_with_filter(
                 query=query,
@@ -196,7 +232,6 @@ class RetrievalTools:
             return {"type": "image", "content": None, "description": ""}
 
     async def retrieve_table_context(self, query: str) -> Dict[str, Any]:
-        """Recupera contexto de tabela."""
         try:
             results = self.qdrant_handler.similarity_search_with_filter(
                 query=query,
@@ -219,9 +254,6 @@ class RetrievalTools:
             return {"type": "table", "content": None}
 
     async def retrieve_image_and_description(self, image_uuid: str) -> Dict[str, Any]:
-        """
-        Recupera a imagem e sua descrição de forma assíncrona.
-        """
         try:
             print(f"[RETRIEVAL] Recuperando imagem com UUID: {image_uuid}")
             image_data = await self.image_collection.find_one({"_id": image_uuid})
@@ -271,26 +303,27 @@ class RetrievalTools:
         image_context: Dict[str, Any],
         table_context: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """
-        Analisa a relevância dos diferentes contextos recuperados.
-        """
         try:
-            if not text_context and not image_context and not table_context:
+            if not any([text_context, image_context, table_context]):
                 print("[RETRIEVAL] No context available for relevance analysis")
                 return self._get_default_analysis()
 
             prompt = ChatPromptTemplate.from_template(self.RELEVANCE_ANALYSIS_PROMPT)
             
-            # Prepare context descriptions
-            image_description = image_context.get("description", "") if image_context else ""
-            table_content = table_context.get("content", "") if table_context else ""
+            # Tratamento seguro para contexto de imagem
+            image_description = ""
+            if image_context and isinstance(image_context, dict):
+                image_description = image_context.get("description", "")
             
-            # Truncate long contexts to prevent token limits
-            text_preview = text_context[:500] + "..." if len(text_context) > 500 else text_context
-            image_preview = image_description[:500] + "..." if len(image_description) > 500 else image_description
-            table_preview = table_content[:500] + "..." if len(table_content) > 500 else table_content
+            # Tratamento seguro para contexto de tabela
+            table_content = ""
+            if table_context and isinstance(table_context, dict):
+                table_content = table_context.get("content", "")
             
-
+            # Garantir que todos os contextos são strings antes de aplicar slice
+            text_preview = str(text_context)[:500] + "..." if text_context and len(str(text_context)) > 500 else str(text_context or "")
+            image_preview = str(image_description)[:500] + "..." if len(str(image_description)) > 500 else str(image_description)
+            table_preview = str(table_content)[:500] + "..." if len(str(table_content)) > 500 else str(table_content)
 
             response = await self.model.ainvoke(prompt.format(
                 question=original_question,
@@ -300,9 +333,7 @@ class RetrievalTools:
             ))
             
             try:
-                # Clean up the response to ensure valid JSON
                 cleaned_content = response.content.strip()
-                # Remove any markdown code block indicators if present
                 if cleaned_content.startswith("```json"):
                     cleaned_content = cleaned_content[7:]
                 if cleaned_content.endswith("```"):
@@ -312,7 +343,6 @@ class RetrievalTools:
                 analysis = json.loads(cleaned_content)
                 print(f"[RETRIEVAL] Relevance analysis: {analysis}")
                 
-                # Validate the required fields
                 required_fields = ["text", "image", "table", "recommended_context"]
                 if not all(field in analysis for field in required_fields):
                     raise ValueError("Missing required fields in analysis")
@@ -332,7 +362,6 @@ class RetrievalTools:
             return self._get_default_analysis()
     
     def _get_default_analysis(self) -> Dict[str, Any]:
-        """Returns a default analysis when the actual analysis fails."""
         return {
             "text": {"score": 0, "reason": "Default fallback due to analysis error"},
             "image": {"score": 0, "reason": "Default fallback due to analysis error"},
@@ -346,9 +375,7 @@ def create_retrieval_node(tools: RetrievalTools):
         latest_message = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1]
         print(f"[NODE:RETRIEVAL] Processing message: {latest_message.content}")
         
-        # Atualiza o state no RetrievalTools antes de processar
         tools.state = state
-        
         context_results = await tools.parallel_context_retrieval(latest_message.content)
 
         new_state = state.copy()
@@ -388,7 +415,7 @@ def create_answer_plan_node():
     - Para cada parte, defina um objetivo mensurável
     
     3. RECURSOS E ATIVIDADES (OPCIONAL):
-    - Sugira recursos baseado no perfil do aluno (priorize o perfil de aprendizagem do aluno)
+    - Sugira recursos baseado no perfil do aluno
     - Selecione recursos específicos do plano que se aplicam
     - Sugira exercícios práticos adaptados ao perfil
     
@@ -418,14 +445,10 @@ def create_answer_plan_node():
         print(f"[NODE:PLANNING] Processing question: {latest_question}")
         
         plano_execucao = json.loads(state["current_plan"])["plano_execucao"]
-        print("[NODE:PLANNING] Loaded current study plan")
         current_step = identify_current_step(plano_execucao)
-        print("[NODE:PLANNING] Identified current step")
-        chat_history = "\n".join([f"{'Aluno' if isinstance(m, HumanMessage) else 'Tutor'}: {m.content}"
-            for m in state["chat_history"][-3:]
-        ])
-        print("[NODE:PLANNING] Formatted chat history")
-        print(chat_history)
+        
+        # Usa a nova função de formatação do histórico
+        chat_history = format_chat_history(state["chat_history"])
 
         response = model.invoke(prompt.format(
             user_profile=state["user_profile"],
@@ -439,9 +462,6 @@ def create_answer_plan_node():
 
         new_state = state.copy()
         new_state["current_plan"] = response.content
-        print("[NODE:PLANNING] Plan generated successfully")
-        print(f"[NODE:PLANNING] Generated plan: {response.content[:200]}...")
-        
         return new_state
 
     return generate_plan
@@ -493,28 +513,8 @@ def create_teaching_node():
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
         print(f"[NODE:TEACHING] Processing question: {latest_question}")
 
-        # Filter out multimodal messages from chat history
-        filtered_chat_history = []
-        for msg in state["chat_history"][-3:]:
-            if isinstance(msg, HumanMessage):
-                filtered_chat_history.append(msg)
-            elif isinstance(msg, AIMessage):
-                try:
-                    # Try to parse as JSON to check if it's a multimodal message
-                    content = json.loads(msg.content)
-                    if isinstance(content, dict) and content.get("type") == "multimodal":
-                        # Only add the text content to history
-                        filtered_chat_history.append(AIMessage(content=content["content"]))
-                    else:
-                        filtered_chat_history.append(msg)
-                except json.JSONDecodeError:
-                    # If it's not JSON, it's a regular message
-                    filtered_chat_history.append(msg)
-
-        chat_history = "\n".join([
-            f"{'Aluno' if isinstance(m, HumanMessage) else 'Tutor'}: {m.content}"
-            for m in filtered_chat_history
-        ])
+        # Usa a nova função de formatação do histórico
+        chat_history = format_chat_history(state["chat_history"])
         
         contexts = state["extracted_context"]
         relevance = contexts["relevance_analysis"]
@@ -527,8 +527,7 @@ def create_teaching_node():
                 image_context.get("image_bytes") and 
                 relevance["image"]["score"] > 0.3):
                 
-                base64_image = base64.b64encode(image_context["image_bytes"]).decode('utf-8')
-                image_content = f"data:image/jpeg;base64,{base64_image}"
+                image_content = image_context.get("image_bytes")
             
             # Generate explanation using available contexts
             explanation = model.invoke(context_prompt.format(
@@ -544,28 +543,29 @@ def create_teaching_node():
             
             # Create response with or without image
             if image_content:
+                base64_image = base64.b64encode(image_content).decode('utf-8')
                 response_content = {
                     "type": "multimodal",
                     "content": explanation.content,
-                    "image": image_content
+                    "image": f"data:image/jpeg;base64,{base64_image}"
                 }
                 response = AIMessage(content=json.dumps(response_content))
-                # Store only text content in chat history
-                history_response = AIMessage(content=explanation.content)
+                history_message = AIMessage(content=explanation.content)  # Store only text in history
             else:
                 response = explanation
-                history_response = response
+                history_message = explanation
                 
         except Exception as e:
             print(f"[NODE:TEACHING] Error generating response: {str(e)}")
-            response = AIMessage(content="Desculpe, encontrei um erro ao processar sua pergunta. Por favor, tente novamente.")
-            history_response = response
+            error_message = "Desculpe, encontrei um erro ao processar sua pergunta. Por favor, tente novamente."
+            response = AIMessage(content=error_message)
+            history_message = response
         
         new_state = state.copy()
         new_state["messages"] = list(state["messages"]) + [response]
         new_state["chat_history"] = list(state["chat_history"]) + [
             HumanMessage(content=latest_question),
-            history_response
+            history_message
         ]
         return new_state
 

@@ -1,5 +1,7 @@
 # app/database/mongo_database_manager.py
 
+import traceback
+from bson import Binary
 import motor.motor_asyncio
 from utils import MONGO_DB_NAME, MONGO_URI
 from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
@@ -16,6 +18,37 @@ class MongoDatabaseManager:
         """Inicializa a conexão com o banco de dados MongoDB."""
         self.client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI)
         self.db = self.client[MONGO_DB_NAME]
+
+    async def get_collection(self, collection_name: str):
+        """
+        Obtém uma coleção do MongoDB.
+        
+        Args:
+            collection_name: Nome da coleção
+            
+        Returns:
+            AsyncIOMotorCollection: Coleção do MongoDB
+        """
+        try:
+            # Verifica se a coleção existe
+            collections = await self.db.list_collection_names()
+            if collection_name not in collections:
+                print(f"[MONGO] Criando nova coleção: {collection_name}")
+                # Cria a coleção se não existir
+                await self.db.create_collection(collection_name)
+            
+            return self.db[collection_name]
+        except Exception as e:
+            print(f"[MONGO] Erro ao obter coleção {collection_name}: {e}")
+            raise
+    async def close(self):
+        """Fecha a conexão com o MongoDB."""
+        try:
+            self.client.close()
+            print("[MONGO] Conexão fechada")
+        except Exception as e:
+            print(f"[MONGO] Erro ao fechar conexão: {e}")
+            raise
 
     ### MÉTODOS DE PERFIL DE ESTUDANTE (JÁ EXISTENTES) ###
     async def create_student_profile(self, email: str, profile_data: Dict[str, Any]) -> Optional[str]:
@@ -314,3 +347,92 @@ class CustomMongoDBChatMessageHistory(MongoDBChatMessageHistory):
         items = [json.loads(document[self.history_key]) for document in cursor]
         messages = messages_from_dict(items)
         return messages
+
+class MongoImageHandler:
+    def __init__(self, mongo_manager):
+        self.mongo_manager = mongo_manager
+        self.image_collection = self.mongo_manager.db['image_collection']
+
+    async def store_image(
+        self,
+        image_uuid: str,
+        image_bytes: bytes,
+        student_email: str,
+        disciplina: str,
+        session_id: str,
+        filename: str,
+        content_hash: str,
+        access_level: str = "session"
+    ) -> Dict[str, Any]:
+        """
+        Stores an image in MongoDB with verification.
+        Returns the stored document data or raises an exception.
+        """
+        try:
+            # Convert to BSON Binary
+            binary_content = Binary(image_bytes)
+            
+            # Prepare document
+            image_document = {
+                "_id": image_uuid,
+                "image_data": binary_content,
+                "student_email": student_email,
+                "disciplina": disciplina,
+                "session_id": session_id,
+                "filename": filename,
+                "content_type": "image/jpeg",
+                "file_size": len(image_bytes),
+                "content_hash": content_hash,
+                "access_level": access_level,
+                "created_at": datetime.now(timezone.utc)
+            }
+
+            # Ensure collection exists
+            collections = await self.mongo_manager.db.list_collection_names()
+            if 'image_collection' not in collections:
+                print("[DEBUG] 'image_collection' não existe, criando coleção e índices.")
+                await self.mongo_manager.db.create_collection('image_collection')
+                await self.image_collection.create_index("student_email")
+                await self.image_collection.create_index("disciplina")
+                await self.image_collection.create_index([("created_at", -1)])
+                print("[MONGO] Created image_collection and indices")
+            else:
+                print("[DEBUG] 'image_collection' já existe.")
+
+            # Insert document
+            print(f"[DEBUG] Inserindo documento da imagem com _id={image_uuid}")
+            result = await self.image_collection.insert_one(image_document)
+            if not result.acknowledged:
+                raise Exception("MongoDB insert not acknowledged")
+            print(f"[DEBUG] Documento inserido com sucesso: {result.inserted_id}")
+
+            # Verify insertion
+            stored_doc = await self.image_collection.find_one({"_id": image_uuid})
+            if not stored_doc:
+                raise Exception("Image document not found after insertion")
+
+            # Verify data integrity
+            stored_size = len(stored_doc["image_data"])
+            if stored_size != len(image_bytes):
+                raise Exception(f"Size mismatch: stored={stored_size}, original={len(image_bytes)}")
+
+            print(f"[MONGO] Successfully stored image {image_uuid}")
+            print(f"[MONGO] File size: {stored_size} bytes")
+            return stored_doc
+
+        except Exception as e:
+            print(f"[MONGO] Error storing image: {str(e)}")
+            traceback.print_exc()
+            raise
+
+
+    async def verify_image_storage(self, image_uuid: str) -> bool:
+        """
+        Verifies if an image is properly stored in MongoDB.
+        """
+        try:
+            stored_doc = await self.image_collection.find_one({"_id": image_uuid})
+            return bool(stored_doc and stored_doc.get("image_data"))
+        except Exception as e:
+            print(f"[MONGO] Error verifying image {image_uuid}: {str(e)}")
+            return False

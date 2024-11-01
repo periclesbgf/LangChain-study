@@ -12,54 +12,69 @@ import pandas as pd
 from PIL import Image
 import pytesseract
 import docx
+import traceback
+from typing import Optional, List
+import uuid
+from datetime import datetime, timezone
+import hashlib
+import io
+import fitz
+import pdfplumber
+import pandas as pd
+from PIL import Image
+import pytesseract
+import docx
 from langchain_openai import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
 from qdrant_client import QdrantClient
-import uuid
 from qdrant_client.http import models
-
 from qdrant_client.http.models import (
     PointStruct,
     Filter,
     FieldCondition,
     MatchValue,
     VectorParams,
+    Distance,
+    MatchAny
 )
 from utils import OPENAI_API_KEY, QDRANT_URL
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client.http.models import (
     Filter, FieldCondition, MatchValue, VectorParams, Distance
 )
+from agent.image_handler import ImageHandler
+
 from pydantic import BaseModel
-from langchain_core.documents import Document
-from typing import List, Optional
-import hashlib
+from typing import Optional, List
+from database.mongo_database_manager import MongoDatabaseManager, MongoImageHandler
 
 
 class Material(BaseModel):
-    id: str  # content_hash ou image_uuid
-    name: str  # nome do arquivo
+    """Data model for materials stored in Qdrant."""
+    id: str  # content_hash or image_uuid
+    name: str  # filename
     type: str  # 'pdf', 'doc', 'image'
     access_level: str
     discipline_id: Optional[str]
     session_id: Optional[str]
     student_email: str
     content_hash: str
-    size: Optional[int]  # tamanho do arquivo
+    size: Optional[int]  # file size
     created_at: datetime
     updated_at: datetime
 
+
 class QdrantHandler:
-    def __init__(self, url: str, collection_name: str, embeddings, image_handler, text_splitter):
-        print(f"Inicializando QdrantHandler para a coleção '{collection_name}'...")
+    def __init__(self, url: str, collection_name: str, embeddings, image_handler: ImageHandler, text_splitter, mongo_manager: MongoDatabaseManager):
+        """Initialize QdrantHandler with necessary components."""
+        print(f"Initializing QdrantHandler for collection '{collection_name}'...")
         self.collection_name = collection_name
         self.embeddings = embeddings
         self.client = QdrantClient(url=url, prefer_grpc=False)
         self.image_handler = image_handler
         self.text_splitter = text_splitter
-        print(f"QdrantClient inicializado para a URL '{url}'.")
-
+        self.mongo_manager = mongo_manager
         self.ensure_collection_exists()
 
         self.vector_store = QdrantVectorStore(
@@ -68,366 +83,494 @@ class QdrantHandler:
             embedding=self.embeddings,
             validate_collection_config=True
         )
-        print(f"QdrantHandler inicializado com sucesso para a coleção '{collection_name}'.")
+        print(f"QdrantHandler initialized successfully for collection '{collection_name}'")
 
     def ensure_collection_exists(self):
-        collections = self.client.get_collections().collections
-        print(f"Coleções disponíveis: {[col.name for col in collections]}")
+        """Ensure the collection exists in Qdrant, create if it doesn't."""
+        try:
+            collections = self.client.get_collections().collections
+            collection_names = [col.name for col in collections]
+            print(f"Available collections: {collection_names}")
 
-        if self.collection_name not in [col.name for col in collections]:
-            vector_size = len(self.embeddings.embed_query("test query"))
-            print(f"Recriando coleção '{self.collection_name}' com tamanho de vetor {vector_size}.")
-            self.client.recreate_collection(
-                collection_name=self.collection_name,
-                vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE)
-            )
-            print(f"Coleção '{self.collection_name}' criada com sucesso.")
-        else:
-            print(f"Coleção '{self.collection_name}' já existe.")
+            if self.collection_name not in collection_names:
+                vector_size = len(self.embeddings.embed_query("test query"))
+                print(f"Creating collection '{self.collection_name}' with vector size {vector_size}")
+                self.client.recreate_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE)
+                )
+                print(f"Collection '{self.collection_name}' created successfully")
+            else:
+                print(f"Collection '{self.collection_name}' already exists")
+        except Exception as e:
+            print(f"Error ensuring collection exists: {str(e)}")
+            traceback.print_exc()
+            raise
 
-    async def add_material(
+    def add_document(
         self,
-        file_content: bytes,
+        student_email: str,
+        session_id: str,
+        content: str,
+        access_level: str,
+        disciplina_id: str,
+        specific_file_id: Optional[str] = None,
+        metadata_extra: Optional[dict] = None,
+        file_content: Optional[bytes] = None,
+        filename: Optional[str] = None
+    ):
+        """
+        Adiciona um documento ao vector store com metadados apropriados.
+        
+        Args:
+            student_email: Email do aluno
+            session_id: ID da sessão
+            content: Conteúdo textual (descrição para imagens)
+            access_level: Nível de acesso do documento
+            disciplina_id: ID da disciplina
+            specific_file_id: ID específico do arquivo (opcional)
+            metadata_extra: Metadados adicionais (opcional)
+            file_content: Conteúdo binário do arquivo (opcional)
+            filename: Nome do arquivo (opcional)
+        """
+        try:
+            # Prepare metadata base
+            metadata = {
+                "student_email": student_email,
+                "session_id": session_id,
+                "access_level": access_level,
+                "disciplina": disciplina_id,
+                "file_id": specific_file_id,
+                "filename": filename,
+                "timestamp": datetime.now(timezone.utc).timestamp()
+            }
+
+            # Adiciona metadados extras se fornecidos
+            if metadata_extra:
+                metadata.update(metadata_extra)
+
+            # Para documentos tipo imagem, verifica se há referência ao UUID
+            if metadata.get("type") == "image" and "image_uuid" not in metadata:
+                # Se não houver UUID, gera um novo
+                image_uuid = str(uuid.uuid4())
+                metadata["image_uuid"] = image_uuid
+
+            # Converte todos os valores de metadados para string
+            metadata = {k: str(v) if v is not None else "" for k, v in metadata.items()}
+
+            # Cria e adiciona o documento
+            doc = Document(page_content=content, metadata=metadata)
+            self.vector_store.add_documents([doc])
+            print(f"Document added successfully for student {student_email}")
+            print(f"Document type: {metadata.get('type', 'not specified')}")
+            
+            if metadata.get("type") == "image":
+                print(f"Image UUID: {metadata.get('image_uuid', 'not found')}")
+
+        except Exception as e:
+            print(f"Error adding document: {str(e)}")
+            traceback.print_exc()
+            raise
+
+    def document_exists(self, content_hash: str, student_email: str, disciplina: str) -> bool:
+        """Check if a document already exists in the collection."""
+        try:
+            query_filter = Filter(
+                must=[
+                    FieldCondition(
+                        key="metadata.content_hash",
+                        match=MatchValue(value=str(content_hash))
+                    ),
+                    FieldCondition(
+                        key="metadata.student_email",
+                        match=MatchValue(value=str(student_email))
+                    ),
+                    FieldCondition(
+                        key="metadata.disciplina",
+                        match=MatchValue(value=str(disciplina))
+                    )
+                ]
+            )
+            
+            results, _ = self.client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=query_filter,
+                limit=1
+            )
+            exists = len(results) > 0
+            print(f"Document exists check: {exists}")
+            return exists
+            
+        except Exception as e:
+            print(f"Error checking document existence: {str(e)}")
+            traceback.print_exc()
+            return False
+
+    async def process_file(
+        self,
+        content: bytes,
         filename: str,
         student_email: str,
-        access_level: str,
-        discipline_id: Optional[str] = None,
-        session_id: Optional[str] = None
-    ) -> Material:
-        """Adiciona um novo material com nível de acesso especificado."""
-        
-        # Gera IDs únicos e hash
-        content_hash = hashlib.sha256(file_content).hexdigest()
-        file_type = self._get_file_type(filename)
-        image_uuid = str(uuid.uuid4()) if file_type == 'image' else None
+        session_id: str,
+        disciplina: str,
+        access_level: str = "session",
+        specific_file_id: Optional[str] = None
+    ):
+        """Process and store file content based on file type."""
+        try:
+            print(f"Processing file: {filename}")
+            content_hash = hashlib.sha256(content).hexdigest()
 
-        # Processa o conteúdo baseado no tipo
-        if file_type == 'image':
-            # Processa imagem
-            img_base64 = self.image_handler.encode_image_bytes(file_content)
-            description = self.image_handler.image_summarize(img_base64)
+            # Check for existing document
+            if self.document_exists(content_hash, student_email, disciplina):
+                print("Document already exists in Qdrant. Skipping insertion.")
+                return
+
+            # Process based on file type
+            if filename.lower().endswith('.pdf'):
+                await self._process_pdf_file(
+                    content=content,
+                    student_email=student_email,
+                    session_id=session_id,
+                    disciplina=disciplina,
+                    access_level=access_level,
+                    content_hash=content_hash,
+                    filename=filename,
+                    specific_file_id=specific_file_id
+                )
+            elif filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                await self._process_image_file(
+                    content=content,
+                    student_email=student_email,
+                    session_id=session_id,
+                    disciplina=disciplina,
+                    access_level=access_level,
+                    content_hash=content_hash,
+                    filename=filename,
+                    specific_file_id=specific_file_id
+                )
+            else:
+                raise ValueError(f"Unsupported file type: {filename}")
+
+        except Exception as e:
+            print(f"Error processing file {filename}: {str(e)}")
+            traceback.print_exc()
+            raise
+
+    async def _process_pdf_file(
+        self,
+        content: bytes,
+        student_email: str,
+        session_id: str,
+        disciplina: str,
+        access_level: str,
+        content_hash: str,
+        filename: str,
+        specific_file_id: Optional[str] = None
+    ):
+        """Process PDF files: extract text, images, and tables with proper image storage in MongoDB."""
+        try:
+            # Initialize MongoImageHandler
+            mongo_image_handler = MongoImageHandler(self.mongo_manager)
             
-            # Metadata para imagem
-            metadata = {
-                "id": image_uuid,
-                "name": filename,
-                "student_email": student_email,
-                "session_id": session_id,
-                "content_hash": content_hash,
-                "access_level": access_level.lower(),
-                "type": file_type,
-                "size": len(file_content),
-                "created_at": datetime.now().timestamp(),
-                "updated_at": datetime.now().timestamp(),
-                "disciplina": discipline_id
-            }
-            
-            # Adiciona ao Qdrant
-            self.add_document(
-                student_email=student_email,
-                session_id=session_id,
-                content=description,
-                metadata_extra=metadata
-            )
-        else:
-            # Processa documento texto
-            text_content = await self._extract_text_content(file_content, file_type, content_hash)
-            
-            # Metadata para documento
-            metadata = {
-                "id": content_hash,
-                "name": filename,
-                "student_email": student_email,
-                "session_id": session_id,
-                "content_hash": content_hash,
-                "access_level": access_level.lower(),
-                "type": file_type,
-                "size": len(file_content),
-                "created_at": datetime.now().timestamp(),
-                "updated_at": datetime.now().timestamp(),
-                "disciplina": discipline_id
-            }
-            
-            # Adiciona ao Qdrant
-            if self.text_splitter and len(text_content) > 1000:
-                chunks = self.text_splitter.split_text(text_content)
-                for i, chunk in enumerate(chunks):
-                    chunk_metadata = {
-                        **metadata,
-                        "chunk_index": i + 1,
-                        "total_chunks": len(chunks)
+            # Process with PyMuPDF
+            pdf_document = fitz.open(stream=content, filetype="pdf")
+            full_text = ""
+
+            for page_num in range(len(pdf_document)):
+                # Extract text
+                page = pdf_document[page_num]
+                page_text = page.get_text()
+                full_text += page_text
+
+                # Process images
+                image_list = page.get_images(full=True)
+                for image_index, img in enumerate(image_list):
+                    try:
+                        xref = img[0]
+                        base_image = pdf_document.extract_image(xref)
+                        image_bytes = base_image["image"]
+                        image_format = base_image["ext"]  # Get image format (e.g., 'jpeg', 'png')
+                        
+                        # Generate image UUID
+                        image_uuid = str(uuid.uuid4())
+                        
+                        # Generate image description
+                        img_base64 = self.image_handler.encode_image_bytes(image_bytes)
+                        description = self.image_handler.image_summarize(img_base64)
+                        
+                        # Create image hash
+                        image_hash = hashlib.sha256(image_bytes).hexdigest()
+                        
+                        try:
+                            # Store image in MongoDB
+                            stored_doc = await mongo_image_handler.store_image(
+                                image_uuid=image_uuid,
+                                image_bytes=image_bytes,
+                                student_email=student_email,
+                                disciplina=disciplina,
+                                session_id=session_id,
+                                filename=f"page_{page_num + 1}_image_{image_index + 1}.{image_format}",
+                                content_hash=image_hash,
+                                access_level=access_level,
+                            )
+
+                            # Verify storage
+                            if not await mongo_image_handler.verify_image_storage(image_uuid):
+                                raise Exception(f"Image storage verification failed for image {image_index + 1} on page {page_num + 1}")
+
+                            # Store reference in Qdrant
+                            image_metadata = {
+                                "type": "image",
+                                "page_number": str(page_num + 1),
+                                "image_number": str(image_index + 1),
+                                "content_hash": image_hash,
+                                "parent_document": content_hash,
+                                "filename": filename,
+                                "file_id": specific_file_id,
+                                "image_uuid": image_uuid,
+                                "file_size": len(image_bytes),
+                                "content_type": f"image/{image_format}",
+                                "source": "pdf_extraction"
+                            }
+
+                            self.add_document(
+                                student_email=student_email,
+                                session_id=session_id,
+                                content=description,
+                                access_level=access_level,
+                                disciplina_id=disciplina,
+                                specific_file_id=specific_file_id,
+                                metadata_extra=image_metadata
+                            )
+
+                            print(f"[PDF] Successfully processed and stored image {image_index + 1} from page {page_num + 1}")
+                            print(f"[PDF] Image UUID: {image_uuid}")
+                            print(f"[PDF] Image size: {len(image_bytes)} bytes")
+
+                        except Exception as e:
+                            print(f"[PDF] Error storing image in MongoDB: {str(e)}")
+                            traceback.print_exc()
+                            continue
+
+                    except Exception as e:
+                        print(f"[PDF] Error extracting image {image_index + 1} from page {page_num + 1}: {str(e)}")
+                        continue
+
+            pdf_document.close()
+
+            # Process text content
+            if full_text.strip():
+                chunks = self.text_splitter.split_text(full_text)
+                for chunk_index, chunk in enumerate(chunks):
+                    text_metadata = {
+                        "type": "text",
+                        "chunk_index": str(chunk_index + 1),
+                        "total_chunks": str(len(chunks)),
+                        "content_hash": content_hash,
+                        "filename": filename,
+                        "file_id": specific_file_id,
+                        "source": "pdf_extraction"
                     }
+                    
                     self.add_document(
                         student_email=student_email,
                         session_id=session_id,
                         content=chunk,
-                        metadata_extra=chunk_metadata
+                        access_level=access_level,
+                        disciplina_id=disciplina,
+                        specific_file_id=specific_file_id,
+                        metadata_extra=text_metadata
                     )
-            else:
-                self.add_document(
-                    student_email=student_email,
-                    session_id=session_id,
-                    content=text_content,
-                    metadata_extra=metadata
-                )
 
-        # Retorna Material
-        return Material(
-            id=image_uuid or content_hash,
-            name=filename,
-            type=file_type,
-            access_level=access_level,
-            discipline_id=discipline_id,
-            session_id=session_id,
-            student_email=student_email,
-            content_hash=content_hash,
-            size=len(file_content),
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc)
-        )
-
-    def _get_file_type(self, filename: str) -> str:
-        """Determina o tipo do arquivo pelo nome."""
-        lower_filename = filename.lower()
-        if lower_filename.endswith('.pdf'):
-            return 'pdf'
-        elif lower_filename.endswith(('.jpg', '.jpeg', '.png')):
-            return 'image'
-        elif lower_filename.endswith(('.doc', '.docx')):
-            return 'doc'
-        else:
-            raise ValueError("Tipo de arquivo não suportado")
-
-    async def _extract_text_content(self, content: bytes, file_type: str, material_id: str) -> str:
-        """Extrai texto do conteúdo do arquivo baseado no tipo."""
-        try:
-            extracted_content = ""
-            
-            if file_type == 'pdf':
-                # Processa PDF
-                pdf_document = fitz.open(stream=content, filetype="pdf")
-                
-                for page_num in range(len(pdf_document)):
-                    page = pdf_document[page_num]
-                    extracted_content += page.get_text() + "\n"
-                    
-                    # Processa imagens da página
-                    image_list = page.get_images(full=True)
-                    for img_index, img in enumerate(image_list):
-                        xref = img[0]
-                        base_image = pdf_document.extract_image(xref)
-                        image_bytes = base_image["image"]
-                        
-                        img_base64 = self.image_handler.encode_image_bytes(image_bytes)
-                        description = self.image_handler.image_summarize(img_base64)
-                        extracted_content += f"\nImagem {img_index + 1} da página {page_num + 1}: {description}\n"
-                
-                pdf_document.close()
-                
-                # Processa tabelas
-                with pdfplumber.open(io.BytesIO(content)) as pdf:
-                    for page_num, page in enumerate(pdf.pages):
+            # Process tables with pdfplumber
+            with pdfplumber.open(io.BytesIO(content)) as pdf:
+                for page_num, page in enumerate(pdf.pages):
+                    try:
                         tables = page.extract_tables()
                         for table_index, table in enumerate(tables):
                             if table:
                                 df = pd.DataFrame(table[1:], columns=table[0])
                                 table_text = df.to_csv(index=False)
-                                extracted_content += f"\nTabela {table_index + 1} da página {page_num + 1}:\n{table_text}\n"
-                
-            elif file_type == 'doc':
-                # Processa DOC/DOCX
-                doc = docx.Document(io.BytesIO(content))
-                
-                for paragraph in doc.paragraphs:
-                    if paragraph.text.strip():
-                        extracted_content += paragraph.text + "\n"
-                
-                for table_index, table in enumerate(doc.tables):
-                    table_data = []
-                    for row in table.rows:
-                        table_data.append([cell.text.strip() for cell in row.cells])
-                    
-                    if table_data:
-                        df = pd.DataFrame(table_data[1:], columns=table_data[0])
-                        table_text = df.to_csv(index=False)
-                        extracted_content += f"\nTabela {table_index + 1}:\n{table_text}\n"
-                
-            elif file_type == 'image':
-                # Processa imagem
-                image = Image.open(io.BytesIO(content))
-                
-                if image.mode in ('RGBA', 'LA'):
-                    background = Image.new('RGB', image.size, (255, 255, 255))
-                    background.paste(image, mask=image.split()[-1])
-                    image = background
-                
-                ocr_text = pytesseract.image_to_string(image, lang='por+eng')
-                if ocr_text.strip():
-                    extracted_content += f"Texto detectado na imagem:\n{ocr_text}\n"
-                
-                img_base64 = self.image_handler.encode_image_bytes(content)
-                description = self.image_handler.image_summarize(img_base64)
-                extracted_content += f"\nDescrição da imagem:\n{description}\n"
-            
-            return self._clean_text(extracted_content)
-            
-        except Exception as e:
-            print(f"[ERROR] Erro na extração de texto: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            raise
-
-    def _clean_text(self, text: str) -> str:
-        """Limpa e normaliza o texto extraído."""
-        if not text:
-            return ""
-        
-        # Remove caracteres especiais e espaços extras
-        cleaned = " ".join(text.split())
-        
-        # Remove linhas vazias extras
-        cleaned = "\n".join(line.strip() for line in cleaned.splitlines() if line.strip())
-        
-        return cleaned
-
-    async def get_materials(
-        self,
-        student_email: str,
-        discipline_id: Optional[str] = None,
-        session_id: Optional[str] = None
-    ) -> List[Material]:
-        """Recupera materiais do Qdrant baseado no nível de acesso e contexto."""
-        try:
-            filter_conditions = [{"access_level": "global"}]
-            
-            if discipline_id:
-                filter_conditions.append({
-                    "access_level": "discipline",
-                    "discipline_id": discipline_id
-                })
-                
-            if session_id:
-                filter_conditions.append({
-                    "access_level": "session",
-                    "session_id": session_id
-                })
-
-            query_filter = models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="metadata.student_email",
-                        match=models.MatchValue(value=student_email)
-                    )
-                ],
-                should=[
-                    models.Filter(
-                        must=[
-                            models.FieldCondition(
-                                key=f"metadata.{key}",
-                                match=models.MatchValue(value=value)
-                            ) for key, value in condition.items()
-                        ]
-                    ) for condition in filter_conditions
-                ]
-            )
-
-            # Use scroll instead of search since we're not doing similarity search
-            results, _ = self.client.scroll(
-                collection_name=self.collection_name,
-                scroll_filter=query_filter,
-                limit=100  # Adjust this value based on your needs
-            )
-            
-            materials = []
-            seen_ids = set()
-            
-            for result in results:
-                metadata = result.payload.get("metadata", {})
-                if metadata.get("id") not in seen_ids:
-                    try:
-                        materials.append(Material(
-                            id=metadata["id"],
-                            name=metadata["name"],
-                            type=metadata["type"],
-                            access_level=metadata["access_level"],
-                            discipline_id=metadata.get("discipline_id"),
-                            session_id=metadata.get("session_id"),
-                            student_email=metadata["student_email"],
-                            content_hash=metadata["content_hash"],
-                            size=metadata.get("size"),
-                            created_at=datetime.fromtimestamp(metadata["created_at"]),
-                            updated_at=datetime.fromtimestamp(metadata["updated_at"])
-                        ))
-                        seen_ids.add(metadata["id"])
-                    except KeyError as ke:
-                        print(f"[WARNING] Missing required field in metadata: {ke}")
-                        print(f"Metadata content: {metadata}")
+                                table_hash = hashlib.sha256(table_text.encode('utf-8')).hexdigest()
+                                
+                                table_metadata = {
+                                    "type": "table",
+                                    "page_number": str(page_num + 1),
+                                    "table_number": str(table_index + 1),
+                                    "content_hash": table_hash,
+                                    "parent_document": content_hash,
+                                    "filename": filename,
+                                    "file_id": specific_file_id,
+                                    "source": "pdf_extraction"
+                                }
+                                
+                                self.add_document(
+                                    student_email=student_email,
+                                    session_id=session_id,
+                                    content=table_text,
+                                    access_level=access_level,
+                                    disciplina_id=disciplina,
+                                    specific_file_id=specific_file_id,
+                                    metadata_extra=table_metadata
+                                )
+                    except Exception as e:
+                        print(f"[PDF] Error processing tables on page {page_num + 1}: {str(e)}")
                         continue
 
-            return materials
-
         except Exception as e:
-            print(f"[ERROR] Erro ao recuperar materiais: {str(e)}")
+            print(f"[PDF] Error processing PDF file: {str(e)}")
             traceback.print_exc()
             raise
 
-    async def delete_material(self, material_id: str):
-        """Remove o material do Qdrant."""
+    async def _process_image_file(
+        self,
+        content: bytes,
+        student_email: str,
+        session_id: str,
+        disciplina: str,
+        access_level: str,
+        content_hash: str,
+        filename: str,
+        specific_file_id: Optional[str] = None
+    ):
+        """Process image files with verification."""
         try:
-            query_filter = models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="id",
-                        match=models.MatchValue(value=material_id)
-                    )
-                ]
-            )
+            # Generate image description
+            img_base64 = self.image_handler.encode_image_bytes(content)
+            description = self.image_handler.image_summarize(img_base64)
             
-            self.client.delete(
-                collection_name=self.collection_name,
-                points_filter=query_filter
-            )
-            print(f"[DELETE] Material removido: {material_id}")
+            # Generate UUID for image
+            image_uuid = str(uuid.uuid4())
+
+            # Initialize MongoImageHandler
+            mongo_image_handler = MongoImageHandler(self.mongo_manager)
             
+            # Store and verify image
+            stored_doc = await mongo_image_handler.store_image(
+                image_uuid=image_uuid,
+                image_bytes=content,
+                student_email=student_email,
+                disciplina=disciplina,
+                session_id=session_id,
+                filename=filename,
+                content_hash=content_hash,
+                access_level=access_level
+            )
+
+            # Verify storage
+            if not await mongo_image_handler.verify_image_storage(image_uuid):
+                raise Exception("Image storage verification failed")
+
+            # Prepare metadata for Qdrant
+            metadata = {
+                "type": "image",
+                "content_hash": content_hash,
+                "filename": filename,
+                "file_id": specific_file_id,
+                "image_uuid": image_uuid,
+                "file_size": stored_doc["file_size"],
+                "content_type": stored_doc["content_type"]
+            }
+
+            # Add document reference to Qdrant
+            self.add_document(
+                student_email=student_email,
+                session_id=session_id,
+                content=description,
+                access_level=access_level,
+                disciplina_id=disciplina,
+                specific_file_id=specific_file_id,
+                metadata_extra=metadata
+            )
+
+            print(f"[PROCESS] Image processed and stored successfully: {image_uuid}")
+            return image_uuid
+
         except Exception as e:
-            print(f"[ERROR] Erro ao remover material {material_id}: {str(e)}")
+            print(f"[ERROR] Failed to process image: {str(e)}")
+            traceback.print_exc()
             raise
 
-    async def update_material_access(
-        self,
-        material_id: str,
-        new_access_level: str,
-        discipline_id: Optional[str] = None,
-        session_id: Optional[str] = None
-    ):
-        """Atualiza o nível de acesso do material e contexto."""
-        try:
-            query_filter = models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="id",
-                        match=models.MatchValue(value=material_id)
-                    )
-                ]
-            )
-            
-            update_data = {
-                "access_level": new_access_level,
-                "discipline_id": discipline_id,
-                "session_id": session_id,
-                "updated_at": datetime.now().timestamp()
-            }
-            
-            self.client.update(
-                collection_name=self.collection_name,
-                points_filter=query_filter,
-                payload=update_data
-            )
-            print(f"[UPDATE] Material atualizado: {material_id}")
-            
-        except Exception as e:
-            print(f"[ERROR] Erro ao atualizar material {material_id}: {str(e)}")
-            raise
+    async def get_materials(
+            self,
+            student_email: str,
+            discipline_id: Optional[str] = None,
+            session_id: Optional[str] = None
+        ) -> List[Material]:
+            """Retrieve materials based on access level and context."""
+            try:
+                filter_conditions = [{"access_level": "global"}]
+                
+                if discipline_id:
+                    filter_conditions.append({
+                        "access_level": "discipline",
+                        "discipline_id": discipline_id
+                    })
+                    
+                if session_id:
+                    filter_conditions.append({
+                        "access_level": "session",
+                        "session_id": session_id
+                    })
+
+                query_filter = models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="metadata.student_email",
+                            match=models.MatchValue(value=student_email)
+                        )
+                    ],
+                    should=[
+                        models.Filter(
+                            must=[
+                                models.FieldCondition(
+                                    key=f"metadata.{key}",
+                                    match=models.MatchValue(value=str(value))
+                                ) for key, value in condition.items()
+                            ]
+                        ) for condition in filter_conditions
+                    ]
+                )
+
+                results, _ = self.client.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=query_filter,
+                    limit=100
+                )
+                
+                materials = []
+                seen_ids = set()
+                
+                for result in results:
+                    metadata = result.payload.get("metadata", {})
+                    if metadata.get("id") not in seen_ids:
+                        try:
+                            materials.append(Material(
+                                id=metadata["id"],
+                                name=metadata["name"],
+                                type=metadata["type"],
+                                access_level=metadata["access_level"],
+                                discipline_id=metadata.get("discipline_id"),
+                                session_id=metadata.get("session_id"),
+                                student_email=metadata["student_email"],
+                                content_hash=metadata["content_hash"],
+                                size=metadata.get("size"),
+                                created_at=datetime.fromtimestamp(metadata["created_at"]),
+                                updated_at=datetime.fromtimestamp(metadata["updated_at"])
+                            ))
+                            seen_ids.add(metadata["id"])
+                        except KeyError as ke:
+                            print(f"[WARNING] Missing required field in metadata: {ke}")
+                            print(f"Metadata content: {metadata}")
+                            continue
+
+                return materials
+
+            except Exception as e:
+                print(f"[ERROR] Error retrieving materials: {str(e)}")
+                traceback.print_exc()
+                raise
 
     def similarity_search_with_filter(
         self,
@@ -442,78 +585,91 @@ class QdrantHandler:
         specific_file_id: Optional[str] = None,
         specific_metadata: Optional[dict] = None
     ) -> List[Document]:
-        """Realiza busca por similaridade com filtros flexíveis."""
+        """
+        Realiza busca por similaridade com filtros flexíveis usando a estrutura correta do Qdrant.
+        """
         print(f"\n[SEARCH] Iniciando busca com filtros:")
         print(f"[SEARCH] Query: {query}")
         print(f"[SEARCH] Student: {student_email}")
         print(f"[SEARCH] Config: global={use_global}, discipline={use_discipline}, session={use_session}")
-        print(f"[SEARCH] Disciplina: {disciplina_id}, Session: {session_id}")
 
         try:
-            must_conditions = [
-                models.FieldCondition(
-                    key="metadata.student_email",
-                    match=models.MatchValue(value=student_email)
-                )
-            ]
-
+            # Busca por ID específico
             if specific_file_id:
-                print(f"[SEARCH] Buscando por ID específico: {specific_file_id}")
-                must_conditions.append(
-                    models.FieldCondition(
-                        key="metadata.file_id",
-                        match=models.MatchValue(value=specific_file_id)
-                    )
-                )
-            
-            if specific_metadata:
-                print(f"[SEARCH] Adicionando metadados específicos: {specific_metadata}")
-                for key, value in specific_metadata.items():
-                    must_conditions.append(
+                search_filter = models.Filter(
+                    must=[
                         models.FieldCondition(
-                            key=f"metadata.{key}",
-                            match=models.MatchValue(value=str(value))
+                            key="metadata.student_email",
+                            match=models.MatchValue(value=student_email)
+                        ),
+                        models.FieldCondition(
+                            key="metadata.file_id",
+                            match=models.MatchValue(value=specific_file_id)
                         )
-                    )
+                    ]
+                )
+                return self._execute_search(query, search_filter, k)
 
-            allowed_access_levels = []
-            
+            # Busca por metadados específicos
+            if specific_metadata:
+                must_conditions = [
+                    models.FieldCondition(
+                        key=f"metadata.{key}",
+                        match=models.MatchValue(value=str(value))
+                    )
+                    for key, value in specific_metadata.items()
+                ]
+                must_conditions.append(
+                    models.FieldCondition(
+                        key="metadata.student_email",
+                        match=models.MatchValue(value=student_email)
+                    )
+                )
+                search_filter = models.Filter(must=must_conditions)
+                return self._execute_search(query, search_filter, k)
+
+            # Busca por níveis de acesso
+            should_conditions = []
+
+            # Global access
             if use_global:
-                print("[SEARCH] Adicionando acesso global aos níveis permitidos")
-                allowed_access_levels.append("global")
-
-            if use_discipline and disciplina_id:
-                print(f"[SEARCH] Adicionando acesso de disciplina aos níveis permitidos: {disciplina_id}")
-                allowed_access_levels.append("discipline")
-                must_conditions.append(
-                    models.FieldCondition(
-                        key="metadata.discipline_id",
-                        match=models.MatchValue(value=disciplina_id)
-                    )
-                )
-
-            if use_session and session_id:
-                print(f"[SEARCH] Adicionando acesso de sessão aos níveis permitidos: {session_id}")
-                allowed_access_levels.append("session")
-                must_conditions.append(
-                    models.FieldCondition(
-                        key="metadata.session_id",
-                        match=models.MatchValue(value=session_id)
-                    )
-                )
-
-            if allowed_access_levels:
-                print(f"[SEARCH] Níveis de acesso permitidos: {allowed_access_levels}")
-                must_conditions.append(
+                should_conditions.append(
                     models.FieldCondition(
                         key="metadata.access_level",
-                        match=models.MatchAny(any=allowed_access_levels)
+                        match=models.MatchValue(value="global")
                     )
                 )
 
-            search_filter = models.Filter(must=must_conditions)
-            print(f"[SEARCH] Filtro final construído: {search_filter}")
-            
+            # Discipline access
+            if use_discipline and disciplina_id:
+                should_conditions.append(
+                    models.FieldCondition(
+                        key="metadata.access_level",
+                        match=models.MatchValue(value="discipline")
+                    )
+                )
+
+            # Session access
+            if use_session and session_id:
+                should_conditions.append(
+                    models.FieldCondition(
+                        key="metadata.access_level",
+                        match=models.MatchValue(value="session")
+                    )
+                )
+
+            # Construir filtro final
+            search_filter = models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="metadata.student_email",
+                        match=models.MatchValue(value=student_email)
+                    )
+                ],
+                should=should_conditions
+            )
+
+            print(f"[SEARCH] Filtro construído: {search_filter}")
             return self._execute_search(query, search_filter, k)
 
         except Exception as e:
@@ -523,171 +679,211 @@ class QdrantHandler:
             return []
 
     def _execute_search(self, query: str, search_filter: models.Filter, k: int) -> List[Document]:
-        """Executa a busca com o filtro construído."""
+        """Execute the search with the constructed filter."""
         try:
-            print(f"[SEARCH] Executando busca com filtro: {search_filter}")
+            print(f"[SEARCH] Executing search with filter: {search_filter}")
             results = self.vector_store.similarity_search(
                 query=query,
                 k=k,
                 filter=search_filter
             )
 
-            print(f"[SEARCH] Encontrados {len(results)} resultados")
+            print(f"[SEARCH] Found {len(results)} results")
             for i, doc in enumerate(results, 1):
-                print(f"[SEARCH] Resultado {i}:")
-                print(f"  - Nível de acesso: {doc.metadata.get('access_level')}")
+                print(f"[SEARCH] Result {i}:")
+                print(f"  - Access level: {doc.metadata.get('access_level')}")
                 print(f"  - Preview: {doc.page_content[:100]}...")
 
             return results
 
         except Exception as e:
-            print(f"[ERROR] Erro na execução da busca: {str(e)}")
+            print(f"[ERROR] Error executing search: {str(e)}")
+            traceback.print_exc()
             raise
 
-    def similarity_search_without_filter(self, query: str, k: int = 5):
-        """Realiza busca sem filtros."""
-        print(f"Realizando busca sem filtro: query={query}")
-
+    async def delete_material(self, material_id: str):
+        """Delete a material from Qdrant."""
         try:
-            results = self.vector_store.similarity_search(query=query, k=k)
-            print(f"{len(results)} documentos encontrados sem filtro.")
-            return results
+            query_filter = models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="metadata.id",
+                        match=models.MatchValue(value=material_id)
+                    )
+                ]
+            )
+            
+            self.client.delete(
+                collection_name=self.collection_name,
+                points_filter=query_filter
+            )
+            print(f"[DELETE] Material deleted: {material_id}")
+            
         except Exception as e:
-            print(f"Erro na busca sem filtro: {e}")
-            return []
+            print(f"[ERROR] Error deleting material {material_id}: {str(e)}")
+            raise
 
-    def document_exists(self, content_hash: str, student_email: str, disciplina: str) -> bool:
-        """Verifica se um documento já existe na coleção."""
-        query_filter = Filter(
-            must=[
-                FieldCondition(key="content_hash", match=MatchValue(value=content_hash)),
-                FieldCondition(key="student_email", match=MatchValue(value=student_email)),
-                FieldCondition(key="disciplina", match=MatchValue(value=disciplina)),
-            ]
-        )
+    async def update_material_access(
+        self,
+        material_id: str,
+        new_access_level: str,
+        discipline_id: Optional[str] = None,
+        session_id: Optional[str] = None
+    ):
+        """Update material access level and context."""
+        try:
+            query_filter = models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="metadata.id",
+                        match=models.MatchValue(value=material_id)
+                    )
+                ]
+            )
+            
+            update_data = {
+                "metadata": {
+                    "access_level": new_access_level,
+                    "discipline_id": discipline_id,
+                    "session_id": session_id,
+                    "updated_at": datetime.now().timestamp()
+                }
+            }
+            
+            self.client.update(
+                collection_name=self.collection_name,
+                points_filter=query_filter,
+                payload=update_data
+            )
+            print(f"[UPDATE] Material updated: {material_id}")
+            
+        except Exception as e:
+            print(f"[ERROR] Error updating material {material_id}: {str(e)}")
+            raise
+
+    def debug_metadata(self):
+        """Debug metadata in the collection."""
+        print("Debugging metadata...")
         try:
             results, _ = self.client.scroll(
                 collection_name=self.collection_name,
-                scroll_filter=query_filter,
-                limit=1
+                limit=10
             )
-            exists = len(results) > 0
-            print(f"Documento encontrado: {exists}")
-            return exists
-        except Exception as e:
-            print(f"Erro ao verificar existência do documento: {e}")
-            return False
-
-    def debug_metadata(self):
-        """Depura os metadados dos documentos na coleção."""
-        print("Depurando metadados...")
-
-        try:
-            results, _ = self.client.scroll(collection_name=self.collection_name, limit=10)
-            print(f"{len(results)} documentos encontrados.")
+            print(f"{len(results)} documents found.")
 
             for result in results:
-                metadata = result.payload
-                print(f"Metadados Recuperados: {metadata}")
+                metadata = result.payload.get("metadata", {})
+                print(f"\nMetadata Retrieved: {metadata}")
 
-                if 'metadata' in metadata:
-                    disciplina_value = metadata['metadata'].get('disciplina')
-                    print(f"Disciplina: {disciplina_value} (Tipo: {type(disciplina_value)})")
-                else:
-                    print("⚠️ O campo 'metadata' está ausente ou mal formatado.")
+                if not metadata:
+                    print("⚠️ Empty or missing metadata")
+                    continue
 
-                if disciplina_value is None:
-                    print("⚠️ O campo 'disciplina' está ausente ou vazio.")
-                elif not isinstance(disciplina_value, str):
-                    print("⚠️ O campo 'disciplina' não é uma string.")
+                # Check critical fields
+                critical_fields = ["student_email", "disciplina", "access_level"]
+                for field in critical_fields:
+                    value = metadata.get(field)
+                    if value is None:
+                        print(f"⚠️ Missing critical field: {field}")
+                    elif not isinstance(value, str):
+                        print(f"⚠️ Field {field} is not a string: {type(value)}")
 
         except Exception as e:
-            print(f"Erro ao listar documentos: {e}")
+            print(f"Error listing documents: {e}")
+            traceback.print_exc()
 
     def fix_document_metadata(self):
-        """Corrige os metadados dos documentos com 'disciplina' None."""
+        """Fix metadata issues in documents."""
         try:
-            results, _ = self.client.scroll(collection_name=self.collection_name, limit=10)
+            results, _ = self.client.scroll(
+                collection_name=self.collection_name,
+                limit=100  # Adjust based on your needs
+            )
+            
             for result in results:
-                metadata = result.payload
-                if metadata.get("disciplina") is None:
-                    metadata["disciplina"] = "1"  # Corrige para string
+                try:
+                    metadata = result.payload.get("metadata", {})
+                    needs_update = False
+                    
+                    # Ensure all values are strings
+                    for key, value in metadata.items():
+                        if value is None:
+                            metadata[key] = ""
+                            needs_update = True
+                        elif not isinstance(value, str):
+                            metadata[key] = str(value)
+                            needs_update = True
 
-                    self.client.update_point(
-                        collection_name=self.collection_name,
-                        id=result.id,
-                        payload=metadata
-                    )
-                    print(f"Metadados corrigidos para o documento {result.id}")
+                    # Add missing required fields
+                    required_fields = {
+                        "access_level": "session",
+                        "disciplina": "1",
+                        "student_email": "",
+                        "session_id": "",
+                        "created_at": str(datetime.now().timestamp()),
+                        "updated_at": str(datetime.now().timestamp())
+                    }
+
+                    for field, default_value in required_fields.items():
+                        if field not in metadata:
+                            metadata[field] = default_value
+                            needs_update = True
+
+                    if needs_update:
+                        self.client.update_point(
+                            collection_name=self.collection_name,
+                            id=result.id,
+                            payload={"metadata": metadata}
+                        )
+                        print(f"Metadata fixed for document {result.id}")
+
+                except Exception as e:
+                    print(f"Error processing document {result.id}: {e}")
+                    continue
+
         except Exception as e:
-            print(f"Erro ao corrigir metadados: {e}")
+            print(f"Error fixing metadata: {e}")
+            traceback.print_exc()
 
-    def compare_search_results(self, query: str, student_email: str, disciplina: str, k: int = 5):
-        """Compara resultados de busca com e sem filtros."""
-        print("🔍 Comparando resultados de busca...")
-
-        print("🔍 Buscando sem filtro...")
-        no_filter_results = self.similarity_search_without_filter(query, k)
-
-        print("🔍 Buscando com filtro...")
-        filter_results = self.similarity_search_with_filter(query, student_email, disciplina_id=disciplina, k=k)
-
-        print(f"Sem filtro: {len(no_filter_results)} | Com filtro: {len(filter_results)}")
-        if len(filter_results) == 0:
-            print("⚠️ Nenhum resultado encontrado com filtro. Verifique os metadados e filtros.")
-
-    def compare_search_results(self, query: str, student_email: str, disciplina: str, k: int = 5):
-        print("🔍 Comparando resultados de busca...")
-
-        print("🔍 Buscando sem filtro...")
-        no_filter_results = self.similarity_search_without_filter(query, k)
-
-        print("🔍 Buscando com filtro...")
-        filter_results = self.similarity_search_with_filter(query, student_email, disciplina, k)
-
-        print(f"Sem filtro: {len(no_filter_results)} | Com filtro: {len(filter_results)}")
-        if len(filter_results) == 0:
-            print("⚠️ Nenhum resultado encontrado com filtro. Verifique os metadados e filtros.")
-
-    def document_exists(self, content_hash: str, student_email: str, disciplina: int) -> bool:
-        query_filter = Filter(
-            must=[
-                FieldCondition(key="content_hash", match=MatchValue(value=content_hash)),
-                FieldCondition(key="student_email", match=MatchValue(value=student_email)),
-                FieldCondition(key="disciplina", match=MatchValue(value=disciplina)),
-            ]
-        )
-        try:
-            results, _ = self.client.scroll(collection_name=self.collection_name, scroll_filter=query_filter, limit=1)
-            exists = len(results) > 0
-            print(f"Documento encontrado: {exists}")
-            return exists
-        except Exception as e:
-            print(f"Erro ao verificar existência do documento: {e}")
-            return False
 class TextSplitter:
     def __init__(self, chunk_size: int = 1024, chunk_overlap: int = 50):
         """
-        Inicializa o TextSplitter com tamanho de chunk e sobreposição.
+        Initializes the TextSplitter with chunk size and overlap.
         
-        :param chunk_size: Tamanho máximo de cada pedaço de texto
-        :param chunk_overlap: Sobreposição entre pedaços
+        Args:
+            chunk_size: Maximum size of each text chunk
+            chunk_overlap: Overlap between chunks
         """
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-
-    def split_documents(self, documents: List[Document]) -> List[Document]:
-        """
-        Divide documentos em pedaços menores.
-        
-        :param documents: Lista de documentos a serem divididos
-        :return: Lista de documentos divididos
-        """
-        text_splitter = RecursiveCharacterTextSplitter(
+        self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=self.chunk_size,
             chunk_overlap=self.chunk_overlap,
         )
-        return text_splitter.split_documents(documents)
+
+    def split_text(self, text: str) -> List[str]:
+        """
+        Splits text into smaller chunks.
+        
+        Args:
+            text: Text to be split
+            
+        Returns:
+            List of text chunks
+        """
+        return self.text_splitter.split_text(text)
+
+    def split_documents(self, documents: List[Document]) -> List[Document]:
+        """
+        Splits documents into smaller chunks.
+        
+        Args:
+            documents: List of documents to be split
+            
+        Returns:
+            List of split documents
+        """
+        return self.text_splitter.split_documents(documents)
 
 
 class Embeddings:

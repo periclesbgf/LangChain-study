@@ -10,7 +10,7 @@ from utils import MONGO_URI, MONGO_DB_NAME, QDRANT_URL
 from typing import Optional
 from database.vector_db import QdrantHandler
 from agent.image_handler import ImageHandler
-from database.vector_db import Embeddings
+from database.vector_db import Embeddings, TextSplitter
 from datetime import datetime
 from utils import OPENAI_API_KEY
 from agent.agents import RetrievalAgent, ChatAgent
@@ -36,17 +36,23 @@ async def chat_endpoint(
     current_user=Depends(get_current_user)
 ):
     try:
+        # Initialize MongoDB manager
+        mongo_manager = MongoDatabaseManager()
         print("\n[DEBUG] Starting chat endpoint")
+        image_handler = ImageHandler(OPENAI_API_KEY)
+        text_splitter = TextSplitter()
         embeddings = Embeddings().get_embeddings()
         qdrant_handler = QdrantHandler(
             url=QDRANT_URL,
             collection_name="student_documents",
-            embeddings=embeddings
+            embeddings=embeddings,
+            text_splitter=text_splitter,
+            image_handler=image_handler,
+            mongo_manager=mongo_manager
         )
-        image_handler = ImageHandler(OPENAI_API_KEY)
+        
 
-        # Initialize MongoDB manager
-        mongo_manager = MongoDatabaseManager()
+
         
         # Get student profile
         student_profile = await mongo_manager.get_student_profile(
