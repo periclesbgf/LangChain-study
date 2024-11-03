@@ -773,15 +773,14 @@ class QdrantHandler:
     def _execute_search(self, query: str, search_filter: models.Filter, k: int) -> List[Document]:
         """Executes the search with the given filter and retrieves complete payloads."""
         try:
-            print(f"[SEARCH] Executing search with filter: {search_filter}")
-            
+
             # Executa a busca principal
             results = self.vector_store.similarity_search(
                 query=query,
                 k=k,
                 filter=search_filter
             )
-            
+
             # Recupera os payloads completos
             scroll_results, _ = self.client.scroll(
                 collection_name=self.collection_name,

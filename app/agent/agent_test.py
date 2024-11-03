@@ -50,30 +50,233 @@ class AgentState(TypedDict):
     evaluation_reason: str
     web_search_results: Dict[str, str]
     answer_type: str | None
+    current_progress: Dict[str, Any]
+    session_id: str
 
-# class StudyPlanUpdater(MongoDatabaseManager):
-#     def __init__(self, db_name: str,state: AgentState, collection_name: str = "study_plans"):
-#         super().__init__(db_name, collection_name)
-#         self.state = state
+from datetime import datetime, timezone
+from typing import Dict, Any, List, Optional
+from pymongo import errors
 
-#     def update_agent_state(self, state: AgentState):
-#         self.state = state
-#         self.update_one({"_id": "current_state"}, {"$set": state}, upsert=True)
+class StudyProgressManager(MongoDatabaseManager):
+    def __init__(self, db_name: str = "study_plans"):
+        """
+        Inicializa o gerenciador de progresso de estudos.
 
-#     def get_agent_state(self) -> AgentState:
-#         return self.find_one({"_id": "current_state"}) or {}
+        Args:
+            db_name: Nome do banco de dados MongoDB
+        """
+        super().__init__()
+        self.collection_name = db_name
 
-# class StudentProfileUpdater(MongoDatabaseManager):
-#     def __init__(self, db_name: str, state: AgentState, collection_name: str = "student_learn_preference"):
-#         super().__init__(db_name, collection_name)
-#         self.state = state
+    async def get_study_progress(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Recupera o progresso atual do plano de estudos.
 
-#     def update_agent_state(self, state: AgentState):
-#         self.state = state
-#         self.update_one({"_id": "current_state"}, {"$set": state}, upsert=True)
+        Args:
+            session_id: ID da sessão de estudo
 
-#     def get_agent_state(self) -> AgentState:
-#         return self.find_one({"_id": "current_state"}) or {}
+        Returns:
+            Dict contendo o progresso ou None se não encontrado
+        """
+        try:
+            collection = self.db[self.collection_name]
+            plan = await collection.find_one(
+                {"id_sessao": session_id},
+                {"_id": 0, "plano_execucao": 1, "progresso_total": 1}
+            )
+            print(f"[PROGRESS] (get_study_progress) Plano encontrado: {plan}")
+
+            if not plan:
+                print(f"[PROGRESS] Plano não encontrado para sessão: {session_id}")
+                return None
+
+            return {
+                "plano_execucao": plan.get("plano_execucao", []),
+                "progresso_total": plan.get("progresso_total", 0)
+            }
+        except Exception as e:
+            print(f"[PROGRESS] Erro ao recuperar progresso: {e}")
+            return None
+
+    async def update_step_progress(
+        self,
+        session_id: str,
+        step_index: int,
+        new_progress: int
+    ) -> bool:
+        """
+        Atualiza o progresso de uma etapa específica do plano.
+
+        Args:
+            session_id: ID da sessão de estudo
+            step_index: Índice da etapa no plano
+            new_progress: Novo valor de progresso (0-100)
+
+        Returns:
+            bool indicando sucesso da operação
+        """
+        try:
+            if not 0 <= new_progress <= 100:
+                raise ValueError("Progresso deve estar entre 0 e 100")
+
+            collection = self.db[self.collection_name]
+
+            # Primeiro recupera o plano atual
+            plan = await collection.find_one({"id_sessao": session_id})
+            if not plan:
+                print(f"[PROGRESS] Plano não encontrado para sessão: {session_id}")
+                return False
+
+            # Atualiza o progresso da etapa específica
+            plano_execucao = plan.get("plano_execucao", [])
+            if step_index >= len(plano_execucao):
+                raise ValueError(f"Índice de etapa inválido: {step_index}")
+
+            plano_execucao[step_index]["progresso"] = new_progress
+
+            # Calcula o progresso total
+            total_steps = len(plano_execucao)
+            progresso_total = sum(step["progresso"] for step in plano_execucao) / total_steps
+
+            # Atualiza o documento
+            result = await collection.update_one(
+                {"id_sessao": session_id},
+                {
+                    "$set": {
+                        "plano_execucao": plano_execucao,
+                        "progresso_total": round(progresso_total, 2),
+                        "updated_at": datetime.now(timezone.utc)
+                    }
+                }
+            )
+
+            return result.modified_count > 0
+        except Exception as e:
+            print(f"[PROGRESS] Erro ao atualizar progresso da etapa: {e}")
+            return False
+
+    async def get_step_details(
+        self,
+        session_id: str,
+        step_index: int
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Recupera os detalhes de uma etapa específica do plano.
+
+        Args:
+            session_id: ID da sessão de estudo
+            step_index: Índice da etapa no plano
+
+        Returns:
+            Dict contendo os detalhes da etapa ou None se não encontrado
+        """
+        try:
+            collection = self.db[self.collection_name]
+            plan = await collection.find_one({"id_sessao": session_id})
+
+            if not plan or "plano_execucao" not in plan:
+                return None
+
+            plano_execucao = plan["plano_execucao"]
+            if step_index >= len(plano_execucao):
+                return None
+
+            return plano_execucao[step_index]
+        except Exception as e:
+            print(f"[PROGRESS] Erro ao recuperar detalhes da etapa: {e}")
+            return None
+
+    async def mark_step_completed(
+        self,
+        session_id: str,
+        step_index: int
+    ) -> bool:
+        """
+        Marca uma etapa como concluída (100% de progresso).
+
+        Args:
+            session_id: ID da sessão de estudo
+            step_index: Índice da etapa no plano
+
+        Returns:
+            bool indicando sucesso da operação
+        """
+        return await self.update_step_progress(session_id, step_index, 100)
+
+    async def get_next_incomplete_step(
+        self,
+        session_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Encontra a próxima etapa incompleta do plano.
+
+        Args:
+            session_id: ID da sessão de estudo
+
+        Returns:
+            Dict contendo os detalhes da próxima etapa incompleta ou None se todas estiverem completas
+        """
+        try:
+            collection = self.db[self.collection_name]
+            plan = await collection.find_one({"id_sessao": session_id})
+
+            if not plan or "plano_execucao" not in plan:
+                return None
+
+            for index, step in enumerate(plan["plano_execucao"]):
+                if step.get("progresso", 0) < 100:
+                    return {
+                        "index": index,
+                        "step": step
+                    }
+
+            return None  # Todas as etapas estão completas
+        except Exception as e:
+            print(f"[PROGRESS] Erro ao buscar próxima etapa incompleta: {e}")
+            return None
+
+    async def get_study_summary(
+        self,
+        session_id: str
+    ) -> Dict[str, Any]:
+        """
+        Gera um resumo do progresso do plano de estudos.
+
+        Args:
+            session_id: ID da sessão de estudo
+
+        Returns:
+            Dict contendo o resumo do progresso
+        """
+        try:
+            collection = self.db[self.collection_name]
+            plan = await collection.find_one({"id_sessao": session_id})
+
+            if not plan:
+                return {
+                    "error": "Plano não encontrado",
+                    "session_id": session_id
+                }
+
+            plano_execucao = plan.get("plano_execucao", [])
+            total_steps = len(plano_execucao)
+            completed_steps = sum(1 for step in plano_execucao if step.get("progresso", 0) == 100)
+
+            return {
+                "session_id": session_id,
+                "total_steps": total_steps,
+                "completed_steps": completed_steps,
+                "progress_percentage": plan.get("progresso_total", 0),
+                "started_at": plan.get("created_at"),
+                "last_updated": plan.get("updated_at"),
+                "estimated_duration": plan.get("duracao_total", "60 minutos")
+            }
+        except Exception as e:
+            print(f"[PROGRESS] Erro ao gerar resumo do estudo: {e}")
+            return {
+                "error": str(e),
+                "session_id": session_id
+            }
 
 def filter_chat_history(messages: List[BaseMessage]) -> List[BaseMessage]:
     """
@@ -406,8 +609,6 @@ class RetrievalTools:
             image_description = ""
             if image_context and isinstance(image_context, dict):
                 image_description = image_context.get("description", "")
-            print(f"[RETRIEVAL] Image description: {image_description}")
-            print(f"[RETRIEVAL] Image context: {image_context}")
 
             # Tratamento seguro para contexto de tabela
             table_content = ""
@@ -572,7 +773,7 @@ def create_answer_plan_node():
     Descrição: {descricao}
     Progresso: {progresso}%
 
-    Pergunta do Aluno:
+    Pergunta ou resposta do Aluno:
     {question}
 
     Histórico da Conversa:
@@ -583,11 +784,10 @@ def create_answer_plan_node():
     1. IDENTIFICAÇÃO DO CONTEXTO:
     - Identifique exatamente em qual parte do conteúdo a pergunta se encaixa
     - Avalie se a pergunta está alinhada com o momento atual do plano
+    - (importante) o aluno pode estar respondendo a uma pergunta anterior feita pelo tutor
 
     2. ESTRUTURA DE RESPOSTA:
-    - Adapte a explicação ao estilo de aprendizagem do aluno
-    - Divida a resposta em no máximo 3 partes
-    - Para cada parte, defina um objetivo mensurável
+    - Adapte a resposta ao estilo de aprendizagem do aluno
 
     3. RECURSOS E ATIVIDADES (OPCIONAL):
     - Sugira recursos baseado no perfil do aluno
@@ -598,6 +798,8 @@ def create_answer_plan_node():
     - Defina claramente o que o aluno deve fazer após a explicação
     - Estabeleça indicadores de compreensão
     - Estabeleca o nivel_resposta esperado, divida entre básico, intermediário e avançado
+
+    ATENÇÃO: SE O PLANO ESTIVER CHEGANDO AO FIM, SEU OUTPUT DEVE SER UM PLANO PARA A CRIACAO DE UMA LISTA DE REVISAO PARA O ALUNO.
 
     Forneça o plano de resposta no seguinte formato JSON:
         "contexto_identificado": "string",
@@ -649,7 +851,7 @@ def create_answer_plan_node():
 
             # Gerar o plano
             response = model.invoke(prompt.format(**params))
-
+            print(f"[PLANNING] Response content: {response.content}")
             # Processar a resposta
             cleaned_content = response.content.strip()
             if cleaned_content.startswith("```json"):
@@ -693,9 +895,11 @@ def create_answer_plan_node():
     return generate_plan
 
 def create_teaching_node():
-    CONTEXT_TEACHING_PROMPT = """Você é um tutor personalizado que ajuda os alunos através do pensamento crítico.
+    CONTEXT_TEACHING_PROMPT = """
+    Você é um tutor personalizado que nunca fornece a resposta direta, 
+    mas sim explicações e orientações para ajudar o aluno a chegar à resposta.
 
-    Plano de Aprendizado:
+    Plano de Resposta:
     {learning_plan}
 
     Perfil do Aluno:
@@ -710,7 +914,7 @@ def create_teaching_node():
     Histórico da Conversa:
     {chat_history}
 
-    Pergunta:
+    Mensagem do aluno:
     {question}
 
     Baseado nas informações disponíveis, crie uma explicação que:
@@ -733,16 +937,22 @@ def create_teaching_node():
     - Evite respostas longas e complexas
     - Referencie elementos específicos dos contextos utilizados
     - Inclua os links quando disponíveis
+    - (IMPORTANTE): Siga o plano de resposta para construir a resposta.
+    - (IMPORTANTE): Não forneça a resposta direta, mas sim orientações para chegar à resposta.
+    - (IMPORTANTE): Nem sempre a mensagem do aluno é uma pergunta, então adapte sua resposta conforme necessário.
+    - (IMPORTANTE): Voce esta ensinando, não apenas respondendo.
+    - Nem sempre é necessário incluir recursos.
+
     ATENÇÃO: VOCÊ RESPONDE DIRETAMENTE AO ALUNO, NÃO AO SISTEMA.
     """
 
     context_prompt = ChatPromptTemplate.from_template(CONTEXT_TEACHING_PROMPT)
-    model = ChatOpenAI(model="gpt-4o-mini", temperature=0.5)
+    model = ChatOpenAI(model="gpt-4o", temperature=0.4)
 
     def generate_teaching_response(state: AgentState) -> AgentState:
         print("\n[NODE:TEACHING] Starting teaching response generation")
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
-        print(f"[NODE:TEACHING] Processing question: {latest_question}")
+        #print(f"[NODE:TEACHING] Processing question: {latest_question}")
 
         chat_history = format_chat_history(state["chat_history"])
 
@@ -771,6 +981,9 @@ def create_teaching_node():
                     f"Imagem: {contexts.get('image', {}).get('description', '')}\n"
                     f"Tabela: {contexts.get('table', {}).get('content', '')}"
                 )
+            print(f"[NODE:TEACHING] Source type: {source_type}")
+            print(f"[NODE:TEACHING] Context: {context}")
+            print(f"[NODE:TEACHING] learning_plan: {state['current_plan']}")
 
             explanation = model.invoke(context_prompt.format(
                 learning_plan=state["current_plan"],
@@ -832,18 +1045,191 @@ def create_teaching_node():
 
     return generate_teaching_response
 
+def create_progress_analyst_node(progress_manager: StudyProgressManager):
+    ANALYSIS_PROMPT = """Você é um analista especializado em avaliar o progresso de aprendizado baseado em interações.
+
+    Histórico da Conversa:
+    {chat_history}
+
+    Plano de Execução Atual:
+    {current_plan}
+
+    Etapa Atual:
+    Título: {step_title}
+    Descrição: {step_description}
+    Progresso Atual: {current_progress}%
+
+    Analise a última interação e determine:
+    1. O nível de compreensão demonstrado pelo aluno
+    2. Se houve progresso efetivo no aprendizado
+    3. Quanto o progresso deve aumentar (0-100%)
+    4. Se a etapa atual deve ser considerada concluída
+
+    IMPORTANTE: Retorne APENAS um JSON válido no seguinte formato EXATO:
+        "comprehension_level": "alto|medio|baixo",
+        "progress_made": true|false,
+        "progress_increment": number,
+        "step_completed": boolean,
+        "reasoning": "string"
+    """
+
+    prompt = ChatPromptTemplate.from_template(ANALYSIS_PROMPT)
+    model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+    async def analyze_progress(state: AgentState) -> AgentState:
+        print("\n[NODE:PROGRESS_ANALYST] Starting progress analysis")
+
+        try:
+            # Extrai informações necessárias do estado
+            messages = state['messages']
+            chat_history = state['chat_history']
+            current_plan = state['current_plan']
+            session_id = state['session_id']
+
+            # Obtém informações atualizadas de progresso
+            study_progress = await progress_manager.get_study_progress(session_id)
+            if not study_progress:
+                print("[PROGRESS_ANALYST] No progress data found")
+                return state
+
+            # Identifica a etapa atual
+            plano_execucao = study_progress['plano_execucao']
+            current_step = None
+            step_index = 0
+
+            # Encontra a primeira etapa não concluída
+            for idx, step in enumerate(plano_execucao):
+                if step['progresso'] < 100:
+                    current_step = step
+                    step_index = idx
+                    break
+
+            if not current_step:
+                print("[PROGRESS_ANALYST] All steps completed")
+                return state
+
+            # Formata o histórico do chat para análise
+            formatted_chat_history = format_chat_history(chat_history, max_messages=5)
+
+            # Obtém análise do modelo
+            analysis_response = model.invoke(prompt.format(
+                chat_history=formatted_chat_history,
+                current_plan=current_plan,
+                step_title=current_step['titulo'],
+                step_description=current_step['descricao'],
+                current_progress=current_step['progresso']
+            ))
+
+            # Processa a resposta
+            cleaned_content = analysis_response.content.strip()
+            if cleaned_content.startswith("```json"):
+                cleaned_content = cleaned_content[7:]
+            if cleaned_content.endswith("```"):
+                cleaned_content = cleaned_content[:-3]
+            cleaned_content = cleaned_content.strip()
+
+            analysis = json.loads(cleaned_content)
+            print(f"[PROGRESS_ANALYST] Analysis results: {analysis}")
+
+            # Atualiza o progresso apenas se houve avanço
+            if analysis["progress_made"]:
+                current_progress = current_step['progresso']
+                new_progress = min(
+                    current_progress + analysis["progress_increment"], 
+                    100
+                )
+
+                # Se a análise indica que a etapa foi concluída, força 100%
+                if analysis["step_completed"]:
+                    new_progress = 100
+
+                print(f"[PROGRESS_ANALYST] Updating progress - Current: {current_progress}%, New: {new_progress}%")
+
+                # Atualiza o progresso no banco de dados
+                update_success = await progress_manager.update_step_progress(
+                    session_id,
+                    step_index,
+                    new_progress
+                )
+
+                if update_success:
+                    # Obtém o resumo atualizado do estudo
+                    study_summary = await progress_manager.get_study_summary(session_id)
+
+                    # Atualiza o estado com as novas informações
+                    new_state = state.copy()
+                    new_state.update({
+                        'study_summary': study_summary,
+                        'progress_analysis': analysis,
+                        'current_progress': {
+                            'plano_execucao': plano_execucao,
+                            'step': current_step,
+                            'step_index': step_index,
+                            'progresso_total': study_summary['progress_percentage']
+                        }
+                    })
+                    return new_state
+                else:
+                    print("[PROGRESS_ANALYST] Failed to update progress")
+                    return state
+
+            print("[PROGRESS_ANALYST] No progress update needed")
+            return state
+
+        except Exception as e:
+            print(f"[PROGRESS_ANALYST] Error in progress analysis: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return state
+
+    return analyze_progress
+
+
 def identify_current_step(plano_execucao: List[Dict]) -> ExecutionStep:
+    """
+    Identifica a etapa atual do plano de execução.
+    Retorna a primeira etapa não concluída ou a última etapa se todas estiverem concluídas.
+    Mantém o progresso original de cada etapa.
+
+    Args:
+        plano_execucao: Lista de etapas do plano de execução
+
+    Returns:
+        ExecutionStep: Etapa atual com seu progresso real
+    """
     print("\n[PLAN] Identifying current execution step")
-    sorted_steps = sorted(plano_execucao, key=lambda x: x["progresso"])
-    print(f"[PLAN] Sorted steps: {sorted_steps}")
+    
+    if not plano_execucao:
+        raise ValueError("[PLAN] Plano de execução vazio")
 
-    current_step = next(
-        (step for step in sorted_steps if step["progresso"] < 100),
-        sorted_steps[-1]
+    # Primeiro tenta encontrar uma etapa não concluída
+    for step in plano_execucao:
+        current_progress = step.get("progresso", 0)
+        if current_progress < 100:
+            print(f"[PLAN] Found incomplete step: {step['titulo']} (Progress: {current_progress}%)")
+            # Retorna a etapa com seu progresso atual
+            return ExecutionStep(
+                titulo=step["titulo"],
+                duracao=step["duracao"],
+                descricao=step["descricao"],
+                conteudo=step["conteudo"],
+                recursos=step["recursos"],
+                atividade=step["atividade"],
+                progresso=current_progress  # Mantém o progresso real
+            )
+
+    # Se todas as etapas estiverem concluídas, retorna a última etapa
+    last_step = plano_execucao[-1]
+    print(f"[PLAN] All steps completed. Using last step: {last_step['titulo']} (Progress: {last_step['progresso']}%)")
+    return ExecutionStep(
+        titulo=last_step["titulo"],
+        duracao=last_step["duracao"],
+        descricao=last_step["descricao"],
+        conteudo=last_step["conteudo"],
+        recursos=last_step["recursos"],
+        atividade=last_step["atividade"],
+        progresso=last_step["progresso"]  # Mantém o progresso real da última etapa
     )
-
-    print(f"[PLAN] Selected step: {current_step['titulo']} (Progress: {current_step['progresso']}%)")
-    return ExecutionStep(**current_step)
 
 def should_continue(state: AgentState) -> str:
     MAX_ITERATIONS = 1
@@ -887,7 +1273,7 @@ class WebSearchTools:
                         'description': video.get('descriptionSnippet', [{'text': 'Sem descrição'}])[0]['text']
                     }
                     videos_info.append(video_info)
-                
+
                 # Formata a resposta com múltiplos vídeos
                 response = "Vídeos encontrados:\n\n"
                 for i, video in enumerate(videos_info, 1):
@@ -1060,20 +1446,35 @@ def create_websearch_node(web_tools: WebSearchTools):
     return web_search
 
 class TutorWorkflow:
-    def __init__(self, qdrant_handler, student_email: str, disciplina: str, session_id: str, image_collection):
+    def __init__(
+        self,
+        qdrant_handler,
+        student_email: str,
+        disciplina: str,
+        session_id: str,
+        image_collection
+    ):
         print(f"\n[WORKFLOW] Initializing TutorWorkflow")
+
+        self.session_id = session_id
+        self.student_email = student_email
+        self.disciplina = disciplina
+
+        self.progress_manager = StudyProgressManager()
 
         initial_state = AgentState(
             messages=[],
             current_plan="",
             user_profile={},
-            extracted_context={},  # Alterado para dict
+            extracted_context={},
             next_step=None,
             iteration_count=0,
             chat_history=[],
             needs_retrieval=True,
             evaluation_reason="",
-            web_search_results={}
+            web_search_results={},
+            current_progress=None,
+            session_id=session_id 
         )
 
         self.tools = RetrievalTools(
@@ -1089,22 +1490,17 @@ class TutorWorkflow:
         self.workflow = self.create_workflow()
 
     def create_workflow(self) -> Graph:
-        print("[WORKFLOW] Creating workflow graph")
-
-        planning_node = create_answer_plan_node()
-        route_node = route_after_plan_generation()
-        retrieval_node = create_retrieval_node(self.tools)
-        websearch_node = create_websearch_node(self.web_tools)
-        teaching_node = create_teaching_node()
-
         workflow = Graph()
 
-        workflow.add_node("generate_plan", planning_node)
-        workflow.add_node("route_after_plan", route_node)
-        workflow.add_node("retrieve_context", retrieval_node)
-        workflow.add_node("web_search", websearch_node)
-        workflow.add_node("teach", teaching_node)
-        
+        # Adiciona nós sem gerenciamento de progresso redundante
+        workflow.add_node("generate_plan", create_answer_plan_node())
+        workflow.add_node("route_after_plan", route_after_plan_generation())
+        workflow.add_node("retrieve_context", create_retrieval_node(self.tools))
+        workflow.add_node("web_search", create_websearch_node(self.web_tools))
+        workflow.add_node("teach", create_teaching_node())
+        workflow.add_node("progress_analyst", create_progress_analyst_node(self.progress_manager))
+
+        # Adiciona edges
         workflow.add_edge("generate_plan", "route_after_plan")
         workflow.add_conditional_edges(
             "route_after_plan",
@@ -1117,21 +1513,98 @@ class TutorWorkflow:
         )
         workflow.add_edge("retrieve_context", "teach")
         workflow.add_edge("web_search", "teach")
-        workflow.add_edge("teach", END)
-        # END
+        workflow.add_edge("teach", "progress_analyst")
+        workflow.add_edge("progress_analyst", END)
 
         workflow.set_entry_point("generate_plan")
         print("[WORKFLOW] Workflow graph created successfully")
         return workflow.compile()
 
-    async def invoke(self, query: str, student_profile: dict, current_plan=None, chat_history=None) -> dict:
+    async def handle_progress_update(
+        self,
+        session_id: str,
+        step_index: int,
+        new_progress: int
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Função utilitária para atualizar o progresso de forma segura.
+        """
+        try:
+            success = await self.progress_manager.update_step_progress(
+                session_id,
+                step_index,
+                new_progress
+            )
+
+            if success:
+                return await self.progress_manager.get_study_summary(session_id)
+            return None
+        except Exception as e:
+            print(f"[PROGRESS] Error in handle_progress_update: {e}")
+            return None
+
+    def create_planning_node_with_progress(self):
+        """Cria um nó de planejamento que apenas carrega o progresso atual."""
+        planning_node = create_answer_plan_node()
+        progress_manager = self.progress_manager
+
+        async def planning_with_progress(state: AgentState) -> AgentState:
+            try:
+                # Apenas recupera o progresso atual antes do planejamento
+                current_progress = await progress_manager.get_study_progress(self.session_id)
+
+                # Atualiza o estado com o progresso atual sem modificá-lo
+                if current_progress:
+                    state["current_progress"] = current_progress
+                
+                # Executa o planejamento original
+                new_state = planning_node(state)
+                return new_state
+
+            except Exception as e:
+                print(f"[PLANNING] Error in planning with progress: {e}")
+                import traceback
+                traceback.print_exc()
+                return state
+
+        return planning_with_progress
+
+    def create_teaching_node_with_progress(self):
+        """Cria um nó de ensino sem gerenciamento de progresso."""
+        teaching_node = create_teaching_node()
+
+        async def teaching_with_progress(state: AgentState) -> AgentState:
+            try:
+                # Executa apenas o ensino sem modificar progresso
+                new_state = teaching_node(state)
+                return new_state
+
+            except Exception as e:
+                print(f"[PROGRESS] Error in teaching with progress: {e}")
+                import traceback
+                traceback.print_exc()
+                return state
+
+        return teaching_with_progress
+
+    async def invoke(
+        self, 
+        query: str, 
+        student_profile: dict, 
+        current_plan=None, 
+        chat_history=None
+    ) -> dict:
         print(f"\n[WORKFLOW] Starting workflow invocation")
         print(f"[WORKFLOW] Query: {query}")
-        
+
         try:
             # Validar perfil do usuário
             validated_profile = student_profile
             print(f"[WORKFLOW] Student profile validated: {validated_profile.get('EstiloAprendizagem', 'Not found')}")
+
+            # Recuperar progresso atual
+            current_progress = await self.progress_manager.get_study_progress(self.session_id)
+            #print(f"[WORKFLOW] Current progress loaded: {current_progress}")
 
             if chat_history is None:
                 chat_history = []
@@ -1139,7 +1612,6 @@ class TutorWorkflow:
                 chat_history = list(chat_history)
 
             recent_history = chat_history[-10:]
-            print(f"[WORKFLOW] Using {len(recent_history)} recent chat messages")
 
             initial_state = AgentState(
                 messages=[HumanMessage(content=query)],
@@ -1151,25 +1623,46 @@ class TutorWorkflow:
                 chat_history=recent_history,
                 needs_retrieval=True,
                 evaluation_reason="",
-                web_search_results={}
+                web_search_results={},
+                current_progress=current_progress,
+                session_id=self.session_id
             )
 
             print("[WORKFLOW] Executing workflow")
             result = await self.workflow.ainvoke(initial_state)
             print("[WORKFLOW] Workflow execution completed successfully")
 
-            return {
+            # Recupera o resumo atualizado do estudo
+            study_summary = await self.progress_manager.get_study_summary(self.session_id)
+
+            # Prepara o resultado final
+            final_result = {
                 "messages": result["messages"],
                 "final_plan": result["current_plan"],
-                "chat_history": result["chat_history"]
+                "chat_history": result["chat_history"],
+                "study_progress": study_summary
             }
+
+            # Adiciona informações de debug se necessário
+            if "error" in result:
+                final_result["error"] = result["error"]
+
+            return final_result
 
         except Exception as e:
             print(f"[WORKFLOW] Error during workflow execution: {str(e)}")
             import traceback
             traceback.print_exc()
-            return {
+            error_response = {
                 "error": f"Erro na execução do workflow: {str(e)}",
                 "messages": [AIMessage(content="Desculpe, encontrei um erro ao processar sua pergunta. Por favor, tente novamente.")],
                 "chat_history": recent_history
             }
+
+            # Tenta adicionar o progresso mesmo em caso de erro
+            try:
+                error_response["study_progress"] = await self.progress_manager.get_study_summary(self.session_id)
+            except Exception as progress_error:
+                print(f"[WORKFLOW] Error getting progress summary: {progress_error}")
+
+            return error_response

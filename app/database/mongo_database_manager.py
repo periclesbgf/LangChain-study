@@ -130,7 +130,6 @@ class MongoDatabaseManager:
             plan = await collection.find_one({"id_sessao": str(id_sessao)})
             if plan:
                 plan["_id"] = str(plan["_id"])  # Converte ObjectId para string
-                print(f"[DEBUG] Plano encontrado: {plan}")
                 return plan
             print(f"[DEBUG] Nenhum plano encontrado para sessão: {id_sessao}")
             return None

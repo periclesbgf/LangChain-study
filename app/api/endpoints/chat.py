@@ -97,7 +97,7 @@ class ChatEndpointManager:
                 profile_task, 
                 plan_task
             )
-            print(f"Student profile: {student_profile}")
+            # print(f"Student profile: {student_profile}")
             print(f"Study plan: {study_plan}")
             
             if not student_profile:
