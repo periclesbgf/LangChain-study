@@ -758,90 +758,207 @@ def route_after_plan_generation():
     return route_after_plan
 
 def create_answer_plan_node():
-    PLANNING_PROMPT = """Você é um assistente educacional que cria planos de resposta adaptados ao perfil do aluno e ao momento atual do plano de execução.
+    PLANNING_PROMPT = """ROLE: Assistente Educacional Especializado em Personalização de Aprendizagem e Avaliação de Atividades
 
-    Perfil do Aluno:
-    Nome: {nome}
-    Estilo de Aprendizagem:
-    - Percepção: {percepcao}
-    - Entrada: {entrada}
-    - Processamento: {processamento}
-    - Entendimento: {entendimento}
+OBJETIVO: Criar um plano de resposta personalizado e/ou avaliar respostas de atividades do aluno, considerando seu perfil e progresso atual.
 
-    Etapa Atual do Plano:
-    Título: {titulo}
-    Descrição: {descricao}
-    Progresso: {progresso}%
+PERFIL DO ALUNO:
+Nome: {nome}
+Estilo de Aprendizagem:
+- Percepção: {percepcao} (Sensorial/Intuitivo)
+    → Sensorial: preferência por fatos, dados, exemplos práticos
+    → Intuitivo: preferência por conceitos, teorias, significados
+- Entrada: {entrada} (Visual/Verbal)
+    → Visual: aprende melhor com imagens/videos
+    → Verbal: aprende melhor com explicações escritas e faladas
+- Processamento: {processamento} (Ativo/Reflexivo)
+    → Ativo: aprende fazendo, experimenta, trabalha em grupo
+    → Reflexivo: aprende pensando, analisa, trabalha sozinho
+- Entendimento: {entendimento} (Sequencial/Global)
+    → Sequencial: aprende em passos lineares, passo a passo
+    → Global: aprende em saltos, visão do todo primeiro
 
-    Pergunta ou resposta do Aluno:
-    {question}
+CONTEXTO ATUAL:
+Etapa do Plano:
+- Título: {titulo}
+- Descrição: {descricao}
+- Progresso: {progresso}%
 
-    Histórico da Conversa:
-    {chat_history}
+HISTÓRICO:
+{chat_history}
 
-    Baseado no estilo de aprendizagem do aluno, crie um plano de resposta que:
+ENTRADA DO ALUNO:
+{question}
 
-    1. IDENTIFICAÇÃO DO CONTEXTO:
-    - Identifique exatamente em qual parte do conteúdo a pergunta se encaixa
-    - Avalie se a pergunta está alinhada com o momento atual do plano
-    - (importante) o aluno pode estar respondendo a uma pergunta anterior feita pelo tutor
+ANÁLISE INICIAL OBRIGATÓRIA:
 
-    2. ESTRUTURA DE RESPOSTA:
-    - Adapte a resposta ao estilo de aprendizagem do aluno
+1. CLASSIFICAÇÃO DA ENTRADA [peso: crucial]
+   DETERMINE O TIPO:
+   - Pergunta nova
+   - Resposta a atividade anterior
+   - Dúvida sobre atividade
+   - Resposta parcial/incompleta
+   - Pedido de dica/ajuda
 
-    3. RECURSOS E ATIVIDADES (OPCIONAL):
-    - Sugira recursos baseado no perfil do aluno
-    - Selecione recursos específicos do plano que se aplicam
-    - Sugira exercícios práticos adaptados ao perfil
+   Se for RESPOSTA A ATIVIDADE:
+   - Identifique a atividade original no histórico
+   - Compare com os critérios esperados
+   - Avalie completude e precisão
+   - Determine necessidade de correção ou complemento
 
-    4. PRÓXIMOS PASSOS:
-    - Defina claramente o que o aluno deve fazer após a explicação
-    - Estabeleça indicadores de compreensão
-    - Estabeleca o nivel_resposta esperado, divida entre básico, intermediário e avançado
+2. CONTEXTUALIZAÇÃO [peso: crucial]
+   - Identificar relação com conteúdo atual
+   - Avaliar alinhamento com etapa do plano
+   - OBRIGATÓRIO: Analisar histórico para encontrar atividade relacionada
+   - OBRIGATÓRIO: Verificar critérios de avaliação anteriores
+   - Métricas de Relevância:
+     → Alta: Resposta direta a atividade ou pergunta relevante
+     → Média: Relacionada a atividades anteriores
+     → Baixa: Fora do contexto das atividades
 
-    ATENÇÃO: SE O PLANO ESTIVER CHEGANDO AO FIM, SEU OUTPUT DEVE SER UM PLANO PARA A CRIACAO DE UMA LISTA DE REVISAO PARA O ALUNO.
+3. AVALIAÇÃO DE RESPOSTA (quando aplicável)
+   Critérios:
+   A) Completude
+      - Todos os pontos solicitados foram abordados
+      - Profundidade adequada ao nível
+      - Coerência com a pergunta/atividade
 
-    Forneça o plano de resposta no seguinte formato JSON:
-        "contexto_identificado": "string",
-        "alinhamento_plano": boolean,
-        "estrutura_resposta": [
-            "parte": "string", "objetivo": "string"
-        ],
-        "recursos_sugeridos": ["string"],
-        "atividade_pratica": "string",
-        "indicadores_compreensao": ["string"],
-        "nivel_resposta": "string",
-        "proxima_acao": "string"
-    """
+   B) Precisão
+      - Correção técnica/conceitual
+      - Adequação ao nível esperado
+      - Uso apropriado de termos/conceitos
+
+   C) Engajamento
+      - Evidência de reflexão
+      - Aplicação de conceitos
+      - Criatividade/originalidade
+
+4. PERSONALIZAÇÃO DA RESPOSTA [peso: crucial]
+   [Manter toda a seção de personalização anterior]
+
+5. FEEDBACK E PRÓXIMOS PASSOS
+   Para Respostas de Atividades:
+   - Fornecer feedback construtivo
+   - Identificar pontos fortes
+   - Sugerir melhorias específicas
+   - Propor próximos desafios
+   - Conectar com próximos conceitos
+
+   Para Novas Perguntas:
+   [Manter estrutura anterior de recursos e atividades]
+
+ATENÇÃO ESPECIAL:
+1. SEMPRE verifique se é resposta a uma atividade anterior
+2. NUNCA ignore os critérios estabelecidos na atividade original
+3. Mantenha feedback construtivo e motivador
+4. Adapte próximos passos baseado no desempenho
+5. Use linguagem apropriada ao nível do aluno
+
+RESPOSTA OBRIGATÓRIA:
+Retornar JSON com estrutura exata:
+
+    "tipo_entrada": "nova_pergunta|resposta_atividade|duvida_atividade|resposta_parcial|pedido_ajuda",
+    "contexto_identificado": "string detalhada",
+    "alinhamento_plano": boolean,
+    "analise_resposta": 
+        "atividade_referencia": "string",
+        "completude": 0-100,
+        "precisao": 0-100,
+        "pontos_fortes": ["string"],
+        "pontos_melhoria": ["string"],
+        "feedback": "string",
+    "estrutura_resposta": [
+        
+            "parte": "string",
+            "objetivo": "string",
+            "abordagem": "string baseada no estilo de aprendizagem"
+        
+    ],
+    "recursos_sugeridos": [
+        
+            "tipo": "string",
+            "formato": "string",
+            "motivo": "string"
+        
+    ],
+    "nova_atividade":
+        "descricao": "string",
+        "objetivo": "string",
+        "tempo_estimado": "string",
+        "criterios_conclusao": ["string"],
+        "nivel_dificuldade": "string",
+    "indicadores_compreensao": ["string"],
+    "nivel_resposta": "basico|intermediario|avancado",
+    "proxima_acao": "string",
+    "revisao_necessaria": boolean,
+    "ajuste_plano":
+        "necessario": boolean,
+        "motivo": "string",
+        "sugestao": "string"
+
+
+MÉTRICAS DE QUALIDADE:
+- Identificação: Precisão na classificação do tipo de entrada
+- Contextualização: Conexão com atividades anteriores
+- Avaliação: Qualidade do feedback e análise
+- Personalização: Adaptação ao perfil do aluno
+- Progressão: Contribuição para o avanço do aluno
+- Motivação: Capacidade de manter o engajamento
+
+REGRAS DE OURO:
+1. SEMPRE identifique se é resposta a atividade antes de planejar
+2. SEMPRE forneça feedback construtivo
+3. NUNCA ignore o histórico de atividades
+4. SEMPRE adapte o próximo passo ao desempenho atual
+5. MANTENHA o foco no objetivo de aprendizagem"""
 
     prompt = ChatPromptTemplate.from_template(PLANNING_PROMPT)
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
     def generate_plan(state: AgentState) -> AgentState:
         print("\n[NODE:PLANNING] Starting plan generation")
-        latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
-        print(f"[NODE:PLANNING] Processing question: {latest_question}")
-
+        
         try:
-            # Processar o plano de execução
-            plano_execucao = json.loads(state["current_plan"])
-            current_step = identify_current_step(plano_execucao["plano_execucao"])
-            print(f"[PLANNING] Current step: {current_step.titulo} ({current_step.progresso}%)")
+            # Extrair última mensagem
+            latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
+            print(f"[NODE:PLANNING] Processing input: {latest_question}")
 
-            # Extrair perfil do usuário
-            user_profile = state["user_profile"]
+            # Processar o plano de execução atual
+            try:
+                plano_execucao = json.loads(state["current_plan"])
+                current_step = identify_current_step(plano_execucao["plano_execucao"])
+                print(f"[PLANNING] Current step: {current_step.titulo} ({current_step.progresso}%)")
+            except (json.JSONDecodeError, KeyError) as e:
+                print(f"[PLANNING] Error processing execution plan: {e}")
+                raise ValueError("Invalid execution plan format")
+
+            # Extrair e validar perfil do usuário
+            user_profile = state.get("user_profile", {})
+            if not user_profile:
+                raise ValueError("User profile not found in state")
+
             estilos = user_profile.get("EstiloAprendizagem", {})
+            required_styles = ["Percepcao", "Entrada", "Processamento", "Entendimento"]
+            missing_styles = [style for style in required_styles if style not in estilos]
+            if missing_styles:
+                print(f"[PLANNING] Warning: Missing learning styles: {missing_styles}")
+                for style in missing_styles:
+                    estilos[style] = "não especificado"
 
-            # Formatar histórico do chat
+            # Preparar histórico do chat com contexto relevante
             chat_history = format_chat_history(state["chat_history"])
+            
+            # Analisar histórico para identificar atividades anteriores
+            activity_context = analyze_activity_history(state["chat_history"])
+            print(f"[PLANNING] Activity context: {activity_context}")
 
-            # Preparar parâmetros do prompt
+            # Preparar parâmetros do prompt com informações adicionais
             params = {
-                "nome": user_profile.get("Nome", ""),
-                "percepcao": estilos.get("Percepcao", ""),
-                "entrada": estilos.get("Entrada", ""),
-                "processamento": estilos.get("Processamento", ""),
-                "entendimento": estilos.get("Entendimento", ""),
+                "nome": user_profile.get("Nome", "Estudante"),
+                "percepcao": estilos.get("Percepcao", "não especificado"),
+                "entrada": estilos.get("Entrada", "não especificado"),
+                "processamento": estilos.get("Processamento", "não especificado"),
+                "entendimento": estilos.get("Entendimento", "não especificado"),
                 "titulo": current_step.titulo,
                 "descricao": current_step.descricao,
                 "progresso": current_step.progresso,
@@ -849,55 +966,173 @@ def create_answer_plan_node():
                 "chat_history": chat_history
             }
 
-            # Gerar o plano
+            # Gerar o plano usando o modelo
+            print("[PLANNING] Generating response plan")
             response = model.invoke(prompt.format(**params))
-            print(f"[PLANNING] Response content: {response.content}")
-            # Processar a resposta
-            cleaned_content = response.content.strip()
-            if cleaned_content.startswith("```json"):
-                cleaned_content = cleaned_content[7:]
-            if cleaned_content.endswith("```"):
-                cleaned_content = cleaned_content[:-3]
-            cleaned_content = cleaned_content.strip()
+            
+            # Processar e validar a resposta
+            plan = process_model_response(response.content)
+            print(f"[PLANNING] Generated valid plan")
 
-            plan = json.loads(cleaned_content)
-            print(f"[PLANNING] Generated plan: {plan}")
+            # Ajustar o plano baseado no contexto de atividades
+            if activity_context["is_activity_response"]:
+                print("[PLANNING] Adjusting plan for activity response")
+                plan = adjust_plan_for_activity(plan, activity_context)
+
+            # Validar o plano gerado
+            validate_plan_structure(plan)
 
             # Atualizar o estado
             new_state = state.copy()
             new_state["current_plan"] = json.dumps(plan)
-            new_state["next_step"] = plan["proxima_acao"]
+            new_state["next_step"] = determine_next_step(plan)
+            new_state["activity_context"] = activity_context
+            
+            print(f"[PLANNING] Plan generation completed successfully")
             return new_state
 
         except Exception as e:
             print(f"[PLANNING] Error in plan generation: {str(e)}")
             import traceback
             traceback.print_exc()
+            return handle_plan_generation_error(state, str(e))
 
-            default_plan = {
-                "contexto_identificado": "Erro na geração do plano",
-                "alinhamento_plano": True,
-                "estrutura_resposta": [
-                    {"parte": "Resposta básica", "objetivo": "Fornecer informação solicitada"}
-                ],
-                "recursos_sugeridos": [],
-                "atividade_pratica": "N/A",
-                "indicadores_compreensao": ["Compreensão básica do conceito"],
-                "nivel_resposta": "básico",
-                "proxima_acao": "retrieval"
+    def analyze_activity_history(chat_history: List[BaseMessage]) -> Dict[str, Any]:
+        """Analisa o histórico para identificar contexto de atividades."""
+        try:
+            # Filtrar últimas 5 mensagens para análise
+            recent_messages = chat_history[-5:]
+            is_activity_response = False
+            last_activity = None
+            activity_reference = None
+
+            for msg in reversed(recent_messages):
+                if isinstance(msg, AIMessage):
+                    content = msg.content
+                    if isinstance(content, str):
+                        # Verificar se é uma atividade proposta
+                        if "atividade_pratica" in content.lower() or "exercício" in content.lower():
+                            last_activity = content
+                            break
+
+            # Verificar se a última mensagem do usuário é uma resposta
+            if recent_messages and isinstance(recent_messages[-1], HumanMessage):
+                last_user_msg = recent_messages[-1].content.lower()
+                if last_activity:
+                    # Análise simples de similaridade ou referência à atividade
+                    is_activity_response = True
+                    activity_reference = last_activity
+
+            return {
+                "is_activity_response": is_activity_response,
+                "last_activity": last_activity,
+                "activity_reference": activity_reference
             }
 
-            new_state = state.copy()
-            new_state["current_plan"] = json.dumps(default_plan)
-            new_state["next_step"] = "retrieval"
-            return new_state
+        except Exception as e:
+            print(f"[PLANNING] Error analyzing activity history: {e}")
+            return {
+                "is_activity_response": False,
+                "last_activity": None,
+                "activity_reference": None
+            }
+
+    def process_model_response(content: str) -> Dict[str, Any]:
+        """Processa e valida a resposta do modelo."""
+        try:
+            # Limpar o conteúdo
+            cleaned_content = content.strip()
+            if cleaned_content.startswith("```json"):
+                cleaned_content = cleaned_content[7:]
+            if cleaned_content.endswith("```"):
+                cleaned_content = cleaned_content[:-3]
+            cleaned_content = cleaned_content.strip()
+
+            # Converter para JSON
+            plan = json.loads(cleaned_content)
+            return plan
+
+        except json.JSONDecodeError as e:
+            print(f"[PLANNING] Error parsing model response: {e}")
+            raise ValueError("Invalid JSON in model response")
+
+    def adjust_plan_for_activity(plan: Dict[str, Any], activity_context: Dict[str, Any]) -> Dict[str, Any]:
+        """Ajusta o plano quando é uma resposta a atividade."""
+        if activity_context["is_activity_response"]:
+            plan["tipo_entrada"] = "resposta_atividade"
+            plan["analise_resposta"] = {
+                "atividade_referencia": activity_context["activity_reference"],
+                "completude": 0,  # Será preenchido pela análise
+                "precisao": 0,    # Será preenchido pela análise
+                "pontos_fortes": [],
+                "pontos_melhoria": [],
+                "feedback": "Análise pendente"
+            }
+        return plan
+
+    def validate_plan_structure(plan: Dict[str, Any]) -> None:
+        """Valida a estrutura do plano gerado."""
+        required_fields = [
+            "tipo_entrada",
+            "contexto_identificado",
+            "alinhamento_plano",
+            "estrutura_resposta",
+            "nivel_resposta",
+            "proxima_acao"
+        ]
+        
+        missing_fields = [field for field in required_fields if field not in plan]
+        if missing_fields:
+            raise ValueError(f"Missing required fields in plan: {missing_fields}")
+
+    def determine_next_step(plan: Dict[str, Any]) -> str:
+        """Determina o próximo passo baseado no plano."""
+        if plan.get("tipo_entrada") == "resposta_atividade":
+            return "direct_answer"
+        return plan.get("proxima_acao", "retrieval")
+
+    def handle_plan_generation_error(state: AgentState, error_msg: str) -> AgentState:
+        """Manipula erros na geração do plano."""
+        print(f"[PLANNING] Handling error: {error_msg}")
+        
+        default_plan = {
+            "tipo_entrada": "erro",
+            "contexto_identificado": f"Erro na geração do plano: {error_msg}",
+            "alinhamento_plano": True,
+            "estrutura_resposta": [
+                {
+                    "parte": "Resposta básica",
+                    "objetivo": "Fornecer informação solicitada",
+                    "abordagem": "Direta e simples"
+                }
+            ],
+            "recursos_sugeridos": [],
+            "nova_atividade": {
+                "descricao": "N/A",
+                "objetivo": "N/A",
+                "tempo_estimado": "N/A",
+                "criterios_conclusao": [],
+                "nivel_dificuldade": "básico"
+            },
+            "indicadores_compreensao": ["Compreensão básica do conceito"],
+            "nivel_resposta": "básico",
+            "proxima_acao": "retrieval",
+            "revisao_necessaria": False
+        }
+
+        new_state = state.copy()
+        new_state["current_plan"] = json.dumps(default_plan)
+        new_state["next_step"] = "retrieval"
+        new_state["error"] = error_msg
+        return new_state
 
     return generate_plan
 
 def create_teaching_node():
-    CONTEXT_TEACHING_PROMPT = """
-    Você é um tutor personalizado que nunca fornece a resposta direta, 
-    mas sim explicações e orientações para ajudar o aluno a chegar à resposta.
+    CONTEXT_BASED_PROMPT = """
+    ROLE: Tutor especializado em explicar materiais e contextos educacionais.
+    
+    OBJETIVO: Explicar detalhadamente o contexto fornecido e guiar o aluno na compreensão do material.
 
     Plano de Resposta:
     {learning_plan}
@@ -908,8 +1143,11 @@ def create_teaching_node():
     Fonte de Informação:
     {source_type}
 
-    Contexto:
-    {context}
+    Contexto Principal (OBRIGATÓRIO EXPLICAR):
+    {primary_context}
+
+    Contextos Secundários (EXPLICAR SE RELEVANTES):
+    {secondary_contexts}
 
     Histórico da Conversa:
     {chat_history}
@@ -917,92 +1155,165 @@ def create_teaching_node():
     Mensagem do aluno:
     {question}
 
-    Baseado nas informações disponíveis, crie uma explicação que:
-    1. Se for resultado de busca web:
-        - Apresente os links e recursos encontrados
-        - Explique por que esses recursos são relevantes
-        - Sugira como o aluno pode aproveitar melhor os materiais
-    2. Se for contexto do material:
-        - Primeiro explique o contexto do material
-        - Integre os diferentes tipos de contexto de forma coerente
-        - Priorize o tipo de contexto mais relevante
-        - Adapte a explicação ao estilo de aprendizagem do aluno
-    3. Se for resposta direta:
-        - Foque no plano de resposta gerado
-        - Use uma linguagem clara e objetiva
-        - Estruture a explicação conforme o perfil do aluno
+    ESTRUTURA OBRIGATÓRIA DA RESPOSTA:
 
-    Lembre-se:
-    - Responda SEMPRE em português do Brasil de forma clara e objetiva
-    - Evite respostas longas e complexas
-    - Referencie elementos específicos dos contextos utilizados
-    - Inclua os links quando disponíveis
-    - (IMPORTANTE): Siga o plano de resposta para construir a resposta.
-    - (IMPORTANTE): Não forneça a resposta direta, mas sim orientações para chegar à resposta.
-    - (IMPORTANTE): Nem sempre a mensagem do aluno é uma pergunta, então adapte sua resposta conforme necessário.
-    - (IMPORTANTE): Voce esta ensinando, não apenas respondendo.
-    - Nem sempre é necessário incluir recursos.
+    1. Se for material de estudo:
+        - OBRIGATÓRIO: Explicação detalhada do contexto principal
+        - OBRIGATÓRIO: Análise de como o contexto se relaciona com a dúvida do aluno
+        - OBRIGATÓRIO: Para imagens, descrever detalhadamente seus elementos e significado
+        - OBRIGATÓRIO: Para tabelas, explicar os dados e sua interpretação
+        - Se houver contextos secundários relevantes, explicá-los em relação ao contexto principal
 
-    ATENÇÃO: VOCÊ RESPONDE DIRETAMENTE AO ALUNO, NÃO AO SISTEMA.
+    2. Se for resultado de busca web:
+        - OBRIGATÓRIO: Resumir e explicar o conteúdo encontrado na Wikipedia
+        - OBRIGATÓRIO: Analisar a relevância dos vídeos do YouTube
+        - OBRIGATÓRIO: Explicar como cada recurso ajuda a responder a dúvida
+        - OBRIGATÓRIO: Guiar o aluno na utilização dos recursos
+
+    DIRETRIZES:
+    - SEMPRE explique o contexto antes de responder a pergunta
+    - SEMPRE relacione a explicação ao estilo de aprendizagem do aluno
+    - NUNCA presuma conhecimento prévio sem explicar
+    - NUNCA pule a explicação do contexto principal
+    - Use linguagem clara e objetiva
+    - Mantenha foco educacional
+
+    ATENÇÃO: 
+    - Você DEVE explicar o contexto fornecido antes de qualquer outra coisa
+    - A resposta deve ser direta ao aluno
+    - Mantenha a resposta educacional
+    - Evite respostas prontas
+    - Incentive a busca da informação pelo aluno
     """
 
-    context_prompt = ChatPromptTemplate.from_template(CONTEXT_TEACHING_PROMPT)
-    model = ChatOpenAI(model="gpt-4o", temperature=0.4)
+    DIRECT_RESPONSE_PROMPT = """
+    ROLE: Tutor personalizado focado em orientação direta.
+    
+    OBJETIVO: Guiar o aluno na compreensão e resolução de questões sem dar respostas diretas.
+
+    Plano de Resposta:
+    {learning_plan}
+
+    Perfil do Aluno:
+    {user_profile}
+
+    Histórico da Conversa:
+    {chat_history}
+
+    Mensagem do aluno:
+    {question}
+
+    ESTRUTURA DA RESPOSTA:
+    1. Compreensão inicial:
+       - Confirme o entendimento da dúvida/questão
+       - Identifique os pontos principais a serem abordados
+
+    2. Orientação:
+       - Forneça dicas e direcionamentos
+       - Use analogias quando apropriado
+       - Adapte a explicação ao nível do aluno
+
+    3. Verificação:
+       - Sugira formas de o aluno verificar seu entendimento
+       - Proponha reflexões ou exercícios práticos
+
+    DIRETRIZES:
+    - Use linguagem simples e direta
+    - Foque em conceitos fundamentais
+    - Adapte ao estilo de aprendizagem do aluno
+    - Evite respostas prontas
+    - Incentive o raciocínio próprio
+    
+    ATENÇÃO: 
+    - Responda diretamente ao aluno
+    - Mantenha o foco educacional
+    - Não forneça respostas diretas
+    """
+
+    context_prompt = ChatPromptTemplate.from_template(CONTEXT_BASED_PROMPT)
+    direct_prompt = ChatPromptTemplate.from_template(DIRECT_RESPONSE_PROMPT)
+    model = ChatOpenAI(model="gpt-4o", temperature=0.2)
 
     def generate_teaching_response(state: AgentState) -> AgentState:
         print("\n[NODE:TEACHING] Starting teaching response generation")
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
-        #print(f"[NODE:TEACHING] Processing question: {latest_question}")
-
         chat_history = format_chat_history(state["chat_history"])
 
         try:
-            # Determinar tipo de resposta e contexto
+            # Determinar se é resposta baseada em contexto ou direta
             if state.get("next_step") == "direct_answer":
-                print("[NODE:TEACHING] Processing direct answer")
-                source_type = "Resposta direta"
-                context = f"Plano de resposta: {state['current_plan']}"
-
-            elif state.get("web_search_results"):
-                print("[NODE:TEACHING] Processing web search results")
-                source_type = "Resultados de busca web"
-                web_results = state["web_search_results"]
-                context = (
-                    f"Wikipedia:\n{web_results.get('wikipedia', 'Não disponível')}\n\n"
-                    f"YouTube:\n{web_results.get('youtube', 'Não disponível')}"
-                )
-
+                print("[NODE:TEACHING] Using direct response prompt")
+                explanation = model.invoke(direct_prompt.format(
+                    learning_plan=state["current_plan"],
+                    user_profile=state["user_profile"],
+                    question=latest_question,
+                    chat_history=chat_history
+                ))
+                image_content = None
+                
             else:
-                print("[NODE:TEACHING] Processing study material context")
-                contexts = state["extracted_context"]
-                source_type = "Material de estudo"
-                context = (
-                    f"Texto: {contexts.get('text', '')}\n"
-                    f"Imagem: {contexts.get('image', {}).get('description', '')}\n"
-                    f"Tabela: {contexts.get('table', {}).get('content', '')}"
-                )
-            print(f"[NODE:TEACHING] Source type: {source_type}")
-            print(f"[NODE:TEACHING] Context: {context}")
-            print(f"[NODE:TEACHING] learning_plan: {state['current_plan']}")
+                print("[NODE:TEACHING] Using context-based prompt")
+                # Processar contextos para resposta baseada em contexto
+                if state.get("web_search_results"):
+                    source_type = "Resultados de busca web"
+                    web_results = state["web_search_results"]
+                    primary_context = f"Wikipedia:\n{web_results.get('wikipedia', 'Não disponível')}"
+                    secondary_contexts = f"YouTube:\n{web_results.get('youtube', 'Não disponível')}"
+                else:
+                    contexts = state["extracted_context"]
+                    relevance = contexts.get("relevance_analysis", {})
+                    
+                    context_scores = {
+                        "text": relevance.get("text", {}).get("score", 0),
+                        "image": relevance.get("image", {}).get("score", 0),
+                        "table": relevance.get("table", {}).get("score", 0)
+                    }
+                    
+                    sorted_contexts = sorted(
+                        context_scores.items(), 
+                        key=lambda x: x[1], 
+                        reverse=True
+                    )
+                    
+                    source_type = "Material de estudo"
+                    primary_type = sorted_contexts[0][0]
+                    
+                    if primary_type == "text":
+                        primary_context = f"Texto: {contexts.get('text', '')}"
+                    elif primary_type == "image":
+                        primary_context = f"Imagem: {contexts.get('image', {}).get('description', '')}"
+                    else:
+                        primary_context = f"Tabela: {contexts.get('table', {}).get('content', '')}"
+                    
+                    secondary_contexts_list = []
+                    for context_type, score in sorted_contexts[1:]:
+                        if score > 0.3:
+                            if context_type == "text":
+                                secondary_contexts_list.append(f"Texto Complementar: {contexts.get('text', '')}")
+                            elif context_type == "image":
+                                secondary_contexts_list.append(f"Descrição da Imagem: {contexts.get('image', {}).get('description', '')}")
+                            elif context_type == "table":
+                                secondary_contexts_list.append(f"Dados da Tabela: {contexts.get('table', {}).get('content', '')}")
+                    
+                    secondary_contexts = "\n\n".join(secondary_contexts_list)
+                
+                explanation = model.invoke(context_prompt.format(
+                    learning_plan=state["current_plan"],
+                    user_profile=state["user_profile"],
+                    source_type=source_type,
+                    primary_context=primary_context[:1000] + "..." if len(primary_context) > 1000 else primary_context,
+                    secondary_contexts=secondary_contexts[:1000] + "..." if len(secondary_contexts) > 1000 else secondary_contexts,
+                    question=latest_question,
+                    chat_history=chat_history
+                ))
 
-            explanation = model.invoke(context_prompt.format(
-                learning_plan=state["current_plan"],
-                user_profile=state["user_profile"],
-                source_type=source_type,
-                context=context[:1000] + "..." if len(context) > 1000 else context,
-                question=latest_question,
-                chat_history=chat_history
-            ))
-
-            # Check if we have an image to include
-            image_content = None
-            if state.get("extracted_context"):  # Only check for images in study material context
-                image_context = state["extracted_context"].get("image", {})
-                relevance = state["extracted_context"].get("relevance_analysis", {})
-                if (image_context.get("type") == "image" and 
-                    image_context.get("image_bytes") and 
-                    relevance.get("image", {}).get("score", 0) > 0.3):
-                    image_content = image_context.get("image_bytes")
+                # Processar imagem se disponível e relevante
+                image_content = None
+                if (state.get("extracted_context") and 
+                    state["extracted_context"].get("image", {}).get("type") == "image" and
+                    state["extracted_context"].get("image", {}).get("image_bytes") and
+                    context_scores.get("image", 0) > 0.3):
+                    image_content = state["extracted_context"]["image"]["image_bytes"]
 
             # Format response
             if image_content:
