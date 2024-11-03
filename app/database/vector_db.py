@@ -643,7 +643,7 @@ class QdrantHandler:
                             print(f"[WARNING] Missing required field in metadata: {ke}")
                             print(f"Metadata content: {metadata}")
                             continue
-                
+
                 if not next_page_offset:
                     break
                 offset = next_page_offset
@@ -667,100 +667,95 @@ class QdrantHandler:
         session_id: Optional[str] = None,
         disciplina_id: Optional[str] = None,
         k: int = 5,
-        use_global: bool = True,
+        use_global: bool = False,
         use_discipline: bool = True,
         use_session: bool = True,
         specific_file_id: Optional[str] = None,
         specific_metadata: Optional[dict] = None
     ) -> List[Document]:
-        """Optimized similarity search with caching and efficient filtering."""
-        cache_key = f"{query}:{student_email}:{session_id}:{disciplina_id}:{k}:{use_global}:{use_discipline}:{use_session}:{specific_file_id}"
-        
-        # Try to get from cache first
-        if hasattr(self, '_search_cache') and cache_key in self._search_cache:
-            return self._search_cache[cache_key]
-            
+        """Executes a similarity search with filtering."""
         try:
             print(f"\n[SEARCH] Starting search with filters:")
             print(f"[SEARCH] Query: {query}")
             print(f"[SEARCH] Student: {student_email}")
             print(f"[SEARCH] Config: global={use_global}, discipline={use_discipline}, session={use_session}")
 
-            if specific_file_id:
-                search_filter = models.Filter(
-                    must=[
-                        models.FieldCondition(
-                            key="metadata.student_email",
-                            match=models.MatchValue(value=student_email)
-                        ),
-                        models.FieldCondition(
-                            key="metadata.file_id",
-                            match=models.MatchValue(value=specific_file_id)
-                        )
-                    ]
-                )
-                results = self._execute_search(query, search_filter, k)
-                self._cache_search_results(cache_key, results)
-                return results
-
-            if specific_metadata:
-                must_conditions = [
-                    models.FieldCondition(
-                        key=f"metadata.{key}",
-                        match=models.MatchValue(value=str(value))
-                    )
-                    for key, value in specific_metadata.items()
-                ]
-                must_conditions.append(
-                    models.FieldCondition(
-                        key="metadata.student_email",
-                        match=models.MatchValue(value=student_email)
-                    )
-                )
-                search_filter = models.Filter(must=must_conditions)
-                results = self._execute_search(query, search_filter, k)
-                self._cache_search_results(cache_key, results)
-                return results
-
-            should_conditions = []
-
+            # Primeiro, construir as condições de nível de acesso (global, discipline, session)
+            access_conditions = []
+            
             if use_global:
-                should_conditions.append(
+                access_conditions.append(
                     models.FieldCondition(
                         key="metadata.access_level",
                         match=models.MatchValue(value="global")
                     )
                 )
-
+                
             if use_discipline and disciplina_id:
-                should_conditions.append(
-                    models.FieldCondition(
-                        key="metadata.access_level",
-                        match=models.MatchValue(value="discipline")
+                access_conditions.append(
+                    models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="metadata.access_level",
+                                match=models.MatchValue(value="discipline")
+                            ),
+                            models.FieldCondition(
+                                key="metadata.discipline_id",
+                                match=models.MatchValue(value=disciplina_id)
+                            )
+                        ]
                     )
                 )
 
             if use_session and session_id:
-                should_conditions.append(
+                access_conditions.append(
+                    models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="metadata.access_level",
+                                match=models.MatchValue(value="session")
+                            ),
+                            models.FieldCondition(
+                                key="metadata.session_id",
+                                match=models.MatchValue(value=session_id)
+                            )
+                        ]
+                    )
+                )
+
+            # Depois, construir as outras condições de filtro
+            other_conditions = [
+                models.FieldCondition(
+                    key="metadata.student_email",
+                    match=models.MatchValue(value=student_email)
+                )
+            ]
+
+            # Adicionar metadados específicos
+            if specific_metadata:
+                for key, value in specific_metadata.items():
+                    other_conditions.append(
+                        models.FieldCondition(
+                            key=f"metadata.{key}",
+                            match=models.MatchValue(value=str(value))
+                        )
+                    )
+
+            # Adicionar busca por arquivo específico
+            if specific_file_id:
+                other_conditions.append(
                     models.FieldCondition(
-                        key="metadata.access_level",
-                        match=models.MatchValue(value="session")
+                        key="metadata.file_id",
+                        match=models.MatchValue(value=specific_file_id)
                     )
                 )
 
             search_filter = models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="metadata.student_email",
-                        match=models.MatchValue(value=student_email)
-                    )
-                ],
-                should=should_conditions
+                must=other_conditions,
+                should=access_conditions if access_conditions else None
             )
 
-            results = self._execute_search(query, search_filter, k)
-            self._cache_search_results(cache_key, results)
-            return results
+            return self._execute_search(query, search_filter, k)
 
         except Exception as e:
             print(f"[ERROR] Error during search: {str(e)}")
@@ -776,20 +771,39 @@ class QdrantHandler:
         self._search_cache[cache_key] = results
 
     def _execute_search(self, query: str, search_filter: models.Filter, k: int) -> List[Document]:
-        """Execute the search with the constructed filter."""
+        """Executes the search with the given filter and retrieves complete payloads."""
         try:
             print(f"[SEARCH] Executing search with filter: {search_filter}")
+            
+            # Executa a busca principal
             results = self.vector_store.similarity_search(
                 query=query,
                 k=k,
                 filter=search_filter
             )
+            
+            # Recupera os payloads completos
+            scroll_results, _ = self.client.scroll(
+                collection_name=self.collection_name,
+                scroll_filter=search_filter,
+                limit=k,
+                with_payload=True
+            )
+
+            # Atualiza o conteúdo dos documentos com os payloads completos
+            for doc in results:
+                for scroll_result in scroll_results:
+                    if scroll_result.payload["metadata"].get("image_uuid") == doc.metadata.get("image_uuid"):
+                        doc.page_content = scroll_result.payload.get("content", "")
+                        break
 
             print(f"[SEARCH] Found {len(results)} results")
             for i, doc in enumerate(results, 1):
                 print(f"[SEARCH] Result {i}:")
                 print(f"  - Access level: {doc.metadata.get('access_level')}")
-                print(f"  - Preview: {doc.page_content[:100]}...")
+                if doc.metadata.get('type') == 'image':
+                    print(f"  - Image UUID: {doc.metadata.get('image_uuid')}")
+                print(f"  - Content: {doc.page_content[:100]}...")
 
             return results
 
@@ -797,7 +811,6 @@ class QdrantHandler:
             print(f"[ERROR] Error executing search: {str(e)}")
             traceback.print_exc()
             raise
-
     async def delete_material(self, material_id: str):
         """Delete a material with optimized cleanup."""
         try:
@@ -806,7 +819,7 @@ class QdrantHandler:
                 self._materials_cache.clear()
             if hasattr(self, '_search_cache'):
                 self._search_cache.clear()
-                
+
             query_filter = models.Filter(
                 must=[
                     models.FieldCondition(
@@ -815,13 +828,13 @@ class QdrantHandler:
                     )
                 ]
             )
-            
+
             self.client.delete(
                 collection_name=self.collection_name,
                 points_filter=query_filter
             )
             print(f"[DELETE] Material deleted: {material_id}")
-            
+
         except Exception as e:
             print(f"[ERROR] Error deleting material {material_id}: {str(e)}")
             raise

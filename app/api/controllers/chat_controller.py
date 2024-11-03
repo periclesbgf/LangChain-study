@@ -311,51 +311,52 @@ class ChatController:
                 print(f"[DEBUG] Processing {len(files)} file(s)...")
                 await self._process_files(files)
 
-            current_history = self.chat_history.messages
-            print(f"[DEBUG] Retrieved {len(current_history)} messages from history")
+            if user_input or user_input != "":
+                current_history = self.chat_history.messages
+                print(f"[DEBUG] Retrieved {len(current_history)} messages from history")
 
-            workflow_response = await self.tutor_workflow.invoke(
-                query=user_input,
-                student_profile=self.perfil,
-                current_plan=self.plano_execucao,
-                chat_history=current_history
-            )
+                workflow_response = await self.tutor_workflow.invoke(
+                    query=user_input,
+                    student_profile=self.perfil,
+                    current_plan=self.plano_execucao,
+                    chat_history=current_history
+                )
 
-            print(f"[DEBUG] Workflow response received")
+                print(f"[DEBUG] Workflow response received")
 
-            if isinstance(workflow_response, dict):
-                messages = workflow_response.get("messages", [])
-                if messages:
-                    ai_messages = [msg for msg in messages if isinstance(msg, AIMessage)]
-                    if ai_messages:
-                        final_message = ai_messages[-1]
+                if isinstance(workflow_response, dict):
+                    messages = workflow_response.get("messages", [])
+                    if messages:
+                        ai_messages = [msg for msg in messages if isinstance(msg, AIMessage)]
+                        if ai_messages:
+                            final_message = ai_messages[-1]
+                            
+                            # Verifica se é uma resposta com imagem
+                            try:
+                                content = json.loads(final_message.content)
+                                if isinstance(content, dict) and content.get("type") == "image":
+                                    # Converte os bytes da imagem para base64
+                                    image_bytes = content.get("image_bytes")
+                                    if image_bytes:
+                                        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+                                        response_data = {
+                                            "type": "image",
+                                            "content": content.get("description"),
+                                            "image": f"data:image/jpeg;base64,{image_base64}"
+                                        }
+                                        # Salva a interação no histórico
+                                        self.chat_history.add_message(HumanMessage(content=user_input))
+                                        self.chat_history.add_message(AIMessage(content=json.dumps(response_data)))
+                                        return response_data
+                            except json.JSONDecodeError:
+                                pass
+                            
+                            # Se não for imagem, trata como texto normal
+                            self.chat_history.add_message(HumanMessage(content=user_input))
+                            self.chat_history.add_message(AIMessage(content=final_message.content))
+                            return final_message.content
                         
-                        # Verifica se é uma resposta com imagem
-                        try:
-                            content = json.loads(final_message.content)
-                            if isinstance(content, dict) and content.get("type") == "image":
-                                # Converte os bytes da imagem para base64
-                                image_bytes = content.get("image_bytes")
-                                if image_bytes:
-                                    image_base64 = base64.b64encode(image_bytes).decode('utf-8')
-                                    response_data = {
-                                        "type": "image",
-                                        "content": content.get("description"),
-                                        "image": f"data:image/jpeg;base64,{image_base64}"
-                                    }
-                                    # Salva a interação no histórico
-                                    self.chat_history.add_message(HumanMessage(content=user_input))
-                                    self.chat_history.add_message(AIMessage(content=json.dumps(response_data)))
-                                    return response_data
-                        except json.JSONDecodeError:
-                            pass
-                        
-                        # Se não for imagem, trata como texto normal
-                        self.chat_history.add_message(HumanMessage(content=user_input))
-                        self.chat_history.add_message(AIMessage(content=final_message.content))
-                        return final_message.content
-                        
-            return "Desculpe, não foi possível gerar uma resposta adequada."
+            return "Arquivo processado com sucesso."
 
         except Exception as e:
             print(f"[DEBUG] Error in handle_user_message: {str(e)}")

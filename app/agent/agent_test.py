@@ -20,7 +20,7 @@ import asyncio
 from typing import Tuple, Dict, Any
 from youtubesearchpython import VideosSearch
 import wikipediaapi
-
+from database.mongo_database_manager import MongoDatabaseManager
 class UserProfile(BaseModel):
     Nome: str
     Email: str
@@ -50,6 +50,30 @@ class AgentState(TypedDict):
     evaluation_reason: str
     web_search_results: Dict[str, str]
     answer_type: str | None
+
+# class StudyPlanUpdater(MongoDatabaseManager):
+#     def __init__(self, db_name: str,state: AgentState, collection_name: str = "study_plans"):
+#         super().__init__(db_name, collection_name)
+#         self.state = state
+
+#     def update_agent_state(self, state: AgentState):
+#         self.state = state
+#         self.update_one({"_id": "current_state"}, {"$set": state}, upsert=True)
+
+#     def get_agent_state(self) -> AgentState:
+#         return self.find_one({"_id": "current_state"}) or {}
+
+# class StudentProfileUpdater(MongoDatabaseManager):
+#     def __init__(self, db_name: str, state: AgentState, collection_name: str = "student_learn_preference"):
+#         super().__init__(db_name, collection_name)
+#         self.state = state
+
+#     def update_agent_state(self, state: AgentState):
+#         self.state = state
+#         self.update_one({"_id": "current_state"}, {"$set": state}, upsert=True)
+
+#     def get_agent_state(self) -> AgentState:
+#         return self.find_one({"_id": "current_state"}) or {}
 
 def filter_chat_history(messages: List[BaseMessage]) -> List[BaseMessage]:
     """
@@ -175,10 +199,6 @@ class RetrievalTools:
         Histórico da conversa: {chat_history}
 
         Pergunta original: {question}
-        Tipo de busca: {search_type}
-
-        Para o tipo de busca '{search_type}', reescreva a pergunta para maximizar a recuperação de informações relevantes.
-        Mantenha o foco em {focus_points}.
 
         O usuário pode fazer perguntas que remetam a perguntas anteriores, então é importante analisar o histórico da conversa.
 
@@ -207,16 +227,10 @@ class RetrievalTools:
         Mantenha o formato JSON exato e use apenas aspas duplas.
         """
 
-    async def transform_question(self, question: str, search_type: str) -> str:
+    async def transform_question(self, question: str) -> str:
         """
         Transforma a pergunta para melhor recuperação de contexto baseado no tipo de busca.
         """
-        focus_points = {
-            "text": "conceitos, definições e explicações textuais",
-            "image": "elementos visuais, diagramas e representações gráficas",
-            "table": "dados estruturados, estatísticas e comparações numéricas"
-        }
-
         # Usa a nova função de formatação do histórico
         formatted_history = format_chat_history(self.state["chat_history"], max_messages=4)
 
@@ -227,21 +241,19 @@ class RetrievalTools:
         response = await self.model.ainvoke(prompt.format(
             chat_history=formatted_history,
             question=question,
-            search_type=search_type,
-            focus_points=focus_points[search_type]
         ))
 
         transformed_question = response.content.strip()
-        print(f"[RETRIEVAL] Transformed question for {search_type}: {transformed_question}")
+        print(f"[RETRIEVAL] Transformed question: {transformed_question}")
         return transformed_question
 
     async def parallel_context_retrieval(self, question: str) -> Dict[str, Any]:
         print(f"\n[RETRIEVAL] Starting parallel context retrieval for: {question}")
 
         text_question, image_question, table_question = await asyncio.gather(
-            self.transform_question(question, "text"),
-            self.transform_question(question, "image"),
-            self.transform_question(question, "table")
+            self.transform_question(question),
+            self.transform_question(question),
+            self.transform_question(question)
         )
 
         text_context, image_context, table_context = await asyncio.gather(
@@ -287,7 +299,11 @@ class RetrievalTools:
                 disciplina_id=self.disciplina,
                 specific_metadata={"type": "image"}
             )
-
+            print("")
+            print("--------------------------------------------------")
+            print(f"[RETRIEVAL] Image search results: {results}")
+            print("--------------------------------------------------")
+            print("")
             if not results:
                 return {"type": "image", "content": None, "description": ""}
 
@@ -323,10 +339,12 @@ class RetrievalTools:
             return {"type": "table", "content": None}
 
     async def retrieve_image_and_description(self, image_uuid: str) -> Dict[str, Any]:
+        """
+        Recupera a imagem e sua descrição de forma assíncrona.
+        """
         try:
             print(f"[RETRIEVAL] Recuperando imagem com UUID: {image_uuid}")
             image_data = await self.image_collection.find_one({"_id": image_uuid})
-
             if not image_data:
                 print(f"[RETRIEVAL] Imagem não encontrada: {image_uuid}")
                 return {"type": "error", "message": "Imagem não encontrada"}
@@ -350,17 +368,23 @@ class RetrievalTools:
                 session_id=self.session_id,
                 disciplina_id=self.disciplina,
                 k=1,
+                use_global=False,
+                use_discipline=False,
+                use_session=True,
                 specific_metadata={"image_uuid": image_uuid, "type": "image"}
             )
-
+            print(f"[RETRIEVAL] Resultados da busca de descrição: {results}")
+            if not results:
+                return {"type": "error", "message": "Descrição da imagem não encontrada"}
+            print("[RETRIEVAL] Imagem e descrição recuperadas com sucesso")
+            print(f"[RETRIEVAL] Descrição da imagem: {results[0].page_content}")
             return {
                 "type": "image",
                 "image_bytes": processed_bytes,
-                "description": results[0].page_content if results else ""
+                "description": results[0].page_content
             }
-
         except Exception as e:
-            print(f"[RETRIEVAL] Error retrieving image: {e}")
+            print(f"[RETRIEVAL] Erro ao recuperar imagem: {e}")
             import traceback
             traceback.print_exc()
             return {"type": "error", "message": str(e)}
@@ -378,14 +402,12 @@ class RetrievalTools:
                 return self._get_default_analysis()
 
             prompt = ChatPromptTemplate.from_template(self.RELEVANCE_ANALYSIS_PROMPT)
-            
-            
-            # Tratamento seguro para contexto de imagem
 
-            # Tratamento seguro para contexto de imagem
             image_description = ""
             if image_context and isinstance(image_context, dict):
                 image_description = image_context.get("description", "")
+            print(f"[RETRIEVAL] Image description: {image_description}")
+            print(f"[RETRIEVAL] Image context: {image_context}")
 
             # Tratamento seguro para contexto de tabela
             table_content = ""
@@ -526,7 +548,7 @@ def route_after_plan_generation():
                 next_step = "websearch"
             else:
                 next_step = "retrieval"
-                
+
             print(f"[ROUTING] Fallback routing decision: {next_step}")
             new_state = state.copy()
             new_state["next_step"] = next_step
@@ -549,7 +571,7 @@ def create_answer_plan_node():
     Título: {titulo}
     Descrição: {descricao}
     Progresso: {progresso}%
-    
+
     Pergunta do Aluno:
     {question}
 
@@ -571,7 +593,7 @@ def create_answer_plan_node():
     - Sugira recursos baseado no perfil do aluno
     - Selecione recursos específicos do plano que se aplicam
     - Sugira exercícios práticos adaptados ao perfil
-    
+
     4. PRÓXIMOS PASSOS:
     - Defina claramente o que o aluno deve fazer após a explicação
     - Estabeleça indicadores de compreensão
@@ -649,8 +671,7 @@ def create_answer_plan_node():
             print(f"[PLANNING] Error in plan generation: {str(e)}")
             import traceback
             traceback.print_exc()
-            
-            # Plano padrão em caso de erro
+
             default_plan = {
                 "contexto_identificado": "Erro na geração do plano",
                 "alinhamento_plano": True,
@@ -663,7 +684,7 @@ def create_answer_plan_node():
                 "nivel_resposta": "básico",
                 "proxima_acao": "retrieval"
             }
-            
+
             new_state = state.copy()
             new_state["current_plan"] = json.dumps(default_plan)
             new_state["next_step"] = "retrieval"
@@ -698,6 +719,7 @@ def create_teaching_node():
         - Explique por que esses recursos são relevantes
         - Sugira como o aluno pode aproveitar melhor os materiais
     2. Se for contexto do material:
+        - Primeiro explique o contexto do material
         - Integre os diferentes tipos de contexto de forma coerente
         - Priorize o tipo de contexto mais relevante
         - Adapte a explicação ao estilo de aprendizagem do aluno
@@ -730,7 +752,7 @@ def create_teaching_node():
                 print("[NODE:TEACHING] Processing direct answer")
                 source_type = "Resposta direta"
                 context = f"Plano de resposta: {state['current_plan']}"
-                
+
             elif state.get("web_search_results"):
                 print("[NODE:TEACHING] Processing web search results")
                 source_type = "Resultados de busca web"
@@ -739,7 +761,7 @@ def create_teaching_node():
                     f"Wikipedia:\n{web_results.get('wikipedia', 'Não disponível')}\n\n"
                     f"YouTube:\n{web_results.get('youtube', 'Não disponível')}"
                 )
-                
+
             else:
                 print("[NODE:TEACHING] Processing study material context")
                 contexts = state["extracted_context"]
@@ -750,7 +772,6 @@ def create_teaching_node():
                     f"Tabela: {contexts.get('table', {}).get('content', '')}"
                 )
 
-            # Generate explanation
             explanation = model.invoke(context_prompt.format(
                 learning_plan=state["current_plan"],
                 user_profile=state["user_profile"],
@@ -814,6 +835,7 @@ def create_teaching_node():
 def identify_current_step(plano_execucao: List[Dict]) -> ExecutionStep:
     print("\n[PLAN] Identifying current execution step")
     sorted_steps = sorted(plano_execucao, key=lambda x: x["progresso"])
+    print(f"[PLAN] Sorted steps: {sorted_steps}")
 
     current_step = next(
         (step for step in sorted_steps if step["progresso"] < 100),
@@ -876,7 +898,7 @@ class WebSearchTools:
                         f"   Duração: {video['duration']}\n"
                         f"   Descrição: {video['description']}\n\n"
                     )
-                
+
                 print(f"[WEBSEARCH] Found {len(videos_info)} videos")
                 return response
             else:
@@ -929,10 +951,10 @@ def route_after_planning(state: AgentState) -> str:
 
 def create_websearch_node(web_tools: WebSearchTools):
     QUERY_OPTIMIZATION_PROMPT = """Você é um especialista em otimizar buscas no YouTube.
-    
+
     Pergunta original do aluno: {question}
     Histórico da conversa: {chat_history}
-    
+
     Seu objetivo é criar uma query otimizada para o YouTube que:
     1. Identifique os conceitos principais da pergunta
     2. Adicione termos relevantes para melhorar os resultados (como "tutorial", "explicação", "aula")
@@ -948,17 +970,17 @@ def create_websearch_node(web_tools: WebSearchTools):
 
     A pergunta original do aluno foi: {question}
     A query otimizada usada foi: {optimized_query}
-    
+
     Encontrei os seguintes recursos:
-    
+
     {resources}
-    
+
     Crie uma resposta educativa que:
     1. Apresente os recursos encontrados de forma organizada
     2. Destaque por que eles são relevantes para a pergunta
     3. Sugira como o aluno pode aproveitar melhor o conteúdo
     4. Inclua os links diretos para facilitar o acesso
-    
+
     Mantenha os links originais na resposta.
     """
 
@@ -970,7 +992,7 @@ def create_websearch_node(web_tools: WebSearchTools):
         print("\n[NODE:WEBSEARCH] Starting web search")
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
         chat_history = format_chat_history(state["chat_history"])
-        
+
         try:
             # Otimizar a query
             print(f"[WEBSEARCH] Optimizing query: {latest_question}")
