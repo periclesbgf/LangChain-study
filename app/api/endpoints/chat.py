@@ -53,7 +53,7 @@ class ChatEndpointManager:
         except Exception as e:
             print(f"Error with MongoDB manager: {e}")
             raise
-            
+
     @lru_cache(maxsize=100)
     def get_qdrant_handler(self) -> QdrantHandler:
         """Get or create QdrantHandler with caching"""
@@ -63,7 +63,7 @@ class ChatEndpointManager:
             if not self.embeddings:
                 # Inicializa os embeddings corretamente
                 self.embeddings = Embeddings()
-                
+
             self.qdrant_handler = QdrantHandler(
                 url=QDRANT_URL,
                 collection_name="student_documents",
@@ -73,7 +73,7 @@ class ChatEndpointManager:
                 mongo_manager=self.mongo_manager
             )
         return self.qdrant_handler
-        
+
     async def get_student_data(
         self, 
         user_email: str, 
@@ -105,7 +105,7 @@ class ChatEndpointManager:
                     status_code=404, 
                     detail="Perfil do estudante não encontrado."
                 )
-                
+
             if not study_plan:
                 raise HTTPException(
                     status_code=404, 
@@ -151,10 +151,10 @@ async def chat_endpoint(
         print(f"Student profile: {student_profile}")
         # Convert study plan to JSON
         study_plan = json.dumps(study_plan_raw, cls=DateTimeEncoder)
-        
+
         # Get or create handlers
         qdrant_handler = chat_manager.get_qdrant_handler()
-        
+
         # Initialize workflow first
         workflow = await initialize_workflow(
             qdrant_handler,

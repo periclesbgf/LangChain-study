@@ -262,6 +262,101 @@ class MongoDatabaseManager:
             print(f"Error creating automatic study plan: {e}")
             raise
 
+    async def update_step_progress(
+        self,
+        session_id: str,
+        step_index: int,
+        new_progress: int
+    ) -> bool:
+        """
+        Updates the progress of a specific step in the study plan and recalculates total progress.
+
+        Args:
+            session_id: ID of the study session
+            step_index: Index of the step to update
+            new_progress: New progress value (0-100)
+
+        Returns:
+            bool: True if update was successful, False otherwise
+        """
+        try:
+            if not 0 <= new_progress <= 100:
+                print(f"[MONGO] Invalid progress value: {new_progress}")
+                return False
+
+            collection = self.db['study_plans']
+
+            # First get the current plan
+            plan = await collection.find_one({"id_sessao": session_id})
+            if not plan:
+                print(f"[MONGO] Plan not found for session: {session_id}")
+                return False
+
+            plano_execucao = plan.get("plano_execucao", [])
+            if step_index >= len(plano_execucao):
+                print(f"[MONGO] Invalid step index: {step_index}")
+                return False
+
+            # Update the progress of the specific step
+            plano_execucao[step_index]["progresso"] = new_progress
+
+            # Calculate new total progress
+            total_steps = len(plano_execucao)
+            total_progress = sum(step.get("progresso", 0) for step in plano_execucao) / total_steps
+
+            # Update the document
+            result = await collection.update_one(
+                {"id_sessao": session_id},
+                {
+                    "$set": {
+                        "plano_execucao": plano_execucao,
+                        "progresso_total": round(total_progress, 2),
+                        "updated_at": datetime.now(timezone.utc)
+                    }
+                }
+            )
+
+            success = result.modified_count > 0
+            if success:
+                print(f"[MONGO] Successfully updated progress for session {session_id}, step {step_index}")
+            else:
+                print(f"[MONGO] Failed to update progress for session {session_id}")
+
+            return success
+
+        except Exception as e:
+            print(f"[MONGO] Error updating step progress: {e}")
+            return False
+
+    async def get_plan_progress(self, session_id: str) -> Dict[str, Any]:
+        """
+        Gets the current progress information for a study plan.
+
+        Args:
+            session_id: ID of the study session
+
+        Returns:
+            Dict containing progress information or None if not found
+        """
+        try:
+            collection = self.db['study_plans']
+            plan = await collection.find_one(
+                {"id_sessao": session_id},
+                {"_id": 0, "plano_execucao": 1, "progresso_total": 1}
+            )
+
+            if not plan:
+                print(f"[MONGO] Plan not found for session: {session_id}")
+                return None
+
+            return {
+                "plano_execucao": plan.get("plano_execucao", []),
+                "progresso_total": plan.get("progresso_total", 0)
+            }
+
+        except Exception as e:
+            print(f"[MONGO] Error getting plan progress: {e}")
+            return None
 
 class CustomMongoDBChatMessageHistory(MongoDBChatMessageHistory):
     def __init__(self, user_email: str, disciplina: str, *args, **kwargs):

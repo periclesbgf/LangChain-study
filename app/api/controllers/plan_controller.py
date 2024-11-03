@@ -81,3 +81,9 @@ class PlanController:
         except Exception as e:
             print(f"Error in create_automatic_plan: {e}")
             raise
+
+    async def update_step_progress(self, session_id: str, step_index: int, new_progress: int) -> bool:
+        return await self.dispatcher.update_step_progress(session_id, step_index, new_progress)
+
+    async def get_plan_progress(self, session_id: str) -> Dict[str, Any]:
+        return await self.dispatcher.get_plan_progress(session_id)

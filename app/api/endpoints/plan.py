@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from datetime import datetime, timezone
 from typing import Dict, Any
 from api.controllers.auth import get_current_user
-from pydantic import BaseModel
+from pydantic import BaseModel, conint
 from api.controllers.plan_controller import PlanController
 from api.endpoints.models import StudyPlan
 from api.controllers.study_sessions_controller import StudySessionsController
@@ -297,4 +297,125 @@ async def create_automatic_study_plan(
         raise HTTPException(
             status_code=500,
             detail=f"Erro ao criar plano automático: {str(e)}"
+        )
+
+class StepProgressUpdate(BaseModel):
+    """Schema para atualização do progresso de uma etapa"""
+    step_index: conint(ge=0)
+    progress: conint(ge=0, le=100)
+
+@router_study_plan.put("/study_plan/{id_sessao}/progress", response_model=Dict[str, Any])
+async def update_step_progress(
+    id_sessao: str,
+    progress_data: StepProgressUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Atualiza o progresso de uma etapa específica do plano de estudos.
+
+    Args:
+        id_sessao: ID da sessão de estudo
+        progress_data: Dados de progresso contendo step_index e progress
+        current_user: Usuário autenticado
+
+    Returns:
+        Dict contendo mensagem de sucesso e dados atualizados do progresso
+    """
+    try:
+        controller = PlanController()
+
+        # Verifica se o plano existe
+        existing_plan = await controller.get_study_plan(id_sessao)
+        if not existing_plan:
+            raise HTTPException(
+                status_code=404,
+                detail="Plano de estudos não encontrado"
+            )
+
+        # Verifica se o índice da etapa é válido
+        plano_execucao = existing_plan.get("plano_execucao", [])
+        if progress_data.step_index >= len(plano_execucao):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Índice de etapa inválido: {progress_data.step_index}"
+            )
+
+        # Atualiza o progresso
+        success = await controller.update_step_progress(
+            id_sessao,
+            progress_data.step_index,
+            progress_data.progress
+        )
+
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Erro ao atualizar progresso da etapa"
+            )
+
+        # Recupera os dados atualizados do progresso
+        updated_progress = await controller.get_plan_progress(id_sessao)
+        if not updated_progress:
+            raise HTTPException(
+                status_code=500,
+                detail="Erro ao recuperar progresso atualizado"
+            )
+
+        return {
+            "message": "Progresso atualizado com sucesso",
+            "data": {
+                "session_id": id_sessao,
+                "step_index": progress_data.step_index,
+                "new_progress": progress_data.progress,
+                "total_progress": updated_progress["progresso_total"],
+                "plano_execucao": updated_progress["plano_execucao"]
+            }
+        }
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Erro ao atualizar progresso: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao atualizar progresso: {str(e)}"
+        )
+@router_study_plan.get("/study_plan/{id_sessao}/progress")
+async def get_plan_progress(
+    id_sessao: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Recupera o progresso atual do plano de estudos.
+
+    Args:
+        id_sessao: ID da sessão de estudo
+        current_user: Usuário autenticado
+
+    Returns:
+        Dict contendo os dados de progresso do plano
+    """
+    try:
+        controller = PlanController()
+        progress = await controller.get_plan_progress(id_sessao)
+
+        if not progress:
+            raise HTTPException(
+                status_code=404,
+                detail="Plano de estudos não encontrado"
+            )
+
+        return {
+            "session_id": id_sessao,
+            "total_progress": progress["progresso_total"],
+            "plano_execucao": progress["plano_execucao"]
+        }
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Erro ao recuperar progresso: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao recuperar progresso: {str(e)}"
         )

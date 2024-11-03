@@ -68,16 +68,52 @@ class StudyProgressManager(MongoDatabaseManager):
         super().__init__()
         self.collection_name = db_name
 
+    async def sync_progress_state(self, session_id: str) -> bool:
+        """
+        Sincroniza o estado do progresso, garantindo consistência entre o banco de dados e o estado da aplicação.
+        """
+        try:
+            collection = self.db[self.collection_name]
+            plan = await collection.find_one({"id_sessao": session_id})
+            
+            if not plan:
+                return False
+
+            plano_execucao = plan.get("plano_execucao", [])
+            modified = False
+
+            # Validar e corrigir o progresso de cada etapa
+            for step in plano_execucao:
+                original_progress = step.get("progresso", 0)
+                corrected_progress = min(max(float(original_progress), 0), 100)
+                
+                if original_progress != corrected_progress:
+                    step["progresso"] = corrected_progress
+                    modified = True
+
+            if modified:
+                # Recalcular e atualizar o progresso total
+                total_steps = len(plano_execucao)
+                progresso_total = sum(step["progresso"] for step in plano_execucao) / total_steps
+                
+                await collection.update_one(
+                    {"id_sessao": session_id},
+                    {
+                        "$set": {
+                            "plano_execucao": plano_execucao,
+                            "progresso_total": round(progresso_total, 2),
+                            "updated_at": datetime.now(timezone.utc)
+                        }
+                    }
+                )
+
+            return True
+
+        except Exception as e:
+            print(f"[PROGRESS] Erro na sincronização do progresso: {e}")
+            return False
+
     async def get_study_progress(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Recupera o progresso atual do plano de estudos.
-
-        Args:
-            session_id: ID da sessão de estudo
-
-        Returns:
-            Dict contendo o progresso ou None se não encontrado
-        """
         try:
             collection = self.db[self.collection_name]
             plan = await collection.find_one(
@@ -89,6 +125,20 @@ class StudyProgressManager(MongoDatabaseManager):
             if not plan:
                 print(f"[PROGRESS] Plano não encontrado para sessão: {session_id}")
                 return None
+
+            # Validar e corrigir o progresso de cada etapa
+            if "plano_execucao" in plan:
+                for step in plan["plano_execucao"]:
+                    if "progresso" not in step:
+                        step["progresso"] = 0
+                    else:
+                        step["progresso"] = min(max(float(step["progresso"]), 0), 100)
+
+                # Recalcular o progresso total
+                total_steps = len(plan["plano_execucao"])
+                if total_steps > 0:
+                    progresso_total = sum(step["progresso"] for step in plan["plano_execucao"]) / total_steps
+                    plan["progresso_total"] = round(progresso_total, 2)
 
             return {
                 "plano_execucao": plan.get("plano_execucao", []),
@@ -1497,28 +1547,24 @@ def create_progress_analyst_node(progress_manager: StudyProgressManager):
 
 
 def identify_current_step(plano_execucao: List[Dict]) -> ExecutionStep:
-    """
-    Identifica a etapa atual do plano de execução.
-    Retorna a primeira etapa não concluída ou a última etapa se todas estiverem concluídas.
-    Mantém o progresso original de cada etapa.
-
-    Args:
-        plano_execucao: Lista de etapas do plano de execução
-
-    Returns:
-        ExecutionStep: Etapa atual com seu progresso real
-    """
     print("\n[PLAN] Identifying current execution step")
-    
+
     if not plano_execucao:
         raise ValueError("[PLAN] Plano de execução vazio")
 
+    # Adicionar validação do progresso
+    for step in plano_execucao:
+        if "progresso" not in step:
+            step["progresso"] = 0
+        else:
+            # Garantir que o progresso é um número entre 0 e 100
+            step["progresso"] = min(max(float(step["progresso"]), 0), 100)
+
     # Primeiro tenta encontrar uma etapa não concluída
     for step in plano_execucao:
-        current_progress = step.get("progresso", 0)
+        current_progress = step["progresso"]
         if current_progress < 100:
             print(f"[PLAN] Found incomplete step: {step['titulo']} (Progress: {current_progress}%)")
-            # Retorna a etapa com seu progresso atual
             return ExecutionStep(
                 titulo=step["titulo"],
                 duracao=step["duracao"],
@@ -1526,7 +1572,7 @@ def identify_current_step(plano_execucao: List[Dict]) -> ExecutionStep:
                 conteudo=step["conteudo"],
                 recursos=step["recursos"],
                 atividade=step["atividade"],
-                progresso=current_progress  # Mantém o progresso real
+                progresso=current_progress
             )
 
     # Se todas as etapas estiverem concluídas, retorna a última etapa
@@ -1539,7 +1585,7 @@ def identify_current_step(plano_execucao: List[Dict]) -> ExecutionStep:
         conteudo=last_step["conteudo"],
         recursos=last_step["recursos"],
         atividade=last_step["atividade"],
-        progresso=last_step["progresso"]  # Mantém o progresso real da última etapa
+        progresso=last_step["progresso"]
     )
 
 def should_continue(state: AgentState) -> str:
@@ -1912,7 +1958,7 @@ class TutorWorkflow:
             # Validar perfil do usuário
             validated_profile = student_profile
             print(f"[WORKFLOW] Student profile validated: {validated_profile.get('EstiloAprendizagem', 'Not found')}")
-
+            await self.progress_manager.sync_progress_state(self.session_id)
             # Recuperar progresso atual
             current_progress = await self.progress_manager.get_study_progress(self.session_id)
             #print(f"[WORKFLOW] Current progress loaded: {current_progress}")
