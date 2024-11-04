@@ -88,12 +88,13 @@ class SessionPlanWorkflow:
         5. Seja específico para o tema da programação, incluindo exemplos práticos e exercícios de código
         6. SEMPRE FOQUE EM EXPLICAR O ASSUNTO ANTES DE FAZER QUALQUER ATIVIDADE
         7. IMPORTANTE: Agende a sessão de estudo para o mesmo dia do encontro ou para um dia anterior ao encontro
+        8. Na descrição, explique detalhadamente as tecnologias, por exemplo. 
+        Se a disciplina deixar explicito que é funcoes na linguagem C, explique a utilizacao dessa linguagem no plano dentro da descricao.
 
         Regras ESTRITAS para Agendamento:
         1. SEMPRE use a data do encontro ({encounter_date}) como referência
-        2. A sessão DEVE ocorrer no mesmo dia do encontro ou em um dia anterior, NUNCA depois
+        2. A sessão DEVE ocorrer no mesmo dia do encontro, NUNCA depois
         3. Se agendar para o mesmo dia, a sessão DEVE terminar pelo menos 1 hora antes do encontro ({encounter_start})
-        4. Se agendar para um dia anterior, mantenha no máximo 2 dias de antecedência
         5. Respeite a preferência de horário do aluno ({study_preference}) quando possível
         6. Garanta pelo menos 1 hora de intervalo entre o fim da sessão e o início do encontro
         7. A duração da sessão deve ser compatível com o plano de estudo

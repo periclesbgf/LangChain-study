@@ -110,7 +110,7 @@ class StudyProgressManager(MongoDatabaseManager):
             return True
 
         except Exception as e:
-            print(f"[PROGRESS] Erro na sincronização do progresso: {e}")
+            #print(f"[PROGRESS] Erro na sincronização do progresso: {e}")
             return False
 
     async def get_study_progress(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -120,10 +120,10 @@ class StudyProgressManager(MongoDatabaseManager):
                 {"id_sessao": session_id},
                 {"_id": 0, "plano_execucao": 1, "progresso_total": 1}
             )
-            print(f"[PROGRESS] (get_study_progress) Plano encontrado: {plan}")
+            #print(f"[PROGRESS] (get_study_progress) Plano encontrado: {plan}")
 
             if not plan:
-                print(f"[PROGRESS] Plano não encontrado para sessão: {session_id}")
+                #print(f"[PROGRESS] Plano não encontrado para sessão: {session_id}")
                 return None
 
             # Validar e corrigir o progresso de cada etapa
@@ -145,7 +145,7 @@ class StudyProgressManager(MongoDatabaseManager):
                 "progresso_total": plan.get("progresso_total", 0)
             }
         except Exception as e:
-            print(f"[PROGRESS] Erro ao recuperar progresso: {e}")
+            #print(f"[PROGRESS] Erro ao recuperar progresso: {e}")
             return None
 
     async def update_step_progress(
@@ -174,7 +174,7 @@ class StudyProgressManager(MongoDatabaseManager):
             # Primeiro recupera o plano atual
             plan = await collection.find_one({"id_sessao": session_id})
             if not plan:
-                print(f"[PROGRESS] Plano não encontrado para sessão: {session_id}")
+                #print(f"[PROGRESS] Plano não encontrado para sessão: {session_id}")
                 return False
 
             # Atualiza o progresso da etapa específica
@@ -202,7 +202,7 @@ class StudyProgressManager(MongoDatabaseManager):
 
             return result.modified_count > 0
         except Exception as e:
-            print(f"[PROGRESS] Erro ao atualizar progresso da etapa: {e}")
+            #print(f"[PROGRESS] Erro ao atualizar progresso da etapa: {e}")
             return False
 
     async def get_step_details(
@@ -233,7 +233,7 @@ class StudyProgressManager(MongoDatabaseManager):
 
             return plano_execucao[step_index]
         except Exception as e:
-            print(f"[PROGRESS] Erro ao recuperar detalhes da etapa: {e}")
+            #print(f"[PROGRESS] Erro ao recuperar detalhes da etapa: {e}")
             return None
 
     async def mark_step_completed(
@@ -282,7 +282,7 @@ class StudyProgressManager(MongoDatabaseManager):
 
             return None  # Todas as etapas estão completas
         except Exception as e:
-            print(f"[PROGRESS] Erro ao buscar próxima etapa incompleta: {e}")
+            #print(f"[PROGRESS] Erro ao buscar próxima etapa incompleta: {e}")
             return None
 
     async def get_study_summary(
@@ -322,7 +322,7 @@ class StudyProgressManager(MongoDatabaseManager):
                 "estimated_duration": plan.get("duracao_total", "60 minutos")
             }
         except Exception as e:
-            print(f"[PROGRESS] Erro ao gerar resumo do estudo: {e}")
+            #print(f"[PROGRESS] Erro ao gerar resumo do estudo: {e}")
             return {
                 "error": str(e),
                 "session_id": session_id
@@ -402,9 +402,9 @@ def create_question_evaluation_node():
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
     def evaluate_question(state: AgentState) -> AgentState:
-        print("\n[NODE:EVALUATION] Starting question evaluation")
+        #print("\n[NODE:EVALUATION] Starting question evaluation")
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
-        print(f"[NODE:EVALUATION] Evaluating question: {latest_question}")
+        #print(f"[NODE:EVALUATION] Evaluating question: {latest_question}")
 
         chat_history = format_chat_history(state["chat_history"])
 
@@ -415,7 +415,7 @@ def create_question_evaluation_node():
 
         try:
             evaluation = json.loads(response.content)
-            print(f"[NODE:EVALUATION] Evaluation result: {evaluation}")
+            #print(f"[NODE:EVALUATION] Evaluation result: {evaluation}")
 
             new_state = state.copy()
             new_state["needs_retrieval"] = evaluation["needs_retrieval"]
@@ -423,7 +423,7 @@ def create_question_evaluation_node():
             return new_state
 
         except json.JSONDecodeError as e:
-            print(f"[NODE:EVALUATION] Error parsing evaluation: {e}")
+            #print(f"[NODE:EVALUATION] Error parsing evaluation: {e}")
             # Default to performing retrieval in case of error
             new_state = state.copy()
             new_state["needs_retrieval"] = True
@@ -434,10 +434,10 @@ def create_question_evaluation_node():
 
 class RetrievalTools:
     def __init__(self, qdrant_handler: QdrantHandler, student_email: str, disciplina: str, image_collection, session_id: str, state: AgentState):
-        print(f"[RETRIEVAL] Initializing RetrievalTools:")
-        print(f"[RETRIEVAL] - Student: {student_email}")
-        print(f"[RETRIEVAL] - Disciplina: {disciplina}")
-        print(f"[RETRIEVAL] - Session: {session_id}")
+        #print(f"[RETRIEVAL] Initializing RetrievalTools:")
+        #print(f"[RETRIEVAL] - Student: {student_email}")
+        #print(f"[RETRIEVAL] - Disciplina: {disciplina}")
+        #print(f"[RETRIEVAL] - Session: {session_id}")
         self.qdrant_handler = qdrant_handler
         self.student_email = student_email
         self.disciplina = disciplina
@@ -487,8 +487,8 @@ class RetrievalTools:
         # Usa a nova função de formatação do histórico
         formatted_history = format_chat_history(self.state["chat_history"], max_messages=4)
 
-        print(f"[RETRIEVAL] Using chat history for question transformation:")
-        print(formatted_history)
+        ##print(f"[RETRIEVAL] Using chat history for question transformation:")
+        #print(formatted_history)
 
         prompt = ChatPromptTemplate.from_template(self.QUESTION_TRANSFORM_PROMPT)
         response = await self.model.ainvoke(prompt.format(
@@ -497,11 +497,11 @@ class RetrievalTools:
         ))
 
         transformed_question = response.content.strip()
-        print(f"[RETRIEVAL] Transformed question: {transformed_question}")
+        #print(f"[RETRIEVAL] Transformed question: {transformed_question}")
         return transformed_question
 
     async def parallel_context_retrieval(self, question: str) -> Dict[str, Any]:
-        print(f"\n[RETRIEVAL] Starting parallel context retrieval for: {question}")
+        #print(f"\n[RETRIEVAL] Starting parallel context retrieval for: {question}")
 
         text_question, image_question, table_question = await asyncio.gather(
             self.transform_question(question),
@@ -540,7 +540,7 @@ class RetrievalTools:
             )
             return "\n".join([doc.page_content for doc in results]) if results else ""
         except Exception as e:
-            print(f"[RETRIEVAL] Error in text retrieval: {e}")
+            #print(f"[RETRIEVAL] Error in text retrieval: {e}")
             return ""
 
     async def retrieve_image_context(self, query: str) -> Dict[str, Any]:
@@ -552,11 +552,11 @@ class RetrievalTools:
                 disciplina_id=self.disciplina,
                 specific_metadata={"type": "image"}
             )
-            print("")
-            print("--------------------------------------------------")
-            print(f"[RETRIEVAL] Image search results: {results}")
-            print("--------------------------------------------------")
-            print("")
+            #print("")
+            #print("--------------------------------------------------")
+            #print(f"[RETRIEVAL] Image search results: {results}")
+            #print("--------------------------------------------------")
+            #print("")
             if not results:
                 return {"type": "image", "content": None, "description": ""}
 
@@ -566,7 +566,7 @@ class RetrievalTools:
 
             return await self.retrieve_image_and_description(image_uuid)
         except Exception as e:
-            print(f"[RETRIEVAL] Error in image retrieval: {e}")
+            #print(f"[RETRIEVAL] Error in image retrieval: {e}")
             return {"type": "image", "content": None, "description": ""}
 
     async def retrieve_table_context(self, query: str) -> Dict[str, Any]:
@@ -588,7 +588,7 @@ class RetrievalTools:
                 "metadata": results[0].metadata
             }
         except Exception as e:
-            print(f"[RETRIEVAL] Error in table retrieval: {e}")
+            #print(f"[RETRIEVAL] Error in table retrieval: {e}")
             return {"type": "table", "content": None}
 
     async def retrieve_image_and_description(self, image_uuid: str) -> Dict[str, Any]:
@@ -596,15 +596,15 @@ class RetrievalTools:
         Recupera a imagem e sua descrição de forma assíncrona.
         """
         try:
-            print(f"[RETRIEVAL] Recuperando imagem com UUID: {image_uuid}")
+            #print(f"[RETRIEVAL] Recuperando imagem com UUID: {image_uuid}")
             image_data = await self.image_collection.find_one({"_id": image_uuid})
             if not image_data:
-                print(f"[RETRIEVAL] Imagem não encontrada: {image_uuid}")
+                #print(f"[RETRIEVAL] Imagem não encontrada: {image_uuid}")
                 return {"type": "error", "message": "Imagem não encontrada"}
 
             image_bytes = image_data.get("image_data")
             if not image_bytes:
-                print("[RETRIEVAL] Dados da imagem ausentes")
+                #print("[RETRIEVAL] Dados da imagem ausentes")
                 return {"type": "error", "message": "Dados da imagem ausentes"}
 
             if isinstance(image_bytes, bytes):
@@ -612,7 +612,7 @@ class RetrievalTools:
             elif isinstance(image_bytes, str):
                 processed_bytes = image_bytes.encode('utf-8')
             else:
-                print(f"[RETRIEVAL] Formato de imagem não suportado: {type(image_bytes)}")
+                #print(f"[RETRIEVAL] Formato de imagem não suportado: {type(image_bytes)}")
                 return {"type": "error", "message": "Formato de imagem não suportado"}
 
             results = self.qdrant_handler.similarity_search_with_filter(
@@ -626,18 +626,18 @@ class RetrievalTools:
                 use_session=True,
                 specific_metadata={"image_uuid": image_uuid, "type": "image"}
             )
-            print(f"[RETRIEVAL] Resultados da busca de descrição: {results}")
+            #print(f"[RETRIEVAL] Resultados da busca de descrição: {results}")
             if not results:
                 return {"type": "error", "message": "Descrição da imagem não encontrada"}
-            print("[RETRIEVAL] Imagem e descrição recuperadas com sucesso")
-            print(f"[RETRIEVAL] Descrição da imagem: {results[0].page_content}")
+            #print("[RETRIEVAL] Imagem e descrição recuperadas com sucesso")
+            #print(f"[RETRIEVAL] Descrição da imagem: {results[0].page_content}")
             return {
                 "type": "image",
                 "image_bytes": processed_bytes,
                 "description": results[0].page_content
             }
         except Exception as e:
-            print(f"[RETRIEVAL] Erro ao recuperar imagem: {e}")
+            #print(f"[RETRIEVAL] Erro ao recuperar imagem: {e}")
             import traceback
             traceback.print_exc()
             return {"type": "error", "message": str(e)}
@@ -651,7 +651,7 @@ class RetrievalTools:
     ) -> Dict[str, Any]:
         try:
             if not any([text_context, image_context, table_context]):
-                print("[RETRIEVAL] No context available for relevance analysis")
+                #print("[RETRIEVAL] No context available for relevance analysis")
                 return self._get_default_analysis()
 
             prompt = ChatPromptTemplate.from_template(self.RELEVANCE_ANALYSIS_PROMPT)
@@ -686,7 +686,7 @@ class RetrievalTools:
                 cleaned_content = cleaned_content.strip()
 
                 analysis = json.loads(cleaned_content)
-                print(f"[RETRIEVAL] Relevance analysis: {analysis}")
+                #print(f"[RETRIEVAL] Relevance analysis: {analysis}")
 
                 required_fields = ["text", "image", "table", "recommended_context"]
                 if not all(field in analysis for field in required_fields):
@@ -695,15 +695,15 @@ class RetrievalTools:
                 return analysis
 
             except json.JSONDecodeError as e:
-                print(f"[RETRIEVAL] Error parsing relevance analysis: {e}")
-                print(f"[RETRIEVAL] Invalid JSON content: {cleaned_content}")
+                #print(f"[RETRIEVAL] Error parsing relevance analysis: {e}")
+                #print(f"[RETRIEVAL] Invalid JSON content: {cleaned_content}")
                 return self._get_default_analysis()
             except ValueError as e:
-                print(f"[RETRIEVAL] Validation error: {e}")
+                #print(f"[RETRIEVAL] Validation error: {e}")
                 return self._get_default_analysis()
 
         except Exception as e:
-            print(f"[RETRIEVAL] Error in analyze_context_relevance: {e}")
+            #print(f"[RETRIEVAL] Error in analyze_context_relevance: {e}")
             return self._get_default_analysis()
 
     def _get_default_analysis(self) -> Dict[str, Any]:
@@ -716,9 +716,9 @@ class RetrievalTools:
 
 def create_retrieval_node(tools: RetrievalTools):
     async def retrieve_context(state: AgentState) -> AgentState:
-        print("\n[NODE:RETRIEVAL] Starting retrieval node execution")
+        #print("\n[NODE:RETRIEVAL] Starting retrieval node execution")
         latest_message = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1]
-        print(f"[NODE:RETRIEVAL] Processing message: {latest_message.content}")
+        #print(f"[NODE:RETRIEVAL] Processing message: {latest_message.content}")
 
         tools.state = state
         context_results = await tools.parallel_context_retrieval(latest_message.content)
@@ -726,13 +726,14 @@ def create_retrieval_node(tools: RetrievalTools):
         new_state = state.copy()
         new_state["extracted_context"] = context_results
         new_state["iteration_count"] = state.get("iteration_count", 0) + 1
-        print(f"[NODE:RETRIEVAL] Updated iteration count: {new_state['iteration_count']}")
+        #print(f"[NODE:RETRIEVAL] Updated iteration count: {new_state['iteration_count']}")
         return new_state
 
     return retrieve_context
 
 def route_after_plan_generation():
-    ROUTE_PROMPT = """Você é um assistente educacional que avalia o plano de resposta gerado e decide o próximo passo baseado na pergunta do aluno.
+    ROUTE_PROMPT = """
+    Você é um assistente educacional que avalia o plano de resposta gerado e decide o próximo passo baseado na pergunta do aluno.
 
     Pergunta do Aluno:
     {question}
@@ -759,9 +760,9 @@ def route_after_plan_generation():
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
     def route_after_plan(state: AgentState) -> AgentState:
-        print("\n[ROUTING] Starting route after plan generation")
+        #print("\n[ROUTING] Starting route after plan generation")
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
-        print(f"[ROUTING] Processing question: {latest_question}")
+        #print(f"[ROUTING] Processing question: {latest_question}")
 
         chat_history = format_chat_history(state["chat_history"])
         current_plan = state.get("current_plan", "{}")
@@ -782,7 +783,7 @@ def route_after_plan_generation():
             cleaned_content = cleaned_content.strip()
 
             route = json.loads(cleaned_content)
-            print(f"[ROUTING] Route analysis: {route}")
+            #print(f"[ROUTING] Route analysis: {route}")
 
             if route.get("next_step") not in ["websearch", "retrieval", "direct_answer"]:
                 raise ValueError(f"Invalid next_step value: {route.get('next_step')}")
@@ -792,7 +793,7 @@ def route_after_plan_generation():
             return new_state
 
         except Exception as e:
-            print(f"[ROUTING] Error in routing: {str(e)}")
+            #print(f"[ROUTING] Error in routing: {str(e)}")
             # Em caso de erro, usamos uma lógica simples baseada em palavras-chave
             question_lower = latest_question.lower()
             if any(keyword in question_lower for keyword in ["youtube", "video", "wikipedia", "web"]):
@@ -800,7 +801,7 @@ def route_after_plan_generation():
             else:
                 next_step = "retrieval"
 
-            print(f"[ROUTING] Fallback routing decision: {next_step}")
+            #print(f"[ROUTING] Fallback routing decision: {next_step}")
             new_state = state.copy()
             new_state["next_step"] = next_step
             return new_state
@@ -934,7 +935,6 @@ Retornar JSON com estrutura exata:
     "nova_atividade":
         "descricao": "string",
         "objetivo": "string",
-        "tempo_estimado": "string",
         "criterios_conclusao": ["string"],
         "nivel_dificuldade": "string",
     "indicadores_compreensao": ["string"],
@@ -966,20 +966,20 @@ REGRAS DE OURO:
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
     def generate_plan(state: AgentState) -> AgentState:
-        print("\n[NODE:PLANNING] Starting plan generation")
+        #print("\n[NODE:PLANNING] Starting plan generation")
         
         try:
             # Extrair última mensagem
             latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
-            print(f"[NODE:PLANNING] Processing input: {latest_question}")
+            #print(f"[NODE:PLANNING] Processing input: {latest_question}")
 
             # Processar o plano de execução atual
             try:
                 plano_execucao = json.loads(state["current_plan"])
                 current_step = identify_current_step(plano_execucao["plano_execucao"])
-                print(f"[PLANNING] Current step: {current_step.titulo} ({current_step.progresso}%)")
+                #print(f"[PLANNING] Current step: {current_step.titulo} ({current_step.progresso}%)")
             except (json.JSONDecodeError, KeyError) as e:
-                print(f"[PLANNING] Error processing execution plan: {e}")
+                #print(f"[PLANNING] Error processing execution plan: {e}")
                 raise ValueError("Invalid execution plan format")
 
             # Extrair e validar perfil do usuário
@@ -991,7 +991,7 @@ REGRAS DE OURO:
             required_styles = ["Percepcao", "Entrada", "Processamento", "Entendimento"]
             missing_styles = [style for style in required_styles if style not in estilos]
             if missing_styles:
-                print(f"[PLANNING] Warning: Missing learning styles: {missing_styles}")
+                #print(f"[PLANNING] Warning: Missing learning styles: {missing_styles}")
                 for style in missing_styles:
                     estilos[style] = "não especificado"
 
@@ -1000,7 +1000,7 @@ REGRAS DE OURO:
             
             # Analisar histórico para identificar atividades anteriores
             activity_context = analyze_activity_history(state["chat_history"])
-            print(f"[PLANNING] Activity context: {activity_context}")
+            #print(f"[PLANNING] Activity context: {activity_context}")
 
             # Preparar parâmetros do prompt com informações adicionais
             params = {
@@ -1017,16 +1017,18 @@ REGRAS DE OURO:
             }
 
             # Gerar o plano usando o modelo
-            print("[PLANNING] Generating response plan")
+            #print("[PLANNING] Generating response plan")
             response = model.invoke(prompt.format(**params))
-            
+
+            #print(f"[PLANNING] Model response: {response.content}")
+
             # Processar e validar a resposta
             plan = process_model_response(response.content)
-            print(f"[PLANNING] Generated valid plan")
+            #print(f"[PLANNING] Generated valid plan")
 
             # Ajustar o plano baseado no contexto de atividades
             if activity_context["is_activity_response"]:
-                print("[PLANNING] Adjusting plan for activity response")
+                #print("[PLANNING] Adjusting plan for activity response")
                 plan = adjust_plan_for_activity(plan, activity_context)
 
             # Validar o plano gerado
@@ -1037,12 +1039,12 @@ REGRAS DE OURO:
             new_state["current_plan"] = json.dumps(plan)
             new_state["next_step"] = determine_next_step(plan)
             new_state["activity_context"] = activity_context
-            
-            print(f"[PLANNING] Plan generation completed successfully")
+
+            #print(f"[PLANNING] Plan generation completed successfully")
             return new_state
 
         except Exception as e:
-            print(f"[PLANNING] Error in plan generation: {str(e)}")
+            #print(f"[PLANNING] Error in plan generation: {str(e)}")
             import traceback
             traceback.print_exc()
             return handle_plan_generation_error(state, str(e))
@@ -1080,7 +1082,7 @@ REGRAS DE OURO:
             }
 
         except Exception as e:
-            print(f"[PLANNING] Error analyzing activity history: {e}")
+            #print(f"[PLANNING] Error analyzing activity history: {e}")
             return {
                 "is_activity_response": False,
                 "last_activity": None,
@@ -1100,10 +1102,11 @@ REGRAS DE OURO:
 
             # Converter para JSON
             plan = json.loads(cleaned_content)
+            #print(f"[PLANNING] Processed model response: {plan}")
             return plan
 
         except json.JSONDecodeError as e:
-            print(f"[PLANNING] Error parsing model response: {e}")
+            #print(f"[PLANNING] Error parsing model response: {e}")
             raise ValueError("Invalid JSON in model response")
 
     def adjust_plan_for_activity(plan: Dict[str, Any], activity_context: Dict[str, Any]) -> Dict[str, Any]:
@@ -1143,7 +1146,7 @@ REGRAS DE OURO:
 
     def handle_plan_generation_error(state: AgentState, error_msg: str) -> AgentState:
         """Manipula erros na geração do plano."""
-        print(f"[PLANNING] Handling error: {error_msg}")
+        #print(f"[PLANNING] Handling error: {error_msg}")
         
         default_plan = {
             "tipo_entrada": "erro",
@@ -1160,7 +1163,6 @@ REGRAS DE OURO:
             "nova_atividade": {
                 "descricao": "N/A",
                 "objetivo": "N/A",
-                "tempo_estimado": "N/A",
                 "criterios_conclusao": [],
                 "nivel_dificuldade": "básico"
             },
@@ -1205,24 +1207,11 @@ def create_teaching_node():
     Mensagem do aluno:
     {question}
 
-    ESTRUTURA OBRIGATÓRIA DA RESPOSTA:
-
-    1. Se for material de estudo:
-        - OBRIGATÓRIO: Explicação detalhada do contexto principal
-        - OBRIGATÓRIO: Análise de como o contexto se relaciona com a dúvida do aluno
-        - OBRIGATÓRIO: Para imagens, descrever detalhadamente seus elementos e significado
-        - OBRIGATÓRIO: Para tabelas, explicar os dados e sua interpretação
-        - Se houver contextos secundários relevantes, explicá-los em relação ao contexto principal
-
-    2. Se for resultado de busca web:
-        - OBRIGATÓRIO: Resumir e explicar o conteúdo encontrado na Wikipedia
-        - OBRIGATÓRIO: Analisar a relevância dos vídeos do YouTube
-        - OBRIGATÓRIO: Explicar como cada recurso ajuda a responder a dúvida
-        - OBRIGATÓRIO: Guiar o aluno na utilização dos recursos
+    ESTRUTURA DA RESPOSTA:
+    - SE houver contexto principal, explique detalhadamente
+    - Responda como um tutor educacional sempre orientando o aluno a chegar na resposta e dando proximos passos.
 
     DIRETRIZES:
-    - SEMPRE explique o contexto antes de responder a pergunta
-    - SEMPRE relacione a explicação ao estilo de aprendizagem do aluno
     - NUNCA presuma conhecimento prévio sem explicar
     - NUNCA pule a explicação do contexto principal
     - Use linguagem clara e objetiva
@@ -1232,52 +1221,41 @@ def create_teaching_node():
     - Você DEVE explicar o contexto fornecido antes de qualquer outra coisa
     - A resposta deve ser direta ao aluno
     - Mantenha a resposta educacional
-    - Evite respostas prontas
     - Incentive a busca da informação pelo aluno
     """
 
     DIRECT_RESPONSE_PROMPT = """
-    ROLE: Tutor personalizado focado em orientação direta.
-    
-    OBJETIVO: Guiar o aluno na compreensão e resolução de questões sem dar respostas diretas.
+    ROLE: Tutor educacional
 
-    Plano de Resposta:
-    {learning_plan}
+    TASK: Guiar o aluno na compreensão e resolução de questões sem dar respostas diretas.
 
-    Perfil do Aluno:
-    {user_profile}
+    INSTRUCTIONS: 
+    Leita atentamente o plano de resposta e a mensagem do aluno. Forneça orientações e dicas para ajudar o aluno a alcancar o objetivo do plano de resposta
+        - Plano de Resposta:
+        {learning_plan}
 
-    Histórico da Conversa:
-    {chat_history}
+        - Perfil do Aluno:
+        {user_profile}
 
-    Mensagem do aluno:
-    {question}
+        - Histórico da Conversa:
+        {chat_history}
+
+        - Mensagem do aluno:
+        {question}
 
     ESTRUTURA DA RESPOSTA:
-    1. Compreensão inicial:
-       - Confirme o entendimento da dúvida/questão
-       - Identifique os pontos principais a serem abordados
-
-    2. Orientação:
-       - Forneça dicas e direcionamentos
-       - Use analogias quando apropriado
-       - Adapte a explicação ao nível do aluno
-
-    3. Verificação:
-       - Sugira formas de o aluno verificar seu entendimento
-       - Proponha reflexões ou exercícios práticos
+    - Responda como um tutor educacional sempre orientando o aluno a chegar na resposta. Incentive o raciocínio e a busca ativa de soluções.
+    - Siga o plano de resposta fornecido e adapte conforme necessário.
 
     DIRETRIZES:
-    - Use linguagem simples e direta
+    - Use linguagem amigavel e acessível
     - Foque em conceitos fundamentais
     - Adapte ao estilo de aprendizagem do aluno
-    - Evite respostas prontas
-    - Incentive o raciocínio próprio
-    
-    ATENÇÃO: 
-    - Responda diretamente ao aluno
-    - Mantenha o foco educacional
-    - Não forneça respostas diretas
+    - Incentive o raciocínio do aluno
+
+    ATENÇÃO:
+    - Voce DEVE guiar o aluno sem dar respostas diretas
+    - Voce responde diretamente ao aluno
     """
 
     context_prompt = ChatPromptTemplate.from_template(CONTEXT_BASED_PROMPT)
@@ -1285,14 +1263,15 @@ def create_teaching_node():
     model = ChatOpenAI(model="gpt-4o", temperature=0.2)
 
     def generate_teaching_response(state: AgentState) -> AgentState:
-        print("\n[NODE:TEACHING] Starting teaching response generation")
+        #print("\n[NODE:TEACHING] Starting teaching response generation")
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
         chat_history = format_chat_history(state["chat_history"])
 
         try:
             # Determinar se é resposta baseada em contexto ou direta
             if state.get("next_step") == "direct_answer":
-                print("[NODE:TEACHING] Using direct response prompt")
+                #print("[NODE:TEACHING] Using direct response prompt")
+                #print(f"[NODE:TEACHING] Current plan: {state["current_plan"]}")
                 explanation = model.invoke(direct_prompt.format(
                     learning_plan=state["current_plan"],
                     user_profile=state["user_profile"],
@@ -1300,9 +1279,10 @@ def create_teaching_node():
                     chat_history=chat_history
                 ))
                 image_content = None
+                #print(f"[NODE:TEACHING] Direct response: {explanation.content}")
                 
             else:
-                print("[NODE:TEACHING] Using context-based prompt")
+                #print("[NODE:TEACHING] Using context-based prompt")
                 # Processar contextos para resposta baseada em contexto
                 if state.get("web_search_results"):
                     source_type = "Resultados de busca web"
@@ -1346,16 +1326,17 @@ def create_teaching_node():
                                 secondary_contexts_list.append(f"Dados da Tabela: {contexts.get('table', {}).get('content', '')}")
                     
                     secondary_contexts = "\n\n".join(secondary_contexts_list)
-                
+                #print(f"[NODE:TEACHING] Current CONTEXT plan: {state["current_plan"]}")
                 explanation = model.invoke(context_prompt.format(
                     learning_plan=state["current_plan"],
                     user_profile=state["user_profile"],
                     source_type=source_type,
-                    primary_context=primary_context[:1000] + "..." if len(primary_context) > 1000 else primary_context,
-                    secondary_contexts=secondary_contexts[:1000] + "..." if len(secondary_contexts) > 1000 else secondary_contexts,
+                    primary_context=primary_context,
+                    secondary_contexts=secondary_contexts,
                     question=latest_question,
                     chat_history=chat_history
                 ))
+                #print(f"[NODE:TEACHING] Context-based response: {explanation.content}")
 
                 # Processar imagem se disponível e relevante
                 image_content = None
@@ -1389,7 +1370,7 @@ def create_teaching_node():
             return new_state
 
         except Exception as e:
-            print(f"[NODE:TEACHING] Error generating response: {str(e)}")
+            #print(f"[NODE:TEACHING] Error generating response: {str(e)}")
             import traceback
             traceback.print_exc()
             error_message = "Desculpe, encontrei um erro ao processar sua pergunta. Por favor, tente novamente."
@@ -1425,6 +1406,7 @@ def create_progress_analyst_node(progress_manager: StudyProgressManager):
     2. Se houve progresso efetivo no aprendizado
     3. Quanto o progresso deve aumentar (0-100%)
     4. Se a etapa atual deve ser considerada concluída
+    5. Avalie o progresso com base nas atividades e conceitos entregue pelo ALUNO. Voce pode considerar o campo contexto_identificado do plano de execução atual.
 
     IMPORTANTE: Retorne APENAS um JSON válido no seguinte formato EXATO:
         "comprehension_level": "alto|medio|baixo",
@@ -1438,7 +1420,7 @@ def create_progress_analyst_node(progress_manager: StudyProgressManager):
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
     async def analyze_progress(state: AgentState) -> AgentState:
-        print("\n[NODE:PROGRESS_ANALYST] Starting progress analysis")
+        #print("\n[NODE:PROGRESS_ANALYST] Starting progress analysis")
 
         try:
             # Extrai informações necessárias do estado
@@ -1450,7 +1432,7 @@ def create_progress_analyst_node(progress_manager: StudyProgressManager):
             # Obtém informações atualizadas de progresso
             study_progress = await progress_manager.get_study_progress(session_id)
             if not study_progress:
-                print("[PROGRESS_ANALYST] No progress data found")
+                #print("[PROGRESS_ANALYST] No progress data found")
                 return state
 
             # Identifica a etapa atual
@@ -1466,11 +1448,13 @@ def create_progress_analyst_node(progress_manager: StudyProgressManager):
                     break
 
             if not current_step:
-                print("[PROGRESS_ANALYST] All steps completed")
+                #print("[PROGRESS_ANALYST] All steps completed")
                 return state
 
             # Formata o histórico do chat para análise
             formatted_chat_history = format_chat_history(chat_history, max_messages=5)
+
+            #print(f"[PROGRESS_ANALYST] current_plan: {current_plan}")
 
             # Obtém análise do modelo
             analysis_response = model.invoke(prompt.format(
@@ -1490,7 +1474,7 @@ def create_progress_analyst_node(progress_manager: StudyProgressManager):
             cleaned_content = cleaned_content.strip()
 
             analysis = json.loads(cleaned_content)
-            print(f"[PROGRESS_ANALYST] Analysis results: {analysis}")
+            #print(f"[PROGRESS_ANALYST] Analysis results: {analysis}")
 
             # Atualiza o progresso apenas se houve avanço
             if analysis["progress_made"]:
@@ -1504,7 +1488,7 @@ def create_progress_analyst_node(progress_manager: StudyProgressManager):
                 if analysis["step_completed"]:
                     new_progress = 100
 
-                print(f"[PROGRESS_ANALYST] Updating progress - Current: {current_progress}%, New: {new_progress}%")
+                #print(f"[PROGRESS_ANALYST] Updating progress - Current: {current_progress}%, New: {new_progress}%")
 
                 # Atualiza o progresso no banco de dados
                 update_success = await progress_manager.update_step_progress(
@@ -1531,14 +1515,14 @@ def create_progress_analyst_node(progress_manager: StudyProgressManager):
                     })
                     return new_state
                 else:
-                    print("[PROGRESS_ANALYST] Failed to update progress")
+                    #print("[PROGRESS_ANALYST] Failed to update progress")
                     return state
 
-            print("[PROGRESS_ANALYST] No progress update needed")
+            #print("[PROGRESS_ANALYST] No progress update needed")
             return state
 
         except Exception as e:
-            print(f"[PROGRESS_ANALYST] Error in progress analysis: {str(e)}")
+            #print(f"[PROGRESS_ANALYST] Error in progress analysis: {str(e)}")
             import traceback
             traceback.print_exc()
             return state
@@ -1547,7 +1531,7 @@ def create_progress_analyst_node(progress_manager: StudyProgressManager):
 
 
 def identify_current_step(plano_execucao: List[Dict]) -> ExecutionStep:
-    print("\n[PLAN] Identifying current execution step")
+    #print("\n[PLAN] Identifying current execution step")
 
     if not plano_execucao:
         raise ValueError("[PLAN] Plano de execução vazio")
@@ -1564,7 +1548,7 @@ def identify_current_step(plano_execucao: List[Dict]) -> ExecutionStep:
     for step in plano_execucao:
         current_progress = step["progresso"]
         if current_progress < 100:
-            print(f"[PLAN] Found incomplete step: {step['titulo']} (Progress: {current_progress}%)")
+            #print(f"[PLAN] Found incomplete step: {step['titulo']} (Progress: {current_progress}%)")
             return ExecutionStep(
                 titulo=step["titulo"],
                 duracao=step["duracao"],
@@ -1577,7 +1561,7 @@ def identify_current_step(plano_execucao: List[Dict]) -> ExecutionStep:
 
     # Se todas as etapas estiverem concluídas, retorna a última etapa
     last_step = plano_execucao[-1]
-    print(f"[PLAN] All steps completed. Using last step: {last_step['titulo']} (Progress: {last_step['progresso']}%)")
+    #print(f"[PLAN] All steps completed. Using last step: {last_step['titulo']} (Progress: {last_step['progresso']}%)")
     return ExecutionStep(
         titulo=last_step["titulo"],
         duracao=last_step["duracao"],
@@ -1592,30 +1576,31 @@ def should_continue(state: AgentState) -> str:
     MAX_ITERATIONS = 1
     current_iterations = state.get("iteration_count", 0)
 
-    print(f"\n[WORKFLOW] Checking continuation - Current iterations: {current_iterations}")
+    #print(f"\n[WORKFLOW] Checking continuation - Current iterations: {current_iterations}")
     if current_iterations >= MAX_ITERATIONS:
-        print("[WORKFLOW] Max iterations reached, ending workflow")
+        #print("[WORKFLOW] Max iterations reached, ending workflow")
         return "end"
 
-    print("[WORKFLOW] Continuing to next iteration")
+    #print("[WORKFLOW] Continuing to next iteration")
     return "continue"
 
 def route_after_evaluation(state: AgentState) -> str:
     needs_retrieval = state.get("needs_retrieval", True)
-    print(f"\n[WORKFLOW] Routing after evaluation - Needs retrieval: {needs_retrieval}")
+    #print(f"\n[WORKFLOW] Routing after evaluation - Needs retrieval: {needs_retrieval}")
     return "retrieve_context" if needs_retrieval else "direct_answer"
 
 
 class WebSearchTools:
     def __init__(self):
-        print("[WEBSEARCH] Initializing WebSearchTools")
+        #print("[WEBSEARCH] Initializing WebSearchTools")
+        pass
 
     def search_youtube(self, query: str) -> str:
         """
         Realiza uma pesquisa no YouTube e retorna o link do vídeo mais relevante.
         """
         try:
-            print(f"[WEBSEARCH] Searching YouTube for: {query}")
+            #print(f"[WEBSEARCH] Searching YouTube for: {query}")
             videos_search = VideosSearch(query, limit=3)  # Aumentamos para 3 resultados
             results = videos_search.result()
 
@@ -1642,13 +1627,13 @@ class WebSearchTools:
                         f"   Descrição: {video['description']}\n\n"
                     )
 
-                print(f"[WEBSEARCH] Found {len(videos_info)} videos")
+                #print(f"[WEBSEARCH] Found {len(videos_info)} videos")
                 return response
             else:
-                print("[WEBSEARCH] No videos found")
+                #print("[WEBSEARCH] No videos found")
                 return "Nenhum vídeo encontrado."
         except Exception as e:
-            print(f"[WEBSEARCH] Error searching YouTube: {str(e)}")
+            #print(f"[WEBSEARCH] Error searching YouTube: {str(e)}")
             return "Ocorreu um erro ao buscar no YouTube."
 
     def search_wikipedia(self, query: str) -> str:
@@ -1656,7 +1641,7 @@ class WebSearchTools:
         Realiza uma pesquisa no Wikipedia e retorna o resumo da página.
         """
         try:
-            print(f"[WEBSEARCH] Searching Wikipedia for: {query}")
+            #print(f"[WEBSEARCH] Searching Wikipedia for: {query}")
             wiki_wiki = wikipediaapi.Wikipedia(
                 'TutorBot/1.0 (pericles.junior@cesar.school)',
                 'pt'
@@ -1669,13 +1654,13 @@ class WebSearchTools:
                     f"Resumo: {page.summary[:500]}...\n"
                     f"Link: {page.fullurl}"
                 )
-                print(f"[WEBSEARCH] Found Wikipedia article: {page.title}")
+                #print(f"[WEBSEARCH] Found Wikipedia article: {page.title}")
                 return summary
             else:
-                print("[WEBSEARCH] No Wikipedia article found")
+                #print("[WEBSEARCH] No Wikipedia article found")
                 return "Página não encontrada na Wikipedia."
         except Exception as e:
-            print(f"[WEBSEARCH] Error searching Wikipedia: {str(e)}")
+            #print(f"[WEBSEARCH] Error searching Wikipedia: {str(e)}")
             return "Ocorreu um erro ao buscar na Wikipedia."
 
 def route_after_planning(state: AgentState) -> str:
@@ -1683,7 +1668,7 @@ def route_after_planning(state: AgentState) -> str:
     Determina o próximo nó após o planejamento com base no plano gerado.
     """
     next_step = state.get("next_step", "retrieval")
-    print(f"[ROUTING] Routing after planning: {next_step}")
+    #print(f"[ROUTING] Routing after planning: {next_step}")
 
     if next_step == "websearch":
         return "web_search"
@@ -1732,18 +1717,18 @@ def create_websearch_node(web_tools: WebSearchTools):
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0.1)
 
     async def web_search(state: AgentState) -> AgentState:
-        print("\n[NODE:WEBSEARCH] Starting web search")
+        #print("\n[NODE:WEBSEARCH] Starting web search")
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
         chat_history = format_chat_history(state["chat_history"])
 
         try:
             # Otimizar a query
-            print(f"[WEBSEARCH] Optimizing query: {latest_question}")
+            #print(f"[WEBSEARCH] Optimizing query: {latest_question}")
             optimized_query = model.invoke(query_prompt.format(
                 question=latest_question,
                 chat_history=chat_history
             )).content.strip()
-            print(f"[WEBSEARCH] Optimized query: {optimized_query}")
+            #print(f"[WEBSEARCH] Optimized query: {optimized_query}")
 
             # Realizar buscas com a query otimizada
             wiki_result = web_tools.search_wikipedia(optimized_query)
@@ -1787,11 +1772,11 @@ def create_websearch_node(web_tools: WebSearchTools):
             new_state["extracted_context"] = extracted_context
             new_state["messages"] = list(state["messages"]) + [response]
 
-            print("[WEBSEARCH] Search completed successfully")
+            #print("[WEBSEARCH] Search completed successfully")
             return new_state
 
         except Exception as e:
-            print(f"[WEBSEARCH] Error during web search: {str(e)}")
+            #print(f"[WEBSEARCH] Error during web search: {str(e)}")
             error_message = "Desculpe, encontrei um erro ao buscar os recursos. Por favor, tente novamente."
             
             new_state = state.copy()
@@ -1811,7 +1796,7 @@ class TutorWorkflow:
         session_id: str,
         image_collection
     ):
-        print(f"\n[WORKFLOW] Initializing TutorWorkflow")
+        #print(f"\n[WORKFLOW] Initializing TutorWorkflow")
 
         self.session_id = session_id
         self.student_email = student_email
@@ -1874,7 +1859,7 @@ class TutorWorkflow:
         workflow.add_edge("progress_analyst", END)
 
         workflow.set_entry_point("generate_plan")
-        print("[WORKFLOW] Workflow graph created successfully")
+        #print("[WORKFLOW] Workflow graph created successfully")
         return workflow.compile()
 
     async def handle_progress_update(
@@ -1897,7 +1882,7 @@ class TutorWorkflow:
                 return await self.progress_manager.get_study_summary(session_id)
             return None
         except Exception as e:
-            print(f"[PROGRESS] Error in handle_progress_update: {e}")
+            #print(f"[PROGRESS] Error in handle_progress_update: {e}")
             return None
 
     def create_planning_node_with_progress(self):
@@ -1919,7 +1904,7 @@ class TutorWorkflow:
                 return new_state
 
             except Exception as e:
-                print(f"[PLANNING] Error in planning with progress: {e}")
+                #print(f"[PLANNING] Error in planning with progress: {e}")
                 import traceback
                 traceback.print_exc()
                 return state
@@ -1937,7 +1922,7 @@ class TutorWorkflow:
                 return new_state
 
             except Exception as e:
-                print(f"[PROGRESS] Error in teaching with progress: {e}")
+                #print(f"[PROGRESS] Error in teaching with progress: {e}")
                 import traceback
                 traceback.print_exc()
                 return state
@@ -1951,17 +1936,17 @@ class TutorWorkflow:
         current_plan=None, 
         chat_history=None
     ) -> dict:
-        print(f"\n[WORKFLOW] Starting workflow invocation")
-        print(f"[WORKFLOW] Query: {query}")
+        #print(f"\n[WORKFLOW] Starting workflow invocation")
+        #print(f"[WORKFLOW] Query: {query}")
 
         try:
             # Validar perfil do usuário
             validated_profile = student_profile
-            print(f"[WORKFLOW] Student profile validated: {validated_profile.get('EstiloAprendizagem', 'Not found')}")
+            #print(f"[WORKFLOW] Student profile validated: {validated_profile.get('EstiloAprendizagem', 'Not found')}")
             await self.progress_manager.sync_progress_state(self.session_id)
             # Recuperar progresso atual
             current_progress = await self.progress_manager.get_study_progress(self.session_id)
-            #print(f"[WORKFLOW] Current progress loaded: {current_progress}")
+            ##print(f"[WORKFLOW] Current progress loaded: {current_progress}")
 
             if chat_history is None:
                 chat_history = []
@@ -1985,9 +1970,9 @@ class TutorWorkflow:
                 session_id=self.session_id
             )
 
-            print("[WORKFLOW] Executing workflow")
+            #print("[WORKFLOW] Executing workflow")
             result = await self.workflow.ainvoke(initial_state)
-            print("[WORKFLOW] Workflow execution completed successfully")
+            #print("[WORKFLOW] Workflow execution completed successfully")
 
             # Recupera o resumo atualizado do estudo
             study_summary = await self.progress_manager.get_study_summary(self.session_id)
@@ -2007,7 +1992,7 @@ class TutorWorkflow:
             return final_result
 
         except Exception as e:
-            print(f"[WORKFLOW] Error during workflow execution: {str(e)}")
+            #print(f"[WORKFLOW] Error during workflow execution: {str(e)}")
             import traceback
             traceback.print_exc()
             error_response = {
