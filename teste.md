@@ -10,9 +10,9 @@
 
 ### 1.1 Criação de Conta e Perfil
 1. **Criar nova conta**
-   - Inserir nome completo
+   - Inserir primeiro nome
    - Inserir email válido
-   - Definir senha segura
+   - Definir senha qualquer
    - Verificar confirmação de cadastro
 
 2. **Login**
@@ -21,6 +21,7 @@
 
 3. **Configurar Perfil**
    - Acessar aba de perfil
+   - Clique em editar perfil no canto superior direito
    - Preencher dados do perfil de aprendizagem
    - Salvar preferências
    - Verificar se perfil foi criado corretamente
@@ -29,7 +30,7 @@
 1. **Criar Disciplina**
    - Acessar menu "Disciplinas"
    - Selecionar "Nova disciplina"
-   - Em turno de Estudo: Selecione Qualquer coisa, não é importante
+   - Em turno de Estudo: Selecione Qualquer coisa, não é importante (não funciona)
    - Em horario de início: Selecione o inicio e fim da aula de PIF
    - Não preencha o os quatro campos, apenas role a página para baixo e submeta o Arquivo PDF da disciplina.
    - Assim que sair a tela, va para outra pagina e volte para página de disciplina.
@@ -38,8 +39,10 @@
    - Acessar disciplina criada
    - Gerar plano automático
    - Selecionar "Introdução à Manipulação de Arquivos em C"
-   - Escolha a sua preferência de estudos
+   - Escolha a sua preferência de horário de estudos
    - Definir duração de 60 minutos
+   - Gere o plano de estudos
+   - Acesse a sessão de estudos com o plano criado
 
 ## Fase 2: Validação do Chatbot (Fique livre para perguntar)
 
