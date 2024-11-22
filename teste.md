@@ -1,5 +1,5 @@
 
-# Roteiro de Teste Integrado - Sistema de Tutoria para Manipulação de Arquivos em C
+# Roteiro de Teste Integrado - Sistema de Tutoria
 ## Atenção, NUNCA DÊ RELOAD NA PAGINA
 ## Fase 1: Configuração Inicial
 
