@@ -1,6 +1,6 @@
 
 # Roteiro de Teste Integrado - Sistema de Tutoria
-## Atenção, NUNCA DÊ RELOAD NA PAGINA
+## Atenção: O tutorial está focado em uma disciplina, porém pode ser utilizado com outras
 ## Fase 1: Configuração Inicial
 
 ### 1.0 Acesso a home
