@@ -85,18 +85,18 @@ class CommandChain:
         Dado o contexto acima, responda o texto a seguir: {text}
         """
 
-    def setup_chain(self, text, history):
-        history.add_user_message(text)
-        history_messages = history.get_history()
+    def setup_chain(self, text):
+        # history.add_user_message(text)
+        # history_messages = history.get_history()
 
         prompt = ChatPromptTemplate.from_template(self.prompt_template)
         llm = ChatOpenAI(model=self.model, api_key=self.api_key)
         output_parser = StrOutputParser()
         chain = prompt | llm | output_parser
-        response = chain.invoke(history_messages)
-        history.add_assistant_message(response)
+        response = chain.invoke(text)
+        #history.add_assistant_message(response)
 
-        return response, history
+        return response
 
 
 class SQLChain:
@@ -617,45 +617,42 @@ class ClassificationChain:
     """
     def __init__(self, api_key):
         self.api_key = api_key
-        self.model = "gpt-4o"
+        self.model = "gpt-4o-mini"
         self.prompt_clasificator = """
         [Contexto]
         Você é um especialista em analisar texto e determinar a classificação de uma questão em um tópico específico.
-        Você tem três rotas possíveis para classificar a questão: `Comando`, `ConsultarBancoDeDados` ou `outros`.
+        Você tem três rotas possíveis para classificar a questão: `comando`, `calendario` ou `outros`.
 
         [Objetivo]
-        Sua tarefa é classificar a questão em um dos tópicos acima.
+        Sua tarefa é classificar a questão em um dos tópicos: `comando`, `calendario` ou `outros`.
 
         [Rotas]
-        - Comando:
+        - comando:
             [Descrição]
             Essa rota determina se a questão é um comando a ser executado em um sistema de automação residencial ou Se é uma solicitação de dados de um dispositivo em casa.
 
-            [Exemplo]
+            [Conteudo]
             Questões que solicitam a execução de uma ação. Essa ação pode ser ligar ou desligar um dispositivo, abrir ou fechar uma porta, entre outras ações envolvendo automação residencial.
             Dentro de comandos, você pode encontrar palavras-chave como "ligar", "desligar", "abrir", "fechar".
             Ao escolher comando, a pergunta ou ação do usuário irá para uma determinada rota que irá passar por um processamento específico.
             Este processamento irá identificar o comando específico que o usuário deseja executar.
             Tambem irá identificar se o usuário quer solicitar dados de algum dispositivo em casa.
 
-        - ConsultarBancoDeDados:
+        - calendario:
             [Descrição]
-            Essa rota determina se a questão é uma solicitação de dados de um banco de dados envolvendo seu historico escolar. Ou algo referente a faculdade.\
+            Essa rota determina se a questão é uma solicitação de dados de calendário ou rotina do usuário. Essa rota sera utilizada para recuperar dados da rotina do usuário e responder perguntas sobre datas ou eventos do usuário\
 
-            [Exemplos]
-            Questões que solicitam informações sobre disciplinas cursadas, notas, semestres, cursos, entre outras informações relacionadas ao histórico escolar.
-            Dentro de consultar banco de dados, você pode encontrar palavras-chave como "disciplina", "curso", "nota", "semestre".
-            Ao escolher consultar banco de dados, a pergunta ou ação do usuário irá para uma determinada rota que irá passar por um processamento específico.
-            Este processamento irá identificar as informações solicitadas pelo usuário e retornar a resposta correta.
-
+            [Conteudo]
+            Questões que solicitam informações sobre horario ou eventos do usuário. Essas informações podem ser sobre eventos futuros, eventos passados, eventos recorrentes, entre outros.
+            Dentro dessa rota, você pode encontrar palavras-chave como "hoje", "amanhã", "ontem", "semana que vem", "mes que vem", "ano que vem", "aniversário", "feriado", "reunião", "compromisso".
+            Exemplo de perguntas: "o que devo fazer durante a semana?" "Qual é o meu próximo compromisso?", "Quando é o meu aniversário?", "Quando é o feriado de natal?", "Quando é a minha próxima reunião?".
+            TODOS os dados relacionados a Horário entram nesta rota.
         - Outros:
             [Descrição]
-            Essa rota determina se a questão não se encaixa nas rotas de comando ou consultar banco de dados.
+            Essa rota determina se a questão não se encaixa nas rotas de comando ou ccalendario.
 
-            [Exemplos]
-            Questões que não se encaixam nas rotas de comando ou consultar banco de dados.
-            Dentro de outros, pode encontrar perguntas diversas que não se encaixam em nenhuma das rotas anteriores.
-            Esta rota irá identificar que a questão não se encaixa nas rotas de comando ou consultar banco de dados.
+            [Conteudo]
+            Questões que não se encaixam nas rotas de comando ou consultar calendário.
 
         Baseado no contexto acima, classifique a questão a seguir em uma das [Rotas] acima. Retorne apenas \
         o nome da [Rotas].  Não responda mais do que uma palavra:

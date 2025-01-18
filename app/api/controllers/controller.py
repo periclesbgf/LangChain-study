@@ -18,19 +18,18 @@ def code_confirmation(code):
 def prepare_query(query):
     return query.replace('```sql', '').replace('```', '').strip()
 
-def build_chain(text, history):
+def build_chain(text):
     chain = CommandChain(api_key=OPENAI_API_KEY)
-    response, updated_history = chain.setup_chain(text=text, history=history)
+    response = chain.setup_chain(text=text)
     if response == "Desculpe, não entendi.":
-        updated_history.remove_last_two_messages()
-        return None, response
+        return response
     if response.lower() in ["ligar luminária", "desligar luminária", "ligar luz", "desligar luz", "travar porta", "destravar porta", "checar bomba de água", "ligar válvula", "desligar válvula", "ligar bomba de água", "desligar bomba de água"]:
-        return None, response
+        return response
 
     # audio_service = AudioService() #saida com audio aqui
     # speech_file_path = audio_service.text_to_speech(response)
 
-    return None, response
+    return response
 
 def build_sql_chain(text):
     chain = SQLChain(api_key=OPENAI_API_KEY)

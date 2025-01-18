@@ -31,3 +31,22 @@ class AudioService:
         os.remove(temp_path)
 
         return self.speech_file_path
+
+    def speech_to_text(self, audio_file_path):
+        """
+        Converte um arquivo de áudio para texto usando a API de reconhecimento de fala.
+        """
+        try:
+            with open(audio_file_path, 'rb') as audio_file:
+                response = self.client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    language="pt"
+                )
+
+            transcribed_text = response.text
+            print(f"[INFO] Transcribed text: {transcribed_text}")
+            return transcribed_text
+        except Exception as e:
+            print(f"[ERROR] Failed to transcribe audio: {str(e)}")
+            return None

@@ -260,3 +260,7 @@ class Material(BaseModel):
     content_hash: str
     created_at: datetime
     updated_at: datetime
+
+class AudioResponseModel(BaseModel):
+    response: str
+    audio: Optional[str]
