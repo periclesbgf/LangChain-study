@@ -56,3 +56,4 @@ langchain-openai
 ipython
 pytesseract
 python-docx
+wave
