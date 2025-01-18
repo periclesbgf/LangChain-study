@@ -40,5 +40,5 @@ def recuperar_e_exibir_imagem(uuid):
         print("Imagem não encontrada no MongoDB.")
 
 # Exemplo de uso
-uuid = "d64766ed-5c77-4614-8106-8f9312311960"  # Substitua pelo UUID da imagem que deseja recuperar
+uuid = "30004ecb-e776-44c3-8e79-3c04f0cab87b"  # Substitua pelo UUID da imagem que deseja recuperar
 recuperar_e_exibir_imagem(uuid)
