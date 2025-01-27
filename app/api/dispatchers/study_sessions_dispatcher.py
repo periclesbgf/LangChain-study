@@ -1,5 +1,6 @@
 # dispatchers/study_sessions_dispatcher.py
 
+import select
 from sqlalchemy.exc import IntegrityError
 from database.sql_database_manager import DatabaseManager
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile
@@ -170,3 +171,38 @@ class StudySessionsDispatcher:
             return session_data
         except Exception as e:
             raise Exception(f"Error fetching study session by ID: {e}")
+
+    def get_study_sessions_by_course(self, user_email: str, discipline_id: int):
+        """
+        Retorna todas as sessões de estudo de uma disciplina específica.
+        """
+        try:
+            # Obter o ID do estudante pelo e-mail
+            student_id = self.get_student_id_by_email(user_email)
+
+            # Query para buscar sessões da disciplina específica
+            query = (
+                select(tabela_sessoes_estudo)
+                .where(
+                    (tabela_sessoes_estudo.c.IdCurso == discipline_id) &
+                    (tabela_sessoes_estudo.c.IdEstudante == student_id)
+                )
+            )
+            result = self.session.execute(query).fetchall()
+
+            return [
+                {
+                    "IdSessao": row.IdSessao,
+                    "IdEstudante": row.IdEstudante,
+                    "IdCurso": row.IdCurso,
+                    "Assunto": row.Assunto,
+                    "Inicio": row.Inicio,
+                    "Fim": row.Fim,
+                    "Produtividade": row.Produtividade,
+                    "FeedbackDoAluno": row.FeedbackDoAluno
+                }
+                for row in result
+            ]
+        except Exception as e:
+            print(f"Erro ao buscar sessões de estudo: {e}")
+            raise Exception("Erro ao buscar sessões de estudo.")

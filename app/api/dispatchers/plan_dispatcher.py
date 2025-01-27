@@ -55,3 +55,42 @@ class PlanDispatcher:
 
     async def get_plan_progress(self, session_id: str) -> Dict[str, Any]:
         return await self.mongo_manager.get_plan_progress(session_id)
+
+    async def get_sessions_without_plan_by(self, student_email: str, study_sessions) -> List[Dict[str, Any]]:
+        """
+        Filtra sessões de estudo que não possuem plano de execução no MongoDB.
+        """
+        try:
+            if not study_sessions:
+                print(f"Nenhuma sessão encontrada para o estudante: {student_email}")
+                return []
+
+            # Extrai os IDs das sessões
+            session_ids = [str(session['IdSessao']) for session in study_sessions]
+
+            # Consulta no MongoDB para encontrar planos associados às sessões
+            plans_collection = self.mongo_manager.db['study_plans']
+            plans = await plans_collection.find(
+                {"id_sessao": {"$in": session_ids}},
+                {"_id": 0, "id_sessao": 1, "plano_execucao": 1}
+            ).to_list(length=None)
+
+            # IDs de sessões com planos
+            sessions_with_plan_ids = {
+                plan['id_sessao'] for plan in plans if plan.get('plano_execucao')
+            }
+
+            # Filtra sessões sem planos
+            sessions_without_plan = [
+                {
+                    "id_sessao": str(session['IdSessao']),
+                    "Assunto": session['Assunto']
+                }
+                for session in study_sessions
+                if str(session['IdSessao']) not in sessions_with_plan_ids
+            ]
+
+            return sessions_without_plan
+        except Exception as e:
+            print(f"Erro ao filtrar sessões sem plano: {e}")
+            return []

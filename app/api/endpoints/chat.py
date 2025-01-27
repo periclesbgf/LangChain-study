@@ -181,7 +181,7 @@ async def chat_endpoint(
         # Add background task for cleanup if needed
         if background_tasks:
             background_tasks.add_task(cleanup_resources, controller)
-            
+        print(response)
         return {"response": response}
 
     except HTTPException:

@@ -87,3 +87,46 @@ class PlanController:
 
     async def get_plan_progress(self, session_id: str) -> Dict[str, Any]:
         return await self.dispatcher.get_plan_progress(session_id)
+
+    async def get_sessions_without_plan_by_discipline(
+        self, 
+        student_email: str, 
+        discipline_id: int, 
+        study_sessions: Dict[str, List[Dict[str, Any]]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Recupera todas as sessões de uma disciplina específica que não possuem plano de execução.
+
+        Args:
+            student_email (str): E-mail do estudante.
+            discipline_id (int): ID da disciplina.
+            study_sessions (Dict[str, List[Dict[str, Any]]]): Dicionário contendo uma lista de sessões filtradas.
+
+        Returns:
+            List[Dict[str, Any]]: Lista de sessões sem plano.
+        """
+        try:
+            # Verifica se a chave study_sessions está presente e extrai os dados
+            sessions = study_sessions.get("study_sessions", [])
+            print("Study sessions received:")
+            print(sessions)
+
+            # Filtra sessões para a disciplina especificada
+            sessions_for_discipline = [
+                session for session in sessions
+                if session["IdCurso"] == discipline_id
+            ]
+            print("Sessions for discipline:")
+            print(sessions_for_discipline)
+
+            # Busca sessões sem planos usando o dispatcher
+            sessions_without_plan = await self.dispatcher.get_sessions_without_plan_by(
+                student_email, sessions_for_discipline
+            )
+            print("Sessions without plan:")
+            print(sessions_without_plan)
+
+            return sessions_without_plan
+        except Exception as e:
+            print(f"Erro ao buscar sessões sem plano por disciplina: {e}")
+            raise Exception(f"Erro ao buscar sessões sem plano por disciplina: {e}")

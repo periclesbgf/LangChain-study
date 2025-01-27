@@ -107,3 +107,55 @@ class CredentialsDispatcher:
             raise HTTPException(status_code=400, detail="Senha incorreta.")
 
         return user
+
+
+    async def google_login(self, google_data: dict):
+        try:
+            email = google_data['email']
+            name = google_data['name']
+
+            # Check if user exists
+            user = self.database_manager.get_user_by_email(email)
+
+            if not user:
+                # Create new user if doesn't exist
+                user_id = self.database_manager.inserir_dado_retorna_id(
+                    tabela_usuarios,
+                    {
+                        'Nome': name,
+                        'Email': email,
+                        'SenhaHash': None,  # Google users don't have password
+                        'TipoUsuario': 'student',  # Default to student
+                        'CriadoEm': datetime.now(timezone.utc),
+                        'AtualizadoEm': datetime.now(timezone.utc),
+                    },
+                    'IdUsuario'
+                )
+
+                # Create student profile
+                student_id = self.database_manager.inserir_dado_retorna_id(
+                    tabela_estudantes,
+                    {
+                        'IdUsuario': user_id,
+                        'Matricula': None  # Can be updated later
+                    },
+                    'IdEstudante'
+                )
+
+                # Create learning profile
+                self.database_manager.inserir_dado(
+                    tabela_perfil_aprendizado_aluno,
+                    {
+                        'IdUsuario': student_id,
+                        'DadosPerfil': {},
+                        'IdPerfilFelderSilverman': None
+                    }
+                )
+
+                user = self.database_manager.get_user_by_email(email)
+
+            return user
+
+        except Exception as e:
+            print(f"Error in google_login: {e}")
+            raise HTTPException(status_code=500, detail=str(e))

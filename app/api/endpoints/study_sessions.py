@@ -1,4 +1,5 @@
 # app/api/endpoints/study_sessions.py
+from typing import List
 from api.controllers.calendar_controller import CalendarController
 from api.dispatchers.calendar_dispatcher import CalendarDispatcher
 from api.controllers.discipline_controller import DisciplineController
@@ -13,26 +14,43 @@ from pdfminer.high_level import extract_text
 from api.controllers.auth import get_current_user
 from chains.chain_setup import DisciplinChain
 import pdfplumber
-from api.endpoints.models import StudySessionCreate
+from api.endpoints.models import StudySessionCreate, StudySession
 from datetime import datetime
 from utils import OPENAI_API_KEY
 
 
 router_study_sessions = APIRouter()
 
-@router_study_sessions.get("/study_sessions")
+@router_study_sessions.get("/study_sessions", response_model=List[StudySession])
 async def get_study_sessions(current_user: dict = Depends(get_current_user)):
     logger.info(f"Fetching study sessions for user: {current_user['sub']}")
     try:
-        # Instanciar o dispatcher e controlador
         sql_database_manager = DatabaseManager(session, metadata)
         dispatcher = StudySessionsDispatcher(sql_database_manager)
         controller = StudySessionsController(dispatcher)
 
-        # Chamar o controlador para buscar as sessões de estudo
         study_sessions = controller.get_all_study_sessions(current_user['sub'])
+
+        # Converter tuplas para objetos Pydantic
+        study_sessions_data = [
+            StudySession(
+                id=session[0],
+                course_id=session[1],
+                user_id=session[2],
+                title=session[3],
+                start_time=session[4],
+                end_time=session[5],
+                status=session[6],
+                notes=session[7],
+                resources=session[8],
+                period=session[9],
+            )
+            for session in study_sessions
+        ]
+
         logger.info(f"Study sessions fetched successfully for user: {current_user['sub']}")
-        return {"study_sessions": study_sessions}
+        print(study_sessions_data)
+        return study_sessions_data
     except Exception as e:
         logger.error(f"Error fetching study sessions for user: {current_user['sub']} - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

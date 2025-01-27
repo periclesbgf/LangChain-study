@@ -1,7 +1,7 @@
 {
-    "id_sessao": "1",
-    "disciplina_id": "1",
-    "disciplina": "Programação Imperativa e Funcional",
+    "id_sessao": "152",
+    "disciplina_id": "6",
+    "disciplina": "Apresentação da Disciplina",
     "descricao": "Esta sessão de estudos aborda a introdução aos paradigmas imperativo e funcional, incluindo conceitos fundamentais e uma revisão prática de estruturas de controle e repetição.",
     "objetivo_sessao": "Compreender as diferenças entre programação imperativa e funcional e reforçar o uso de estruturas de decisão e repetição.",
     "plano_execucao": [

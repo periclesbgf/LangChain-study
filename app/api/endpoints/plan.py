@@ -4,7 +4,7 @@ from typing import Dict, Any
 from api.controllers.auth import get_current_user
 from pydantic import BaseModel, conint
 from api.controllers.plan_controller import PlanController
-from api.endpoints.models import StudyPlan
+from api.endpoints.models import StudyPlan, AutomaticStudyPlanRequest, AutomaticStudyPlanResponse
 from api.controllers.study_sessions_controller import StudySessionsController
 from api.dispatchers.study_sessions_dispatcher import StudySessionsDispatcher
 from database.sql_database_manager import DatabaseManager, session, metadata
@@ -145,6 +145,50 @@ async def get_sessions_without_plan(
             detail=f"Erro ao buscar sessões sem plano: {str(e)}"
         )
 
+@router_study_plan.get("/study_plan/sessions/without_plan/{discipline_id}")
+async def get_sessions_without_plan_by_discipline(
+    discipline_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Recupera todas as sessões de estudo de uma disciplina específica que não possuem plano de execução.
+    """
+    try:
+        # Inicializa os gerenciadores necessários
+        sql_database_manager = DatabaseManager(session, metadata)
+        study_sessions_dispatcher = StudySessionsDispatcher(sql_database_manager)
+        study_sessions_controller = StudySessionsController(study_sessions_dispatcher)
+
+        # Recupera sessões de estudo pela disciplina
+        study_sessions = study_sessions_controller.get_study_session_from_discipline(
+            discipline_id, current_user["sub"]
+        )
+
+        # Inicializa o controlador de planos
+        controller = PlanController()
+
+        # Usa o novo método para filtrar as sessões
+        sessions = await controller.get_sessions_without_plan_by_discipline(
+            current_user["sub"], discipline_id, study_sessions
+        )
+
+        if not sessions:
+            return {"sessions": []}
+        print({
+            "sessions": sessions
+        })
+        return {
+            "sessions": sessions
+        }
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Erro ao buscar sessões sem plano por disciplina: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao buscar sessões sem plano por disciplina: {str(e)}"
+        )
+
 
 @router_study_plan.get("/study_plan/verify/{id_sessao}")
 async def verify_session_has_plan(
@@ -166,13 +210,13 @@ async def verify_session_has_plan(
             detail=f"Erro ao verificar plano da sessão: {str(e)}"
         )
 
-@router_study_plan.post("/study_plan/auto")
+@router_study_plan.post("/study_plan/auto", response_model=AutomaticStudyPlanResponse)
 async def create_automatic_study_plan(
-    session_data: dict,
-    current_user: dict = Depends(get_current_user)
+    planData: AutomaticStudyPlanRequest,
+    current_user: dict = Depends(get_current_user),
 ):
     try:
-        print("session_data", session_data)
+        print("session_data", planData)
         mongo_manager = MongoDatabaseManager()
         db_tool = DatabaseUpdateTool(mongo_manager)
 
@@ -189,15 +233,8 @@ async def create_automatic_study_plan(
                 detail="Perfil do estudante não encontrado"
             )
 
-        # Obter o ID da sessão e tema
-        session_id = session_data.get('session_id')
-        topic = session_data.get('tema')  # Usando o campo 'tema' do session_data
-
-        if not session_id:
-            raise HTTPException(
-                status_code=400,
-                detail="ID da sessão não fornecido"
-            )
+        session_id = planData.session_id
+        topic = planData.tema
 
         if not topic:
             raise HTTPException(
@@ -230,18 +267,15 @@ async def create_automatic_study_plan(
                 "fim": encontro_info["horario_fim"].strftime("%H:%M"),
                 "data": encontro_info["data_encontro"].strftime("%Y-%m-%d")
             },
-            "preferencia": session_data.get('periodo', encontro_info["preferencia_horario"])
+            "preferencia": planData.periodo or encontro_info["preferencia_horario"]
         }
-        print("")
-        print("student_profile", student_profile)
-        print("")
-        print("initializing workflow")
-        workflow = SessionPlanWorkflow(db_tool)
-        print("workflow initialized")
 
-        # Passar o tema explicitamente
+        print("student_profile", student_profile)
+
+        # Criar o plano de sessão
+        workflow = SessionPlanWorkflow(db_tool)
         result = await workflow.create_session_plan(
-            topic=topic,  # Usando o tema obtido do session_data
+            topic=topic,
             student_profile=student_profile,
             id_sessao=session_id
         )
@@ -252,17 +286,15 @@ async def create_automatic_study_plan(
                 detail=result["error"]
             )
 
-        # Atualizar os horários da sessão de estudo
+        # Atualizar os horários da sessão de estudo, se aplicável
         if result.get("scheduled_time"):
             data = result["scheduled_time"]["data"]
             inicio = result["scheduled_time"]["inicio"]
             fim = result["scheduled_time"]["fim"]
             
-            # Converter para datetime
             start_datetime = datetime.strptime(f"{data} {inicio}", "%Y-%m-%d %H:%M")
             end_datetime = datetime.strptime(f"{data} {fim}", "%Y-%m-%d %H:%M")
             
-            # Atualizar a sessão de estudo
             sql_manager.update_session_times(
                 session_id=session_id,
                 start_time=start_datetime,
@@ -271,7 +303,6 @@ async def create_automatic_study_plan(
 
             # Criar evento no calendário
             event_title = f"Sessão de Estudo - {topic}"
-            
             dispatcher = CalendarDispatcher(sql_manager)
             controller = CalendarController(dispatcher)
 
@@ -282,13 +313,15 @@ async def create_automatic_study_plan(
                 end_time=end_datetime,
                 location="Online",
                 current_user=current_user['sub'],
-                course_id=session_data.get('disciplina')
+                #course_id=planData.disciplina_id
             )
 
-        return {
-            "message": "Plano de estudos gerado com sucesso",
-            "plano": result["plan"],
-        }
+        response = AutomaticStudyPlanResponse(
+            message="Plano de estudos gerado com sucesso",
+            plano=result["plan"]
+        )
+        print(response)
+        return response
 
     except HTTPException as he:
         raise he

@@ -156,4 +156,4 @@ tabela_perfis_felder_silverman = Table('PerfisFelderSilverman', metadata,
     Column('Recomendacoes', Text)
 )
 
-metadata.create_all(engine)
+#metadata.create_all(engine)

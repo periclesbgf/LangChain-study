@@ -1,7 +1,7 @@
 # endpoints/routes.py
 
 from typing import Dict, Optional
-from api.endpoints.models import Question, PromptModel, ResponseModel, RegisterModel, LoginModel, Token, AudioResponseModel
+from api.endpoints.models import GoogleLoginRequest, Question, PromptModel, ResponseModel, RegisterModel, LoginModel, Token, AudioResponseModel
 from api.controllers.controller import (
     code_confirmation,
     build_chain,
@@ -18,7 +18,7 @@ from fastapi.logger import logger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import insert
 from fastapi.security import OAuth2PasswordRequestForm
-from api.controllers.auth import create_access_token, get_current_user
+from api.controllers.auth import create_access_token, get_current_user, verify_google_token
 from utils import SECRET_EDUCATOR_CODE
 from database.mongo_database_manager import MongoDatabaseManager
 from datetime import datetime, timezone
@@ -26,7 +26,6 @@ from agent.calendar_agent import CalendarAgent, CalendarOrchestrator
 from chains.chain_setup import ClassificationChain
 from audio.text_to_speech import AudioService
 from utils import OPENAI_API_KEY
-
 router = APIRouter()
 
 
@@ -379,3 +378,26 @@ async def read_route(
 #         return response
 #     except Exception as e:
 #         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/google-login")
+async def google_login(data: GoogleLoginRequest):
+    try:
+        # Verify Google token
+        google_user = await verify_google_token(data.token)
+        print("Google user: ", google_user)
+        # Initialize database manager and dispatcher
+        sql_database_manager = DatabaseManager(session, metadata)
+        sql_database_controller = CredentialsDispatcher(sql_database_manager)
+
+        # Login or create user
+        user = await sql_database_controller.google_login(google_user)
+
+        # Create access token
+        access_token = create_access_token(data={"sub": user.Email})
+
+        return {"access_token": access_token, "token_type": "bearer"}
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

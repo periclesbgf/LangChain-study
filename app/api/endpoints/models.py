@@ -264,3 +264,30 @@ class Material(BaseModel):
 class AudioResponseModel(BaseModel):
     response: str
     audio: Optional[str]
+
+class GoogleLoginRequest(BaseModel):
+    token: str
+
+class StudySession(BaseModel):
+    id: int
+    course_id: int
+    user_id: int
+    title: str
+    start_time: Optional[datetime]
+    end_time: Optional[datetime]
+    status: int
+    notes: Optional[str]
+    resources: Optional[str]
+    period: str
+
+class AutomaticStudyPlanRequest(BaseModel):
+    #disciplina_id: Optional[str] = Field(..., description="ID da disciplina")
+    session_id: str = Field(..., description="ID da sessão do usuário")
+    tema: str = Field(..., description="Descrição do tema de estudo")
+    duracao_desejada: int = Field(..., description="Duração desejada em minutos")
+    periodo: str = Field(..., description="Período de estudo (manhã, tarde ou noite)")
+    objetivos: Optional[List[str]] = Field(default_factory=list, description="Lista de objetivos")
+
+class AutomaticStudyPlanResponse(BaseModel):
+    message: str
+    plano: dict

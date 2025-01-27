@@ -6,8 +6,9 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from api.controllers.constants import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
-
+from api.controllers.constants import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, GOOGLE_CLIENT_ID
+from google.oauth2 import id_token
+from google.auth.transport import requests
 
 # Bcrypt context for hashing passwords
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -43,3 +44,21 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     if payload is None:
         raise HTTPException(status_code=401, detail="Token inválido ou expirado")
     return payload
+
+async def verify_google_token(token: str):
+    try:
+        idinfo = id_token.verify_oauth2_token(
+            token, requests.Request(), GOOGLE_CLIENT_ID)
+        if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
+            raise ValueError('Wrong issuer.')
+        return {
+            'email': idinfo['email'],
+            'name': idinfo['name'],
+            'picture': idinfo.get('picture', None)
+        }
+    except ValueError as e:
+        print(f"Token verification failed: {e}")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid Google token"
+        )

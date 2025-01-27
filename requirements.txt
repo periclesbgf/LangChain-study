@@ -57,3 +57,4 @@ ipython
 pytesseract
 python-docx
 wave
+google-auth
