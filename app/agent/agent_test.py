@@ -1,26 +1,21 @@
-from typing import Any, TypedDict, List, Dict, Optional, Union
-from typing_extensions import TypeVar
-from langgraph.graph import END, StateGraph, START, Graph
-from langgraph.prebuilt import ToolExecutor
-from langgraph.graph import MessagesState
-from langchain.tools import Tool
+from typing import Any, TypedDict, List, Dict, Optional
+from langgraph.graph import END, Graph
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
-from operator import itemgetter
-from langchain_core.utils.function_calling import convert_to_openai_function
-from utils import OPENAI_API_KEY
 import json
 from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field
-from agent.tools import DatabaseUpdateTool
-from database.vector_db import QdrantHandler, TextSplitter
+from pydantic import BaseModel
+from database.vector_db import QdrantHandler
 from dataclasses import dataclass
 import base64
 import asyncio
-from typing import Tuple, Dict, Any
+from typing import Dict, Any
 from youtubesearchpython import VideosSearch
 import wikipediaapi
 from database.mongo_database_manager import MongoDatabaseManager
+import time
+
+
 class UserProfile(BaseModel):
     Nome: str
     Email: str
@@ -75,7 +70,7 @@ class StudyProgressManager(MongoDatabaseManager):
         try:
             collection = self.db[self.collection_name]
             plan = await collection.find_one({"id_sessao": session_id})
-            
+
             if not plan:
                 return False
 
@@ -86,7 +81,7 @@ class StudyProgressManager(MongoDatabaseManager):
             for step in plano_execucao:
                 original_progress = step.get("progresso", 0)
                 corrected_progress = min(max(float(original_progress), 0), 100)
-                
+
                 if original_progress != corrected_progress:
                     step["progresso"] = corrected_progress
                     modified = True
@@ -95,7 +90,7 @@ class StudyProgressManager(MongoDatabaseManager):
                 # Recalcular e atualizar o progresso total
                 total_steps = len(plano_execucao)
                 progresso_total = sum(step["progresso"] for step in plano_execucao) / total_steps
-                
+
                 await collection.update_one(
                     {"id_sessao": session_id},
                     {
@@ -1133,7 +1128,7 @@ REGRAS DE OURO:
             "nivel_resposta",
             "proxima_acao"
         ]
-        
+
         missing_fields = [field for field in required_fields if field not in plan]
         if missing_fields:
             raise ValueError(f"Missing required fields in plan: {missing_fields}")
@@ -1147,7 +1142,7 @@ REGRAS DE OURO:
     def handle_plan_generation_error(state: AgentState, error_msg: str) -> AgentState:
         """Manipula erros na geração do plano."""
         #print(f"[PLANNING] Handling error: {error_msg}")
-        
+
         default_plan = {
             "tipo_entrada": "erro",
             "contexto_identificado": f"Erro na geração do plano: {error_msg}",
@@ -1280,7 +1275,7 @@ def create_teaching_node():
                 ))
                 image_content = None
                 #print(f"[NODE:TEACHING] Direct response: {explanation.content}")
-                
+
             else:
                 #print("[NODE:TEACHING] Using context-based prompt")
                 # Processar contextos para resposta baseada em contexto
@@ -1292,29 +1287,29 @@ def create_teaching_node():
                 else:
                     contexts = state["extracted_context"]
                     relevance = contexts.get("relevance_analysis", {})
-                    
+
                     context_scores = {
                         "text": relevance.get("text", {}).get("score", 0),
                         "image": relevance.get("image", {}).get("score", 0),
                         "table": relevance.get("table", {}).get("score", 0)
                     }
-                    
+
                     sorted_contexts = sorted(
                         context_scores.items(), 
                         key=lambda x: x[1], 
                         reverse=True
                     )
-                    
+
                     source_type = "Material de estudo"
                     primary_type = sorted_contexts[0][0]
-                    
+
                     if primary_type == "text":
                         primary_context = f"Texto: {contexts.get('text', '')}"
                     elif primary_type == "image":
                         primary_context = f"Imagem: {contexts.get('image', {}).get('description', '')}"
                     else:
                         primary_context = f"Tabela: {contexts.get('table', {}).get('content', '')}"
-                    
+
                     secondary_contexts_list = []
                     for context_type, score in sorted_contexts[1:]:
                         if score > 0.3:
@@ -1936,7 +1931,8 @@ class TutorWorkflow:
         current_plan=None, 
         chat_history=None
     ) -> dict:
-        #print(f"\n[WORKFLOW] Starting workflow invocation")
+        start_time = time.time()
+        print(f"\n[WORKFLOW] Starting workflow invocation")
         #print(f"[WORKFLOW] Query: {query}")
 
         try:
@@ -2008,3 +2004,7 @@ class TutorWorkflow:
                 print(f"[WORKFLOW] Error getting progress summary: {progress_error}")
 
             return error_response
+        finally:
+            end_time = time.time()  # Marca o fim do tempo
+            elapsed_time = end_time - start_time
+            print(f"[WORKFLOW] Workflow execution completed in {elapsed_time:.2f} seconds")

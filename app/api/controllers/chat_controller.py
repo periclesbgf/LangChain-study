@@ -3,36 +3,21 @@
 import base64
 import os
 import json
-import uuid
-import hashlib
-import fitz  # Biblioteca PyMuPDF para manipulação de PDFs
-import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Optional
-import pandas as pd
 
-from pymongo import MongoClient, errors
-from dotenv import load_dotenv
-from bs4 import BeautifulSoup
-import pdfplumber
-import io
+from pymongo import MongoClient
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.schema import AIMessage, HumanMessage, BaseMessage, message_to_dict, messages_from_dict
-from langchain.memory.chat_message_histories import MongoDBChatMessageHistory
-from langchain.docstore.document import Document
+from langchain.schema import AIMessage, HumanMessage
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.output_parsers.json import JsonOutputParser
 from langchain_core.output_parsers import StrOutputParser
-from langchain.tools.retriever import create_retriever_tool
-from langchain_core.tools import tool
 from langchain.schema.runnable import RunnablePassthrough, RunnableMap
 #from agent.agent_test import TutorWorkflow
-from database.mongo_database_manager import MongoDatabaseManager, CustomMongoDBChatMessageHistory
+from database.mongo_database_manager import CustomMongoDBChatMessageHistory
 from database.vector_db import TextSplitter, Embeddings, QdrantHandler
 from agent.image_handler import ImageHandler
-from agent.agents import ChatAgent, RetrievalAgent
-from agent.prompt import CONTEXTUALIZE_SYSTEM_PROMPT, AGENT_CHAT_PROMPT
 from utils import (
     OPENAI_API_KEY,
     MONGO_DB_NAME,

@@ -2,12 +2,9 @@
 
 import traceback
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
-from fastapi.responses import JSONResponse
 from api.controllers.chat_controller import ChatController
 from api.controllers.auth import get_current_user
 from api.endpoints.models import MessageRequest
-from pymongo import MongoClient
-from motor.motor_asyncio import AsyncIOMotorClient
 from typing import Optional, Dict, Any
 from datetime import datetime
 import json
@@ -18,11 +15,10 @@ from contextlib import asynccontextmanager
 
 from utils import MONGO_URI, MONGO_DB_NAME, QDRANT_URL, OPENAI_API_KEY
 from database.vector_db import (
-    QdrantHandler, 
-    Embeddings, 
-    TextSplitter, 
-    Embeddings
-)
+    QdrantHandler,
+    Embeddings,
+    TextSplitter
+    )
 from agent.image_handler import ImageHandler
 from database.mongo_database_manager import MongoDatabaseManager
 from agent.agent_test import TutorWorkflow
