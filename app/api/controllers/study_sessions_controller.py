@@ -22,6 +22,7 @@ class StudySessionsController:
     def __init__(self, dispatcher: StudySessionsDispatcher, disciplin_chain: DisciplinChain = None, discipline_dispatcher:DisciplineDispatcher=None):
         self.dispatcher = dispatcher
         self.disciplin_chain = disciplin_chain
+        self.discipline_dispatcher = discipline_dispatcher
         self.plan_controller = PlanController()
 
     def get_all_study_sessions(self, user_email: str):
@@ -104,3 +105,13 @@ class StudySessionsController:
             return study_sessions
         except Exception as e:
             raise Exception(f"Erro ao buscar sessões de estudo para a disciplina: {e}")
+
+    def get_discipline_name_from_id(self, discipline_id: int, current_user: str):
+        """
+        Busca o nome da disciplina pelo ID.
+        """
+        try:
+            discipline = self.discipline_dispatcher.get_discipline_by_id(discipline_id, current_user)
+            return discipline["NomeCurso"]
+        except Exception as e:
+            raise Exception(f"Erro ao buscar nome da disciplina pelo ID: {e}")

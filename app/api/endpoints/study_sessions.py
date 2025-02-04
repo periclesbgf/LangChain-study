@@ -135,11 +135,16 @@ async def get_study_session_from_discipline(
     try:
         sql_database_manager = DatabaseManager(session, metadata)
         dispatcher = StudySessionsDispatcher(sql_database_manager)
-        controller = StudySessionsController(dispatcher)
+        discipline_dispatcher = DisciplineDispatcher(sql_database_manager)
+        controller = StudySessionsController(dispatcher, discipline_dispatcher=discipline_dispatcher)
 
-        # Buscar sessões de estudo pela disciplina
+        discipline_name = controller.get_discipline_name_from_id(discipline_id, current_user['sub'])
+
         study_sessions = controller.get_study_session_from_discipline(discipline_id, current_user['sub'])
-        response = {"study_sessions": study_sessions}
+        response = {
+            "discipline_name": discipline_name,
+            "study_sessions": study_sessions
+        }
         print(response)
         return response
     except Exception as e:
