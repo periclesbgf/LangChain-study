@@ -139,8 +139,9 @@ async def get_study_session_from_discipline(
 
         # Buscar sessões de estudo pela disciplina
         study_sessions = controller.get_study_session_from_discipline(discipline_id, current_user['sub'])
-        print(f"Study sessions: {study_sessions}")
-        return {"study_sessions": study_sessions}
+        response = {"study_sessions": study_sessions}
+        print(response)
+        return response
     except Exception as e:
         logger.error(f"Error fetching study sessions: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro ao buscar sessões de estudo: {str(e)}")

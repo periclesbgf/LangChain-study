@@ -145,7 +145,7 @@ class StudySessionsDispatcher:
             ]
 
             # Retornar um dicionário JSON serializável
-            return jsonable_encoder({"study_sessions": session_list})
+            return session_list
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Erro ao buscar sessões de estudo para a disciplina com ID '{discipline_id}': {e}")

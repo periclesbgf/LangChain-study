@@ -106,18 +106,11 @@ class PlanController:
             List[Dict[str, Any]]: Lista de sessões sem plano.
         """
         try:
-            # Verifica se a chave study_sessions está presente e extrai os dados
-            sessions = study_sessions.get("study_sessions", [])
-            print("Study sessions received:")
-            print(sessions)
-
             # Filtra sessões para a disciplina especificada
             sessions_for_discipline = [
-                session for session in sessions
+                session for session in study_sessions
                 if session["IdCurso"] == discipline_id
             ]
-            print("Sessions for discipline:")
-            print(sessions_for_discipline)
 
             # Busca sessões sem planos usando o dispatcher
             sessions_without_plan = await self.dispatcher.get_sessions_without_plan_by(
