@@ -1,7 +1,7 @@
 # endpoints/routes.py
 
 from typing import Dict, Optional
-from api.endpoints.models import GoogleLoginRequest, Question, PromptModel, ResponseModel, RegisterModel, LoginModel, Token, AudioResponseModel
+from api.endpoints.models import GoogleLoginRequest, Question, ResponseModel, RegisterModel, LoginModel, Token, AudioResponseModel
 from api.controllers.controller import (
     code_confirmation,
     build_chain,
@@ -13,12 +13,12 @@ from api.dispatchers.login_dispatcher import CredentialsDispatcher
 from api.dispatchers.calendar_dispatcher import CalendarDispatcher
 from api.controllers.calendar_controller import CalendarController
 from database.sql_database_manager import DatabaseManager, session, metadata
-from fastapi import APIRouter, HTTPException, File, Form, UploadFile, Depends, HTTPException
+from fastapi import APIRouter, HTTPException, File, Form, UploadFile, Depends, HTTPException, Request # Import Request e Session
 from fastapi.logger import logger
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import insert
 from fastapi.security import OAuth2PasswordRequestForm
-from api.controllers.auth import create_access_token, get_current_user, verify_google_token
+from api.controllers.auth import create_access_token, get_current_user, create_google_flow, credentials_to_dict, dict_to_credentials # Import funções auth
 from utils import SECRET_EDUCATOR_CODE
 from database.mongo_database_manager import MongoDatabaseManager
 from datetime import datetime, timezone
@@ -26,6 +26,8 @@ from agent.calendar_agent import CalendarAgent, CalendarOrchestrator
 from chains.chain_setup import ClassificationChain
 from audio.text_to_speech import AudioService
 from utils import OPENAI_API_KEY
+from sqlalchemy.orm import Session
+
 router = APIRouter()
 
 
@@ -271,68 +273,6 @@ async def read_question(
             }
         )
 
-
-# @router.post("/prompt", response_model=ResponseModel)
-# async def read_prompt(
-#     prompt_model: PromptModel,
-# ) -> ResponseModel:
-
-#     if not code_confirmation(prompt_model.code):
-#         print(prompt_model.code)
-#         print("Invalid code")
-#         raise HTTPException(status_code=400, detail="Invalid code")
-
-#     try:
-#         print(f"[INFO] Processing prompt: {prompt_model.question}")
-#         classification_chain = ClassificationChain(api_key=OPENAI_API_KEY)
-#         route = classification_chain.setup_chain(text=prompt_model.question)
-#         print(f"[INFO] Route: {route}")
-
-#         if route == "calendario":
-#             print(f"[INFO] Processing calendar question: {prompt_model.question}")
-
-#             # Inicializar todos os componentes dentro do endpoint
-#             print("[INIT] Initializing calendar components...")
-
-#             # Database e Dispatcher
-#             db_manager = DatabaseManager(session, metadata)
-#             calendar_dispatcher = CalendarDispatcher(db_manager)
-#             calendar_controller = CalendarController(calendar_dispatcher)
-            
-
-#             # Calendar Orchestrator
-#             calendar_orchestrator = CalendarOrchestrator(calendar_controller)
-#             print("[INIT] Calendar components initialized successfully")
-
-#             # Processar a entrada do usuário
-#             result = await calendar_orchestrator.process_input(
-#                 text_input=prompt_model.question,
-#                 user_email="pbgf@1234"
-#             )
-#             print(f"[DEBUG] Orchestrator result: {result}")
-#             messages = result.get('messages', [])
-#             if messages and len(messages) >= 2:
-#                 prompt_response = messages[-1].content
-#             else:
-#                 prompt_response = "Desculpe, não entendi."
-#         else:
-#             prompt_response = build_chain(text=prompt_model.question)
-#         print("Prompt response: ", prompt_response)
-#         audio_service = AudioService()
-#         speech_file_path = audio_service.text_to_speech(prompt_response)
-#         if not speech_file_path:
-#             return ResponseModel(response=prompt_response, audio=None)
-
-#         with open(speech_file_path, 'rb') as f:
-#             wav_data = f.read()
-#         return ResponseModel(
-#             response=prompt_response,
-#             audio=None
-#         )
-#     except Exception as e:
-#         print(e)
-#         raise HTTPException(status_code=500, detail=str(e))
-
 @router.post("/sql")
 def read_sql(question: Question):
     if not code_confirmation(question.code):
@@ -379,24 +319,111 @@ async def read_route(
 #     except Exception as e:
 #         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/google-login")
-async def google_login(data: GoogleLoginRequest):
+
+@router.get("/auth/google/initiate")  # Endpoint para iniciar o fluxo OAuth2
+async def google_login_initiate(request: Request):
     try:
-        # Verify Google token
-        google_user = await verify_google_token(data.token)
-        print("Google user: ", google_user)
-        # Initialize database manager and dispatcher
+        flow = create_google_flow(request)
+        authorization_url, state = flow.authorization_url(prompt='consent')  # 'consent' para forçar o prompt sempre
+        print("Authorization URL gerada:", authorization_url)
+        print("State gerado:", state)
+        return {"auth_url": authorization_url}
+    except Exception as e:
+        print("Erro no google_login_initiate:", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/auth/google/callback")  # Endpoint de callback do Google
+async def google_login_callback(request: Request, code: str, session: Session = Depends(DatabaseManager.get_db)):
+    try:
+        print("Callback do Google recebido com code:", code)
+        flow = create_google_flow(request)
+        flow.fetch_token(code=code)  # Troca o code por tokens
+        print("Flow credentials após fetch_token:", flow.credentials)
+        
+        credentials_obj = flow.credentials
+        id_token = credentials_obj.id_token
+        print("ID Token (raw):", id_token)
+        
+        # Decodifica o id_token para obter as informações do usuário
+        from jose import jwt
+        user_info = jwt.get_unverified_claims(id_token)
+        print("User info decodificado:", user_info)
+        
+        # Buscar ou criar usuário localmente (usando email do Google)
         sql_database_manager = DatabaseManager(session, metadata)
         sql_database_controller = CredentialsDispatcher(sql_database_manager)
+        user = await sql_database_controller.google_login(user_info)  # Passa user_info
+        print("Usuário retornado do google_login:", user)
+        
+        access_token_jwt = create_access_token(data={"sub": user.Email})
+        print("JWT de acesso criado:", access_token_jwt)
+        
+        # **SIMPLIFICADO PARA DEMONSTRAÇÃO: Armazenar credentials serializadas na sessão (NÃO FAZER EM PRODUÇÃO)**
+        request.session['google_credentials'] = credentials_to_dict(credentials_obj)
+        print("Credenciais do Google armazenadas na sessão:", request.session['google_credentials'])
+        
+        return {
+            "access_token": access_token_jwt,
+            "token_type": "bearer",
+            "message": "Login com Google bem-sucedido"
+        }
+    except Exception as e:
+        print(f"Erro no google_login_callback: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-        # Login or create user
+
+@router.get("/auth/me") # Rota de exemplo para obter informações do usuário logado (usando JWT)
+async def read_users_me(current_user: dict = Depends(get_current_user)):
+    return {"user_info": current_user}
+
+@router.get("/calendar/events") # Rota para buscar eventos do Calendar
+async def get_calendar_events(request: Request, session: Session = Depends(DatabaseManager.get_db), current_user: dict = Depends(get_current_user)): # Injeta Request, Session e current_user
+    credentials_dict = request.session.get('google_credentials') # Recupera credenciais da sessão (DEMONSTRAÇÃO)
+    if not credentials_dict:
+        raise HTTPException(status_code=401, detail="Credenciais Google não encontradas. Faça login com o Google.")
+
+    creds = dict_to_credentials(credentials_dict) # Desserializa as credenciais
+
+    from googleapiclient.discovery import build
+    try:
+        calendar_service = build('calendar', 'v3', credentials=creds)
+        events_result = calendar_service.events().list(calendarId='primary', maxResults=10).execute()
+        events = events_result.get('items', [])
+        return {"events": events}
+    except Exception as e:
+        print(f"Erro ao acessar Calendar API: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao acessar a API do Google Calendar: {e}")
+
+@router.get("/classroom/courses") # Rota para buscar cursos do Classroom
+async def get_classroom_courses(request: Request, session: Session = Depends(DatabaseManager.get_db), current_user: dict = Depends(get_current_user)): # Injeta Request, Session e current_user
+    credentials_dict = request.session.get('google_credentials') # Recupera credenciais da sessão (DEMONSTRAÇÃO)
+    if not credentials_dict:
+        raise HTTPException(status_code=401, detail="Credenciais Google não encontradas. Faça login com o Google.")
+
+    creds = dict_to_credentials(credentials_dict) # Desserializa as credenciais
+
+    from googleapiclient.discovery import build
+    try:
+        classroom_service = build('classroom', 'v1', credentials=creds) # 'v1' é a versão da Classroom API
+        courses_result = classroom_service.courses().list().execute()
+        courses = courses_result.get('courses', [])
+        return {"courses": courses}
+    except Exception as e:
+        print(f"Erro ao acessar Classroom API: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao acessar a API do Google Classroom: {e}")
+
+
+@router.post("/google-login") # Rota POST /google-login pode ser removida ou descontinuada (agora usamos /auth/google/initiate e /auth/google/callback)
+async def google_login_deprecated(data: GoogleLoginRequest): # Manter para compatibilidade retroativa temporariamente, se necessário
+    try:
+        # ... (Código anterior do google_login - pode ser removido gradualmente) ...
+        google_user = await verify_google_token(data.token) # Esta verificação não é mais o fluxo principal OAuth 2.0
+        print("Google user: ", google_user)
+        sql_database_manager = DatabaseManager(session, metadata)
+        sql_database_controller = CredentialsDispatcher(sql_database_manager)
         user = await sql_database_controller.google_login(google_user)
-
-        # Create access token
         access_token = create_access_token(data={"sub": user.Email})
-
         return {"access_token": access_token, "token_type": "bearer"}
-
     except HTTPException as e:
         raise e
     except Exception as e:

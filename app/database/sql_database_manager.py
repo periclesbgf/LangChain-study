@@ -34,6 +34,15 @@ class DatabaseManager:
         self.session = session
         self.metadata = metadata
 
+    @staticmethod
+    def get_db():
+        """Dependency function that provides a new SQLAlchemy session."""
+        db = Session()  # create a new session using your sessionmaker (Session is your sessionmaker)
+        try:
+            yield db
+        finally:
+            db.close()
+
     def criar_tabela(self, nome_tabela, colunas):
         try:
             tabela = Table(nome_tabela, self.metadata, *colunas)

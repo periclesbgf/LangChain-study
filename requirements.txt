@@ -58,3 +58,4 @@ pytesseract
 python-docx
 wave
 google-auth
+google-auth-oauthlib
