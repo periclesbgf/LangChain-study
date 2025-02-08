@@ -108,54 +108,67 @@ class CredentialsDispatcher:
 
         return user
 
-
     async def google_login(self, google_data: dict):
         try:
-            email = google_data['email']
-            name = google_data['name']
+            # Extrai as informações necessárias do dicionário retornado pelo Google
+            email = google_data.get('email')
+            name = google_data.get('name')
 
-            # Check if user exists
+            print("Tentando buscar usuário pelo email:", email)
+            # Procura o usuário no banco de dados usando o email
             user = self.database_manager.get_user_by_email(email)
 
-            if not user:
-                # Create new user if doesn't exist
+            if user:
+                print("Usuário já existe para o email:", email)
+                return user
+            else:
+                # Se o usuário não existir, cria um novo registro
+                dummy_password = "GoogleAccount"  # Senha dummy (fixa)
+                hashed_dummy = hash_password(dummy_password)
+                print("Criando novo usuário com senha dummy para o email:", email)
+
+                # Insere o usuário na tabela Usuarios
                 user_id = self.database_manager.inserir_dado_retorna_id(
                     tabela_usuarios,
                     {
                         'Nome': name,
                         'Email': email,
-                        'SenhaHash': None,  # Google users don't have password
-                        'TipoUsuario': 'student',  # Default to student
+                        'SenhaHash': hashed_dummy,  # utiliza a senha dummy
+                        'TipoUsuario': 'student',   # define o tipo padrão (ou adapte conforme necessário)
                         'CriadoEm': datetime.now(timezone.utc),
                         'AtualizadoEm': datetime.now(timezone.utc),
                     },
                     'IdUsuario'
                 )
+                print(f"Novo usuário criado com ID: {user_id}")
 
-                # Create student profile
+                # Cria o perfil de estudante (na tabela Estudantes)
                 student_id = self.database_manager.inserir_dado_retorna_id(
                     tabela_estudantes,
                     {
                         'IdUsuario': user_id,
-                        'Matricula': None  # Can be updated later
+                        'Matricula': None  # Pode ser atualizado futuramente
                     },
                     'IdEstudante'
                 )
+                print(f"Novo estudante criado com ID: {student_id}")
 
-                # Create learning profile
+                # Cria o perfil de aprendizado para o estudante
                 self.database_manager.inserir_dado(
                     tabela_perfil_aprendizado_aluno,
                     {
                         'IdUsuario': student_id,
-                        'DadosPerfil': {},
+                        'DadosPerfil': {},  # Inicialmente vazio; poderá ser atualizado depois
                         'IdPerfilFelderSilverman': None
                     }
                 )
+                print("Perfil de aprendizado criado com sucesso.")
 
+                # Busca o usuário criado (para retornar o registro completo)
                 user = self.database_manager.get_user_by_email(email)
-
-            return user
+                print("Usuário após criação:", user)
+                return user
 
         except Exception as e:
-            print(f"Error in google_login: {e}")
+            print(f"Erro no google_login: {e}")
             raise HTTPException(status_code=500, detail=str(e))

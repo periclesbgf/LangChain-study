@@ -3,6 +3,7 @@ import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
+from starlette.middleware.sessions import SessionMiddleware
 from api.endpoints.routes import router
 from api.endpoints.study_sessions import router_study_sessions
 from api.endpoints.calendar import router_calendar
@@ -15,10 +16,13 @@ from api.endpoints.plan import router_study_plan
 from api.endpoints.workspace import router_workspace
 from api.endpoints.websocket_manager import router_websocket
 from api.endpoints.files import router_pdf
+from utils import SECRET_KEY
 
 load_dotenv()
 
 app = FastAPI()
+
+#app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 
 app.add_middleware(
     CORSMiddleware,

@@ -14,6 +14,7 @@ from youtubesearchpython import VideosSearch
 import wikipediaapi
 from database.mongo_database_manager import MongoDatabaseManager
 import time
+from datetime import datetime, timezone
 
 
 class UserProfile(BaseModel):
@@ -22,7 +23,7 @@ class UserProfile(BaseModel):
     EstiloAprendizagem: Dict[str, str]
     Feedback: Optional[Dict[str, Any]] = None
     PreferenciaAprendizado: Optional[Dict[str, Any]] = None
-    
+
 @dataclass
 class ExecutionStep:
     titulo: str
@@ -48,9 +49,6 @@ class AgentState(TypedDict):
     current_progress: Dict[str, Any]
     session_id: str
 
-from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
-from pymongo import errors
 
 class StudyProgressManager(MongoDatabaseManager):
     def __init__(self, db_name: str = "study_plans"):

@@ -376,23 +376,6 @@ async def google_login_callback(request: Request, code: str, session: Session = 
 async def read_users_me(current_user: dict = Depends(get_current_user)):
     return {"user_info": current_user}
 
-@router.get("/calendar/events") # Rota para buscar eventos do Calendar
-async def get_calendar_events(request: Request, session: Session = Depends(DatabaseManager.get_db), current_user: dict = Depends(get_current_user)): # Injeta Request, Session e current_user
-    credentials_dict = request.session.get('google_credentials') # Recupera credenciais da sessão (DEMONSTRAÇÃO)
-    if not credentials_dict:
-        raise HTTPException(status_code=401, detail="Credenciais Google não encontradas. Faça login com o Google.")
-
-    creds = dict_to_credentials(credentials_dict) # Desserializa as credenciais
-
-    from googleapiclient.discovery import build
-    try:
-        calendar_service = build('calendar', 'v3', credentials=creds)
-        events_result = calendar_service.events().list(calendarId='primary', maxResults=10).execute()
-        events = events_result.get('items', [])
-        return {"events": events}
-    except Exception as e:
-        print(f"Erro ao acessar Calendar API: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao acessar a API do Google Calendar: {e}")
 
 @router.get("/classroom/courses") # Rota para buscar cursos do Classroom
 async def get_classroom_courses(request: Request, session: Session = Depends(DatabaseManager.get_db), current_user: dict = Depends(get_current_user)): # Injeta Request, Session e current_user
