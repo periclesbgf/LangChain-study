@@ -3,8 +3,9 @@
 Caso seja necessário atualizar, devido a novas depêndencias inseridas:
 
 ```sh
-source bin/activate myvenv
-pip install -r requirements.txt 
+python3.12 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
 Para rodar, siga estes passos:
