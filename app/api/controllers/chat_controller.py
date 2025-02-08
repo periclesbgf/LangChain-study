@@ -5,7 +5,8 @@ import os
 import json
 from datetime import datetime
 from typing import List, Optional
-
+import uuid
+import hashlib
 from pymongo import MongoClient
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -15,7 +16,7 @@ from langchain_core.output_parsers.json import JsonOutputParser
 from langchain_core.output_parsers import StrOutputParser
 from langchain.schema.runnable import RunnablePassthrough, RunnableMap
 #from agent.agent_test import TutorWorkflow
-from database.mongo_database_manager import CustomMongoDBChatMessageHistory
+from database.mongo_database_manager import CustomMongoDBChatMessageHistory, MongoPDFHandler, MongoDatabaseManager
 from database.vector_db import TextSplitter, Embeddings, QdrantHandler
 from agent.image_handler import ImageHandler
 from utils import (
@@ -232,7 +233,8 @@ class ChatController:
         student_profile: dict,
         mongo_db_name: str,
         mongo_uri: str,
-        plano_execucao: dict
+        plano_execucao: dict,
+        pdf_handler: MongoPDFHandler
     ):
         print("Initializing ChatController")
         self.session_id = session_id
@@ -262,7 +264,7 @@ class ChatController:
         self.image_collection = self.db["image_collection"]
         self.collection_name = "student_documents"
         self.tutor_workflow = retrieval_agent  # Renamed to indicate it's TutorWorkflow
-        
+        self.pdf_handler = pdf_handler
         # Initialize chat history
         self.chat_history = CustomMongoDBChatMessageHistory(
             user_email=self.student_email,
@@ -315,7 +317,7 @@ class ChatController:
                         ai_messages = [msg for msg in messages if isinstance(msg, AIMessage)]
                         if ai_messages:
                             final_message = ai_messages[-1]
-                            
+
                             # Verifica se é uma resposta com imagem
                             try:
                                 content = json.loads(final_message.content)
@@ -438,16 +440,60 @@ class ChatController:
     async def _process_files(self, files):
         for file in files:
             filename = file.filename
+            # Lê o conteúdo do arquivo
             content = await file.read()
-            
-            await self.qdrant_handler.process_file(
-                content=content,
-                filename=filename,
-                student_email=self.student_email,
-                session_id=self.session_id,
-                disciplina=self.disciplina,
-                access_level="session"
-            )
+
+            # Se for PDF, armazenamos tanto no Qdrant quanto no MongoDB
+            if file.content_type == "application/pdf" or filename.lower().endswith(".pdf"):
+                # Gera um identificador único para o PDF
+                pdf_uuid = str(uuid.uuid4())
+                # Calcula um hash (opcional, para verificação de integridade)
+                content_hash = hashlib.md5(content).hexdigest()
+
+                # 1. Armazena o PDF no MongoDB usando o MongoPDFHandler
+                try:
+                    await self.pdf_handler.store_pdf(
+                        pdf_uuid=pdf_uuid,
+                        pdf_bytes=content,
+                        student_email=self.student_email,
+                        disciplina=self.disciplina,
+                        session_id=self.session_id,
+                        filename=filename,
+                        content_hash=content_hash,
+                        access_level="session"
+                    )
+                    print(f"[DEBUG] PDF '{filename}' armazenado no MongoDB com uuid {pdf_uuid}")
+                except Exception as e:
+                    print(f"[ERROR] Erro ao armazenar PDF no MongoDB: {e}")
+
+                # 2. Armazena o arquivo no banco vetorial (Qdrant) para geração de embeddings
+                try:
+                    await self.qdrant_handler.process_file(
+                        content=content,
+                        filename=filename,
+                        student_email=self.student_email,
+                        session_id=self.session_id,
+                        disciplina=self.disciplina,
+                        access_level="session"
+                    )
+                    print(f"[DEBUG] PDF '{filename}' processado e armazenado no Qdrant")
+                except Exception as e:
+                    print(f"[ERROR] Erro ao processar PDF no Qdrant: {e}")
+            else:
+                # Para outros tipos de arquivo, você pode seguir o fluxo padrão,
+                # como enviar para o Qdrant ou outro processamento específico.
+                try:
+                    await self.qdrant_handler.process_file(
+                        content=content,
+                        filename=filename,
+                        student_email=self.student_email,
+                        session_id=self.session_id,
+                        disciplina=self.disciplina,
+                        access_level="session"
+                    )
+                    print(f"[DEBUG] Arquivo '{filename}' processado e armazenado no Qdrant")
+                except Exception as e:
+                    print(f"[ERROR] Erro ao processar arquivo no Qdrant: {e}")
 
 
     async def _generate_response(self, user_input: str, context: List[str]) -> str:

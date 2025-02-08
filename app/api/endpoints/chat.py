@@ -20,7 +20,7 @@ from database.vector_db import (
     TextSplitter
     )
 from agent.image_handler import ImageHandler
-from database.mongo_database_manager import MongoDatabaseManager
+from database.mongo_database_manager import MongoDatabaseManager, MongoPDFHandler
 from agent.agent_test import TutorWorkflow
 
 router_chat = APIRouter()
@@ -38,7 +38,7 @@ class ChatEndpointManager:
         self.image_handler = None
         self.embeddings = None
         self._cache = {}
-        
+
     @asynccontextmanager
     async def get_mongo_manager(self):
         """Get or create MongoDB manager with connection pooling"""
@@ -71,8 +71,8 @@ class ChatEndpointManager:
         return self.qdrant_handler
 
     async def get_student_data(
-        self, 
-        user_email: str, 
+        self,
+        user_email: str,
         session_id: str
     ) -> tuple[Dict[str, Any], Dict[str, Any]]:
         """Get student profile and study plan concurrently"""
@@ -87,18 +87,18 @@ class ChatEndpointManager:
             plan_task = asyncio.create_task(
                 mongo_manager.get_study_plan(session_id)
             )
-            
+
             # Wait for both tasks to complete
             student_profile, study_plan = await asyncio.gather(
-                profile_task, 
+                profile_task,
                 plan_task
             )
             # print(f"Student profile: {student_profile}")
             print(f"Study plan: {study_plan}")
-            
+
             if not student_profile:
                 raise HTTPException(
-                    status_code=404, 
+                    status_code=404,
                     detail="Perfil do estudante não encontrado."
                 )
 
@@ -107,13 +107,13 @@ class ChatEndpointManager:
                     status_code=404, 
                     detail="Plano de estudo não encontrado."
                 )
-                
+
             return student_profile, study_plan
-            
+
     def get_cache_key(self, user_email: str, session_id: str) -> str:
         """Generate cache key for student data"""
         return f"{user_email}:{session_id}"
-        
+
     async def get_cached_student_data(
         self, 
         user_email: str, 
@@ -121,10 +121,10 @@ class ChatEndpointManager:
     ) -> tuple[Dict[str, Any], Dict[str, Any]]:
         """Get student data with caching"""
         cache_key = self.get_cache_key(user_email, session_id)
-        
+
         if cache_key in self._cache:
             return self._cache[cache_key]
-            
+
         data = await self.get_student_data(user_email, session_id)
         self._cache[cache_key] = data
         return data
@@ -147,6 +147,8 @@ async def chat_endpoint(
         print(f"Student profile: {student_profile}")
         # Convert study plan to JSON
         study_plan = json.dumps(study_plan_raw, cls=DateTimeEncoder)
+        mongo_manager = MongoDatabaseManager()
+        pdf_handler = MongoPDFHandler(mongo_manager)
 
         # Get or create handlers
         qdrant_handler = chat_manager.get_qdrant_handler()
@@ -159,7 +161,7 @@ async def chat_endpoint(
             str(request.session_id),
             chat_manager.mongo_manager
         )
-        
+
         # Then initialize controller with the workflow
         controller = await initialize_controller(
             request,
@@ -167,17 +169,18 @@ async def chat_endpoint(
             qdrant_handler,
             student_profile,
             study_plan,
-            workflow  # Pass the workflow here
+            workflow,
+            pdf_handler
         )
-        
+
         # Process message
         files = [request.file] if request.file else []
         response = await controller.handle_user_message(request.message, files)
-        
+
         # Add background task for cleanup if needed
         if background_tasks:
             background_tasks.add_task(cleanup_resources, controller)
-        print(response)
+
         return {"response": response}
 
     except HTTPException:
@@ -212,7 +215,8 @@ async def initialize_controller(
     qdrant_handler,
     student_profile: Dict[str, Any],
     study_plan: str,
-    tutor_workflow: TutorWorkflow  # Add workflow parameter
+    tutor_workflow: TutorWorkflow,
+    pdf_handler: MongoPDFHandler
 ) -> ChatController:
     """Initialize ChatController asynchronously"""
     return ChatController(
@@ -225,7 +229,8 @@ async def initialize_controller(
         student_profile=student_profile,
         mongo_db_name=MONGO_DB_NAME,
         mongo_uri=MONGO_URI,
-        plano_execucao=study_plan
+        plano_execucao=study_plan,
+        pdf_handler=pdf_handler
     )
 
 async def cleanup_resources(controller: ChatController):
@@ -246,13 +251,13 @@ async def get_chat_history(
     try:
         async with chat_manager.get_mongo_manager() as mongo_manager:
             collection = mongo_manager.db['chat_history']
-            
+
             # Build query
             query = {
                 'session_id': session_id,
                 'user_email': current_user["sub"],
             }
-            
+
             if before:
                 try:
                     before_datetime = datetime.fromisoformat(before)
@@ -262,11 +267,11 @@ async def get_chat_history(
                         status_code=400,
                         detail="Invalid 'before' timestamp format."
                     )
-            
+
             # Execute query
             cursor = collection.find(query)
             cursor = cursor.sort("timestamp", -1).limit(limit)
-            
+
             messages = []
             async for message_doc in cursor:
                 try:
@@ -274,7 +279,7 @@ async def get_chat_history(
                     content = history_data.get('data', {}).get('content', '')
                     role = history_data.get('type', 'unknown')
                     timestamp = message_doc.get('timestamp')
-                    
+
                     messages.append({
                         'role': 'user' if role == 'human' else 'assistant',
                         'content': content,
@@ -283,10 +288,10 @@ async def get_chat_history(
                 except Exception as e:
                     print(f"Error processing message: {e}")
                     continue
-            
+
             messages.reverse()
             return {'messages': messages}
-            
+
     except Exception as e:
         print(f"Error in get_chat_history: {e}")
         raise HTTPException(

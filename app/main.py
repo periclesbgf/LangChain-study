@@ -14,6 +14,8 @@ from api.endpoints.student_profile import router_profiles
 from api.endpoints.plan import router_study_plan
 from api.endpoints.workspace import router_workspace
 from api.endpoints.websocket_manager import router_websocket
+from api.endpoints.files import router_pdf
+
 load_dotenv()
 
 app = FastAPI()
@@ -41,6 +43,7 @@ app.include_router(router_profiles)
 app.include_router(router_study_plan)
 app.include_router(router_workspace)
 app.include_router(router_websocket)
+app.include_router(router_pdf)
 
 if __name__ == '__main__':
     uvicorn.run(app, host="0.0.0.0", port=8000)

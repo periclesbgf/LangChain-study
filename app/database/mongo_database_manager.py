@@ -530,3 +530,129 @@ class MongoImageHandler:
         except Exception as e:
             print(f"[MONGO] Error verifying image {image_uuid}: {str(e)}")
             return False
+
+
+class MongoPDFHandler:
+    def __init__(self, mongo_manager: MongoDatabaseManager):
+        """
+        Inicializa o handler para PDFs usando o mesmo mongo_manager.
+        """
+        self.mongo_manager = mongo_manager
+        # Define a coleção para PDFs
+        self.pdf_collection = self.mongo_manager.db['pdf_file']
+
+    async def store_pdf(
+        self,
+        pdf_uuid: str,
+        pdf_bytes: bytes,
+        student_email: str,
+        disciplina: str,
+        session_id: str,
+        filename: str,
+        content_hash: str,
+        access_level: str = "session"
+    ) -> Dict[str, Any]:
+        """
+        Armazena um arquivo PDF no MongoDB na coleção 'pdf_file'.
+
+        Args:
+            pdf_uuid: Identificador único para o PDF.
+            pdf_bytes: Conteúdo do PDF em bytes.
+            student_email: Email do estudante.
+            disciplina: Nome da disciplina.
+            session_id: ID da sessão do chat.
+            filename: Nome original do arquivo.
+            content_hash: Hash do conteúdo para verificação de integridade.
+            access_level: Nível de acesso (padrão: "session").
+
+        Returns:
+            O documento armazenado no MongoDB.
+        """
+        try:
+            # Converte os bytes para BSON Binary
+            binary_content = Binary(pdf_bytes)
+            
+            # Prepara o documento do PDF
+            pdf_document = {
+                "_id": pdf_uuid,
+                "pdf_data": binary_content,
+                "student_email": student_email,
+                "disciplina": disciplina,
+                "session_id": session_id,
+                "filename": filename,
+                "content_type": "application/pdf",
+                "file_size": len(pdf_bytes),
+                "content_hash": content_hash,
+                "access_level": access_level,
+                "created_at": datetime.now(timezone.utc)
+            }
+
+            # Verifica se a coleção 'pdf_file' existe; se não, cria-a e seus índices
+            collections = await self.mongo_manager.db.list_collection_names()
+            if 'pdf_file' not in collections:
+                print("[DEBUG] 'pdf_file' não existe, criando coleção e índices.")
+                await self.mongo_manager.db.create_collection('pdf_file')
+                await self.pdf_collection.create_index("student_email")
+                await self.pdf_collection.create_index("disciplina")
+                await self.pdf_collection.create_index([("created_at", -1)])
+            else:
+                print("[DEBUG] 'pdf_file' já existe.")
+
+            print(f"[DEBUG] Inserindo documento PDF com _id={pdf_uuid}")
+            result = await self.pdf_collection.insert_one(pdf_document)
+            if not result.acknowledged:
+                raise Exception("Inserção no MongoDB não foi reconhecida")
+            print(f"[DEBUG] Documento PDF inserido com sucesso: {result.inserted_id}")
+
+            # Verifica se o documento foi realmente inserido
+            stored_doc = await self.pdf_collection.find_one({"_id": pdf_uuid})
+            if not stored_doc:
+                raise Exception("Documento PDF não encontrado após inserção")
+
+            # Verifica a integridade (tamanho do arquivo)
+            stored_size = len(stored_doc["pdf_data"])
+            if stored_size != len(pdf_bytes):
+                raise Exception(f"Discrepância no tamanho: armazenado={stored_size}, original={len(pdf_bytes)}")
+
+            print(f"[MONGO] PDF {pdf_uuid} armazenado com sucesso")
+            print(f"[MONGO] Tamanho do arquivo: {stored_size} bytes")
+            return stored_doc
+
+        except Exception as e:
+            print(f"[MONGO] Erro ao armazenar PDF: {str(e)}")
+            traceback.print_exc()
+            raise
+
+    async def get_pdf(self, pdf_uuid: str) -> Optional[Dict[str, Any]]:
+        """
+        Recupera o documento PDF pelo seu identificador.
+
+        Args:
+            pdf_uuid: Identificador único do PDF.
+
+        Returns:
+            O documento PDF armazenado ou None se não for encontrado.
+        """
+        try:
+            pdf_doc = await self.pdf_collection.find_one({"_id": pdf_uuid})
+            return pdf_doc
+        except Exception as e:
+            print(f"[MONGO] Erro ao recuperar PDF {pdf_uuid}: {str(e)}")
+            return None
+
+    async def verify_pdf_storage(self, pdf_uuid: str) -> bool:
+        """
+        Verifica se o PDF foi armazenado corretamente no MongoDB.
+
+        Args:
+            pdf_uuid: Identificador único do PDF.
+
+        Returns:
+            True se o PDF estiver armazenado e contiver dados, False caso contrário.
+        """
+        try:
+            stored_doc = await self.pdf_collection.find_one({"_id": pdf_uuid})
+            return bool(stored_doc and stored_doc.get("pdf_data"))
+        except Exception as e:
+            print(f"[MONGO] Erro ao verificar PDF {pdf_uuid}: {str(e)}")
+            return False
