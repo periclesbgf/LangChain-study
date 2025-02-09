@@ -27,6 +27,8 @@ from chains.chain_setup import ClassificationChain
 from audio.text_to_speech import AudioService
 from utils import OPENAI_API_KEY
 from sqlalchemy.orm import Session
+from fastapi.responses import RedirectResponse
+
 
 router = APIRouter()
 
@@ -337,36 +339,32 @@ async def google_login_callback(request: Request, code: str, session: Session = 
     try:
         print("Callback do Google recebido com code:", code)
         flow = create_google_flow(request)
-        flow.fetch_token(code=code)  # Troca o code por tokens
+        flow.fetch_token(code=code)
         print("Flow credentials após fetch_token:", flow.credentials)
-        
+
         credentials_obj = flow.credentials
         id_token = credentials_obj.id_token
         print("ID Token (raw):", id_token)
-        
-        # Decodifica o id_token para obter as informações do usuário
+
         from jose import jwt
         user_info = jwt.get_unverified_claims(id_token)
         print("User info decodificado:", user_info)
-        
-        # Buscar ou criar usuário localmente (usando email do Google)
+
         sql_database_manager = DatabaseManager(session, metadata)
         sql_database_controller = CredentialsDispatcher(sql_database_manager)
-        user = await sql_database_controller.google_login(user_info)  # Passa user_info
+        user = await sql_database_controller.google_login(user_info)
         print("Usuário retornado do google_login:", user)
-        
+
         access_token_jwt = create_access_token(data={"sub": user.Email})
         print("JWT de acesso criado:", access_token_jwt)
-        
-        # **SIMPLIFICADO PARA DEMONSTRAÇÃO: Armazenar credentials serializadas na sessão (NÃO FAZER EM PRODUÇÃO)**
+
         request.session['google_credentials'] = credentials_to_dict(credentials_obj)
         print("Credenciais do Google armazenadas na sessão:", request.session['google_credentials'])
-        
-        return {
-            "access_token": access_token_jwt,
-            "token_type": "bearer",
-            "message": "Login com Google bem-sucedido"
-        }
+
+        # Redirecionar diretamente para /home-student, passando o access_token
+        frontend_redirect_url = f"http://localhost:8080/home-student?accessToken={access_token_jwt}"  # Redireciona para /home-student
+        return RedirectResponse(url=frontend_redirect_url, status_code=303)
+
     except Exception as e:
         print(f"Erro no google_login_callback: {e}")
         raise HTTPException(status_code=500, detail=str(e))
