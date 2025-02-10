@@ -792,7 +792,7 @@ class DisciplinChain:
         self.model = "gpt-4o-mini"
         self.client = OpenAI(api_key=self.api_key)
         self.prompt_template = """
-        Por favor, extraia as informações do texto fornecido e converta-as no seguinte formato Pydantic:
+        Eextraia as informações do texto fornecido e converta-as no seguinte formato Pydantic:
 
         from typing import List, Optional
         from pydantic import BaseModel

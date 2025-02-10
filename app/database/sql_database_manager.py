@@ -805,3 +805,29 @@ class DatabaseManager:
                 status_code=500,
                 detail="Ocorreu um erro inesperado"
             )
+
+    def get_discipline_by_session_id(self, session_id: int):
+        try:
+            # Realiza o join entre a tabela Cursos e a tabela SessoesEstudo,
+            # utilizando a coluna IdCurso, e filtra pela sessão desejada.
+            query = (
+                select(tabela_cursos)  # Seleciona todas as colunas da tabela Cursos
+                .join(tabela_sessoes_estudo, tabela_cursos.c.IdCurso == tabela_sessoes_estudo.c.IdCurso)
+                .where(tabela_sessoes_estudo.c.IdSessao == session_id)
+            )
+            result = self.session.execute(query).fetchone()
+            if not result:
+                return None
+            
+            # Caso deseje retornar os dados em formato de dicionário:
+            return dict(result._mapping)
+            
+            # Se preferir retornar o objeto result diretamente, utilize:
+            # return result
+
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Erro ao buscar o curso para a sessão '{session_id}': {str(e)}"
+            )
+

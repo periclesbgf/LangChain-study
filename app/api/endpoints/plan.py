@@ -7,6 +7,8 @@ from api.controllers.plan_controller import PlanController
 from api.endpoints.models import StudyPlan, AutomaticStudyPlanRequest, AutomaticStudyPlanResponse
 from api.controllers.study_sessions_controller import StudySessionsController
 from api.dispatchers.study_sessions_dispatcher import StudySessionsDispatcher
+from api.controllers.discipline_controller import DisciplineController
+from api.dispatchers.discipline_dispatcher import DisciplineDispatcher
 from database.sql_database_manager import DatabaseManager, session, metadata
 from agent.plan_agent import SessionPlanWorkflow
 from database.mongo_database_manager import MongoDatabaseManager
@@ -245,7 +247,17 @@ async def create_automatic_study_plan(
         # Instanciar o DatabaseManager e buscar horários
         sql_manager = DatabaseManager(session, metadata)
         encontro_info = sql_manager.get_encontro_horarios(session_id)
+        discipline_dispatcher = DisciplineDispatcher(sql_manager)
+        discipline_controller = DisciplineController(discipline_dispatcher)
 
+        discipline_data = discipline_controller.get_discipline_by_session_id(session_id)
+        print("discipline_data:")
+        print(discipline_data)
+
+        objetivo_geral = discipline_data.get('Objetivos', [])
+
+        print("objetivo_geral:")
+        print(objetivo_geral)
         if not encontro_info:
             raise HTTPException(
                 status_code=404,
@@ -277,7 +289,8 @@ async def create_automatic_study_plan(
         result = await workflow.create_session_plan(
             topic=topic,
             student_profile=student_profile,
-            id_sessao=session_id
+            id_sessao=session_id,
+            objetivo_geral=objetivo_geral
         )
 
         if result.get("error"):

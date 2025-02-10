@@ -17,6 +17,9 @@ class DisciplineDispatcher:
     def __init__(self, database_manager: DatabaseManager):
         self.database_manager = database_manager
 
+    def get_student_id_by_email(self, user_email: str):
+        return self.database_manager.get_student_by_user_email(user_email)
+
     def get_discipline_by_id(self, discipline_id: int, current_user: str):
         """
         Busca uma disciplina específica, verificando se o usuário atual tem acesso a ela.
@@ -49,6 +52,9 @@ class DisciplineDispatcher:
                 status_code=500,
                 detail=f"Erro interno ao buscar disciplina: {str(e)}"
             )
+        
+    def get_discipline_by_session_id(self, session_id: str):
+        return self.database_manager.get_discipline_by_session_id(session_id)
 
     def get_all_disciplines_for_student(self, current_user: str):
         try:

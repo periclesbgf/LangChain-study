@@ -19,8 +19,10 @@ class DisciplineController:
         return self.dispatcher.get_all_disciplines_for_student(current_user)
 
     def get_discipline_by_id(self, discipline_id: int, current_user: str):
-        # Call dispatcher to get the discipline by ID
         return self.dispatcher.get_discipline_by_id(discipline_id, current_user)
+
+    def get_discipline_by_session_id(self, session_id: str):
+        return self.dispatcher.get_discipline_by_session_id(session_id)
 
     def create_discipline(self, nome_curso: str, ementa: str, objetivos: str, 
                          turno_estudo: str, horario_inicio: str, horario_fim: str, 
@@ -66,7 +68,8 @@ class DisciplineController:
             # Extrair dados do PDF usando o chain
             data = self.disciplin_chain.create_discipline_from_pdf(text, user_email)
             data = json.loads(data)
-            
+            print("data:")
+            print(data)
             # Chamar o dispatcher com todos os parâmetros necessários
             course_id, session_ids = await self.dispatcher.create_discipline_from_pdf(
                 discipline_json=data,
@@ -92,10 +95,9 @@ class DisciplineController:
                     "duracao_total": "",
                     "progresso_total": 0,
                     "created_at": datetime.now(timezone.utc),
-                    "updated_at": datetime.now(timezone.utc),  # Novo
-                    "feedback_geral": {}  # Novo
+                    "updated_at": datetime.now(timezone.utc),
+                    "feedback_geral": {}
                 }
-                
 
                 plan_result = await self.plan_controller.create_study_plan(empty_plan)
                 if not plan_result:

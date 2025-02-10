@@ -71,7 +71,8 @@ class SessionPlanWorkflow:
         A LLM vai seguir o plano para criar uma sessão de estudo eficaz para um aluno.
 
         Tema da Sessão: {topic}
-        
+        Objetivo Geral da Disciplina: {objetivo_geral}
+
         Estilo de Aprendizagem do Aluno:
         {learning_style}
 
@@ -89,7 +90,7 @@ class SessionPlanWorkflow:
         6. SEMPRE FOQUE EM EXPLICAR O ASSUNTO ANTES DE FAZER QUALQUER ATIVIDADE
         7. IMPORTANTE: Agende a sessão de estudo para o mesmo dia do encontro ou para um dia anterior ao encontro
         8. Na descrição, explique detalhadamente as tecnologias, por exemplo. 
-        Se a disciplina deixar explicito que é funcoes na linguagem C, explique a utilizacao dessa linguagem no plano dentro da descricao.
+        9. Siga o objetivo geral da disciplina para criar o plano de estudo.
 
         Regras ESTRITAS para Agendamento:
         1. SEMPRE use a data do encontro ({encounter_date}) como referência
@@ -133,10 +134,9 @@ class SessionPlanWorkflow:
         - Para aluno Reflexivo: Adicione momentos de análise e reflexão
         - Para aluno Sequencial: Organize em passos pequenos e conectados
         - Para aluno Global: Forneça visão geral e conexões com outros temas
+        - Para links use links reais
 
         NOTA: LIMITE o TITULO e DESCRICAO a 100 caracteres.
-
-        ATENCAO: Se o aluno estiver aprendendo funcoes na linguagem C, ou em qualquer outra linguagem explique a utilizacao dessa linguagem no plano. 
 
         Retorne APENAS o JSON do plano, sem explicações adicionais."""
 
@@ -155,7 +155,7 @@ class SessionPlanWorkflow:
             encounter_start = encounter_info.get("inicio", "Horário não especificado")
             encounter_end = encounter_info.get("fim", "Horário não especificado")
             study_preference = state["user_profile"].get("horarios", {}).get("preferencia")
-            
+            objetivo_geral = state["objetivo_geral"]
             print("[DEBUG]: Learning style", learning_style)
             print("[DEBUG]: Topic", topic)
             print("[DEBUG]: Encounter date", encounter_date)
@@ -167,7 +167,8 @@ class SessionPlanWorkflow:
                 encounter_date=encounter_date,
                 encounter_start=encounter_start,
                 encounter_end=encounter_end,
-                study_preference=study_preference
+                study_preference=study_preference,
+                objetivo_geral=objetivo_geral,
             ))
             
             print("[DEBUG]: Model response", response)
@@ -193,15 +194,16 @@ class SessionPlanWorkflow:
     def create_review_node(self):
         REVIEW_PROMPT = """Você é um especialista em educação responsável por revisar e validar planos de estudo.
         O plano de estudos que você receberá será implementado por uma LLM para criar uma sessão de estudo eficaz e interativa.
-        
+
         Analise criticamente o seguinte plano:
         {plan}
-        
+
         Considerando:
         - Estilo de aprendizagem do aluno: {learning_style}
         - Horário do encontro: {encounter_time}
         - Preferência de horário: {study_preference}
-        
+        - Objetivo geral da disciplina: {objetivo_geral}
+
         Verifique:
         1. Se os títulos são claros e bem estruturados
         2. Se as descrições são informativas e adequadas ao conteudo
@@ -211,7 +213,7 @@ class SessionPlanWorkflow:
         6. Se contém instruções de ensino claras e detalhadas
         7. Se os exemplos e exercícios de programação são apropriados
         8. Se o horário sugerido é adequado e respeita as regras de agendamento
-        
+
         O feedback deve seguir EXATAMENTE esta estrutura JSON:
             "status": "approved" ou "needs_revision",
             "feedback": "Seu feedback detalhado aqui",
@@ -222,11 +224,9 @@ class SessionPlanWorkflow:
             "horario_validado": 
                 "adequado": true/false,
                 "comentario": "Comentário sobre o horário sugerido"
-            
-        
-        
+
         Retorne APENAS o JSON, sem explicações adicionais.
-        
+
         NOTA: Se uma disciplina for funcoes na linguagem C, explicite a utilizacao dessa linguagem no plano.
         """
 
@@ -235,34 +235,35 @@ class SessionPlanWorkflow:
 
         def review_plan(state: PlanningState) -> PlanningState:
             print("[DEBUG]: Reviewing plan", state["study_plan"])
-            
+
             encounter_time = state["user_profile"].get("horarios", {}).get("encontro", {})
             study_preference = state["user_profile"].get("horarios", {}).get("preferencia")
-            
+            objetivo_geral = state["objetivo_geral"]
             response = model.invoke(prompt.format(
                 plan=state["study_plan"],
                 learning_style=state["user_profile"].get("EstiloAprendizagem", {}),
                 encounter_time=encounter_time,
-                study_preference=study_preference
+                study_preference=study_preference,
+                objetivo_geral=objetivo_geral
             ))
-            
+
             cleaned_content = response.content.strip("```json\n").strip("```").strip()
-            
+
             print("[DEBUG]: Review response", response)
             new_state = state.copy()
-            
+
             try:
                 feedback_dict = json.loads(cleaned_content)
                 print("[DEBUG]: Parsed feedback", feedback_dict)
                 new_state["review_feedback"] = feedback_dict
-                
+
                 # Atualizar horário agendado apenas se validado
                 if feedback_dict.get("horario_validado", {}).get("adequado", False):
                     new_state["scheduled_time"] = state["study_plan"].get("horario_sugerido")
             except:
                 print("[DEBUG]: Error parsing review response")
                 new_state["review_feedback"] = {"status": "error", "feedback": cleaned_content}
-            
+
             return new_state
 
         return review_plan
@@ -271,13 +272,12 @@ class SessionPlanWorkflow:
         async def update_database(state: PlanningState) -> PlanningState:
             print("[DEBUG]: Updating database with state", state)
             new_state = state.copy()
-            
+
             if not state.get("study_plan"):
                 print("[DEBUG]: No study plan found, skipping update")
                 new_state["update_status"] = False
                 return new_state
 
-            # Adicionar horário agendado ao plano
             plan_with_schedule = state["study_plan"].copy()
             if state.get("scheduled_time"):
                 plan_with_schedule["horario_agendado"] = state["scheduled_time"]
@@ -286,18 +286,14 @@ class SessionPlanWorkflow:
                 state["id_sessao"],
                 plan_with_schedule
             )
-            
+
             print("[DEBUG]: Database update success", success)
             new_state["update_status"] = success
             return new_state
-            
+
         return update_database
 
-    async def create_session_plan(self, topic: str, student_profile: dict, id_sessao: str) -> dict:
-        print("[DEBUG]: Creating session plan for topic:", topic)
-        print("[DEBUG]: Student profile:", student_profile)
-        print("[DEBUG]: Session ID:", id_sessao)
-        
+    async def create_session_plan(self, topic: str, student_profile: dict, id_sessao: str, objetivo_geral: list) -> dict:
         if not topic:
             return {
                 "error": "Tópico não fornecido",
@@ -316,7 +312,8 @@ class SessionPlanWorkflow:
             review_feedback=None,
             id_sessao=id_sessao,
             update_status=None,
-            scheduled_time=None
+            scheduled_time=None,
+            objetivo_geral=objetivo_geral
         )
 
         try:
@@ -325,14 +322,14 @@ class SessionPlanWorkflow:
 
             final_plan = result["study_plan"]
             final_plan["created_at"] = datetime.now(timezone.utc).isoformat()
-            print("[DEBUG]: Final plan", final_plan)
 
             return {
                 "plan": final_plan,
                 "feedback": result["review_feedback"],
                 "update_status": result["update_status"],
                 "id_sessao": id_sessao,
-                "scheduled_time": result.get("scheduled_time")
+                "scheduled_time": result.get("scheduled_time"),
+                "objetivo_geral": objetivo_geral
             }
         except Exception as e:
             print(f"[DEBUG]: Error creating session plan: {e}")
@@ -342,5 +339,6 @@ class SessionPlanWorkflow:
                 "feedback": None,
                 "update_status": False,
                 "id_sessao": id_sessao,
-                "scheduled_time": None
+                "scheduled_time": None,
+                "objetivo_geral": objetivo_geral
             }
