@@ -90,7 +90,7 @@ class SessionPlanWorkflow:
         6. SEMPRE FOQUE EM EXPLICAR O ASSUNTO ANTES DE FAZER QUALQUER ATIVIDADE
         7. IMPORTANTE: Agende a sessão de estudo para o mesmo dia do encontro ou para um dia anterior ao encontro
         8. Na descrição, explique detalhadamente as tecnologias, por exemplo. 
-        9. Siga o objetivo geral da disciplina para criar o plano de estudo.
+        9. Utilize o objetivo geral da disciplina para saber o que é a disciplina, mas foque no tema da sessão.
 
         Regras ESTRITAS para Agendamento:
         1. SEMPRE use a data do encontro ({encounter_date}) como referência
@@ -141,7 +141,7 @@ class SessionPlanWorkflow:
         Retorne APENAS o JSON do plano, sem explicações adicionais."""
 
         prompt = ChatPromptTemplate.from_template(PLANNING_PROMPT)
-        model = ChatOpenAI(model="gpt-4o", temperature=0.2)
+        model = ChatOpenAI(model="gpt-4o")
 
         def generate_plan(state: PlanningState) -> PlanningState:
             print("[DEBUG]: Generating plan with state", state)
@@ -213,6 +213,7 @@ class SessionPlanWorkflow:
         6. Se contém instruções de ensino claras e detalhadas
         7. Se os exemplos e exercícios de programação são apropriados
         8. Se o horário sugerido é adequado e respeita as regras de agendamento
+        9. Se o plano está profundo tecnicamente
 
         O feedback deve seguir EXATAMENTE esta estrutura JSON:
             "status": "approved" ou "needs_revision",
@@ -227,7 +228,7 @@ class SessionPlanWorkflow:
 
         Retorne APENAS o JSON, sem explicações adicionais.
 
-        NOTA: Se uma disciplina for funcoes na linguagem C, explicite a utilizacao dessa linguagem no plano.
+        NOTA: Use o objetivo geral da disciplina para saber o que é a disciplina, mas foque no tema da sessão.
         """
 
         prompt = ChatPromptTemplate.from_template(REVIEW_PROMPT)
