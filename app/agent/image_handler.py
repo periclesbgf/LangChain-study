@@ -25,6 +25,7 @@ import requests
 from PIL import Image
 import io
 
+
 class ImageHandler:
     def __init__(self, api_key):
         # Inicializa a chave da API do OpenAI

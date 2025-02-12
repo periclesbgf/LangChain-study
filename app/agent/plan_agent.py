@@ -144,11 +144,11 @@ class SessionPlanWorkflow:
         model = ChatOpenAI(model="gpt-4o")
 
         def generate_plan(state: PlanningState) -> PlanningState:
-            print("[DEBUG]: Generating plan with state", state)
-            
+            #print("[DEBUG]: Generating plan with state", state)
+
             topic = state["messages"][0].content if state["messages"] else "Tema não especificado"
             learning_style = state["user_profile"].get("EstiloAprendizagem", {})
-            
+
             # Extrair informações de horário de forma mais estruturada
             encounter_info = state["user_profile"].get("horarios", {}).get("encontro", {})
             encounter_date = encounter_info.get("data", "Data não especificada")
@@ -156,11 +156,11 @@ class SessionPlanWorkflow:
             encounter_end = encounter_info.get("fim", "Horário não especificado")
             study_preference = state["user_profile"].get("horarios", {}).get("preferencia")
             objetivo_geral = state["objetivo_geral"]
-            print("[DEBUG]: Learning style", learning_style)
-            print("[DEBUG]: Topic", topic)
-            print("[DEBUG]: Encounter date", encounter_date)
-            print("[DEBUG]: Study preference", study_preference)
-            
+            #print("[DEBUG]: Learning style", learning_style)
+            #print("[DEBUG]: Topic", topic)
+            #print("[DEBUG]: Encounter date", encounter_date)
+            #print("[DEBUG]: Study preference", study_preference)
+
             response = model.invoke(prompt.format(
                 learning_style=learning_style,
                 topic=topic,
@@ -170,10 +170,11 @@ class SessionPlanWorkflow:
                 study_preference=study_preference,
                 objetivo_geral=objetivo_geral,
             ))
-            
-            print("[DEBUG]: Model response", response)
+
+            #print("[DEBUG]: Model response", response)
+
             cleaned_content = response.content.strip("```json\n").strip("```").strip()
-            
+
             try:
                 plan_dict = json.loads(cleaned_content)
                 print("[DEBUG]: Parsed plan", plan_dict)

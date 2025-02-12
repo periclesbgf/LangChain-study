@@ -28,6 +28,9 @@ from audio.text_to_speech import AudioService
 from utils import OPENAI_API_KEY
 from sqlalchemy.orm import Session
 from fastapi.responses import RedirectResponse
+from api.controllers.classroom_api_client import ClassroomAPIClient  # Importe ClassroomAPIClient
+import os
+import json
 
 
 router = APIRouter()
@@ -334,6 +337,7 @@ async def google_login_initiate(request: Request):
         print("Erro no google_login_initiate:", e)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/auth/google/callback")  # Endpoint de callback do Google
 async def google_login_callback(request: Request, code: str, session: Session = Depends(DatabaseManager.get_db)):
     try:
@@ -360,6 +364,45 @@ async def google_login_callback(request: Request, code: str, session: Session = 
 
         request.session['google_credentials'] = credentials_to_dict(credentials_obj)
         print("Credenciais do Google armazenadas na sessão:", request.session['google_credentials'])
+
+        # *** Handler para buscar cursos e SALVAR em arquivo JSON ***
+        credentials_dict = request.session.get('google_credentials') # Recupera novamente as credenciais da sessão
+        creds = dict_to_credentials(credentials_dict)
+        classroom_client = ClassroomAPIClient(creds) # Instancia ClassroomAPIClient com as credenciais
+
+        try:
+            classroom_courses_response = classroom_client.list_courses() # Chama a função para listar cursos
+
+            # *** Salvar a resposta em arquivo JSON ***
+            filename = "classroom_courses_response.json" # Nome do arquivo JSON
+            filepath = os.path.join(".", filename) # Salvar na raiz do projeto (pode ajustar o caminho se necessário)
+
+            try:
+                with open(filepath, 'w', encoding='utf-8') as f: # Abre o arquivo para escrita com encoding UTF-8
+                    json.dump(classroom_courses_response, f, ensure_ascii=False, indent=4) # Salva a resposta em JSON formatado
+                print(f"\n*** Resposta da API do Google Classroom (cursos) SALVA em: {filepath} ***")
+            except Exception as e_save_json:
+                print(f"Erro ao salvar resposta em arquivo JSON: {e_save_json}")
+
+            classroom_courses_materials_response = classroom_client.list_course_materials(classroom_courses_response.get("courses")[0].get("id"))
+            print(classroom_courses_materials_response)
+            filename = "classroom_courses_materials_response.json" # Nome do arquivo JSON
+            filepath = os.path.join(".", filename) # Salvar na raiz do projeto (pode ajustar o caminho se necessário)
+
+            try:
+                with open(filepath, 'w', encoding='utf-8') as f: # Abre o arquivo para escrita com encoding UTF-8
+                    json.dump(classroom_courses_materials_response, f, ensure_ascii=False, indent=4) # Salva a resposta em JSON formatado
+                print(f"\n*** Resposta da API do Google Classroom (cursos) SALVA em: {filepath} ***")
+            except Exception as e_save_json:
+                print(f"Erro ao salvar resposta em arquivo JSON: {e_save_json}")
+
+        except HTTPException as classroom_error:
+            print(f"Erro ao buscar cursos do Google Classroom no handler: {classroom_error}")
+            # Decide como lidar com o erro aqui - logar, retornar um erro específico ao frontend, etc.
+        except Exception as e_classroom:
+            print(f"Erro inesperado ao buscar cursos do Google Classroom no handler: {e_classroom}")
+            # Lidar com outras exceções inesperadas
+
 
         # Redirecionar diretamente para /home-student, passando o access_token
         frontend_redirect_url = f"http://localhost:8080/home-student?accessToken={access_token_jwt}"  # Redireciona para /home-student
@@ -393,19 +436,3 @@ async def get_classroom_courses(request: Request, session: Session = Depends(Dat
         print(f"Erro ao acessar Classroom API: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao acessar a API do Google Classroom: {e}")
 
-
-@router.post("/google-login") # Rota POST /google-login pode ser removida ou descontinuada (agora usamos /auth/google/initiate e /auth/google/callback)
-async def google_login_deprecated(data: GoogleLoginRequest): # Manter para compatibilidade retroativa temporariamente, se necessário
-    try:
-        # ... (Código anterior do google_login - pode ser removido gradualmente) ...
-        google_user = await verify_google_token(data.token) # Esta verificação não é mais o fluxo principal OAuth 2.0
-        print("Google user: ", google_user)
-        sql_database_manager = DatabaseManager(session, metadata)
-        sql_database_controller = CredentialsDispatcher(sql_database_manager)
-        user = await sql_database_controller.google_login(google_user)
-        access_token = create_access_token(data={"sub": user.Email})
-        return {"access_token": access_token, "token_type": "bearer"}
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))

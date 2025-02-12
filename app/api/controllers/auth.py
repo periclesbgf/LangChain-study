@@ -26,11 +26,19 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # Escopos necessários para Calendar, Classroom, userinfo e OpenID Connect
 SCOPES = [
-    "https://www.googleapis.com/auth/calendar",
+    # Google Calendar (somente leitura)
+    "https://www.googleapis.com/auth/calendar.readonly",
+
+    # Google Classroom (somente leitura)
     "https://www.googleapis.com/auth/classroom.courses.readonly",
+    "https://www.googleapis.com/auth/classroom.courseworkmaterials.readonly",
+    "https://www.googleapis.com/auth/classroom.rosters.readonly",
+    "https://www.googleapis.com/auth/classroom.announcements.readonly",
+
+    # Escopos adicionais para obter informações básicas do perfil (se necessário)
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
-    "openid"  # Necessário para fluxo OpenID Connect
+    "openid"
 ]
 
 def hash_password(password: str) -> str:
