@@ -23,6 +23,7 @@ class RegisterModel(BaseModel):
     tipo_usuario: str
     instituicao: Optional[str] = None
     special_code: Optional[str] = None
+    matricula: Optional[str] = None
 
 class LoginModel(BaseModel):
     email: str

@@ -21,8 +21,10 @@ tabela_usuarios = Table('Usuarios', metadata,
     Column('IdUsuario', Integer, primary_key=True),
     Column('Nome', String(100), nullable=False),
     Column('Email', String(100), unique=True, nullable=False, index=True),
-    Column('SenhaHash', String(255), nullable=False),
+    Column('SenhaHash', String(255), nullable=True),
     Column('TipoUsuario', Enum('student', 'educator', 'admin', name='user_type_enum'), nullable=False),
+    Column('Instituicao', String(100), nullable=True),
+    Column('TipoDeConta', Enum('google', 'email', name='account_type_enum'), nullable=False),
     Column('CriadoEm', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP')),
     Column('AtualizadoEm', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'), onupdate=text('CURRENT_TIMESTAMP'))
 )
@@ -30,13 +32,12 @@ tabela_usuarios = Table('Usuarios', metadata,
 tabela_estudantes = Table('Estudantes', metadata,
     Column('IdEstudante', Integer, primary_key=True),
     Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario'), nullable=False, index=True),
-    Column('Matricula', String(50), nullable=True, unique=True),
+    Column('Matricula', String(50), nullable=True, unique=True)
 )
 
 tabela_educadores = Table('Educadores', metadata,
     Column('IdEducador', Integer, primary_key=True),
     Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario'), nullable=False, index=True),
-    Column('Instituicao', String(100), nullable=False),
     Column('EspecializacaoDisciplina', String(100), nullable=False)
 )
 

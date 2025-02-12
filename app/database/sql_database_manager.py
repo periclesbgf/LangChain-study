@@ -86,7 +86,7 @@ class DatabaseManager:
         except IntegrityError as e:
             self.session.rollback()
             print(f"IntegrityError during insertion: {e}")
-            raise HTTPException(status_code=400, detail="Duplicated entry.")
+            raise HTTPException(status_code=409, detail="Conflict")
         except Exception as e:
             self.session.rollback()
             print(f"Error during insertion: {e}")

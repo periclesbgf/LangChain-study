@@ -8,42 +8,42 @@ from passlib.context import CryptContext
 from sql_test.sql_test_create import tabela_usuarios, tabela_estudantes, tabela_educadores, tabela_perfil_aprendizado_aluno, tabela_cursos
 from datetime import datetime, timezone
 from api.controllers.auth import hash_password, verify_password
+from database.mongo_database_manager import MongoDatabaseManager
 
 class CredentialsDispatcher:
     def __init__(self, database_manager: DatabaseManager):
         self.database_manager = database_manager
 
-    def create_account(self, name: str, email: str, password: str, user_type: str, matricula: str = None, instituicao: str = None):
+    def create_account(self, name: str, email: str, password: str, user_type: str, 
+                       matricula: str = None, instituicao: str = None):
+        # Realiza o hash da senha fornecida
         password_hash = hash_password(password)
         try:
-            # Iniciando uma transação explícita
-            print("Iniciando transação para criação da conta.")
             session = self.database_manager.session
-            #session.begin()  # Iniciando uma transação
 
-            print("Inserting user into database")
+            # Monta o dicionário de dados para inserção em Usuarios
+            user_data = {
+                'Nome': name,
+                'Email': email,
+                'SenhaHash': password_hash,
+                'TipoUsuario': user_type,
+                'TipoDeConta': 'email',
+                'CriadoEm': datetime.now(timezone.utc),
+                'AtualizadoEm': datetime.now(timezone.utc)
+            }
 
-            # Inserir o usuário na tabela Usuarios e obter o ID gerado
+            if instituicao:
+                user_data['Instituicao'] = instituicao
+
             user_id = self.database_manager.inserir_dado_retorna_id(
                 tabela_usuarios,
-                {
-                    'Nome': name,
-                    'Email': email,
-                    'SenhaHash': password_hash,
-                    'TipoUsuario': user_type,
-                    'CriadoEm': datetime.now(timezone.utc),
-                    'AtualizadoEm': datetime.now(timezone.utc),
-                },
+                user_data,
                 'IdUsuario'
-            )  # Retorna o IdUsuario recém-criado
+            )
+            print(f"Usuário inserido com ID: {user_id}")
 
-            print(f"User inserted with ID: {user_id}")
-
-            # Verificar o tipo de usuário e inserir nas tabelas apropriadas
             if user_type == 'student':
-                print("Inserting student into database")
-
-                # Inserir o estudante na tabela Estudantes
+                print("Inserindo registro de estudante no banco de dados.")
                 student_id = self.database_manager.inserir_dado_retorna_id(
                     tabela_estudantes,
                     {
@@ -52,50 +52,38 @@ class CredentialsDispatcher:
                     },
                     'IdEstudante'
                 )
-
                 if not student_id:
-                    raise HTTPException(status_code=400, detail="Erro ao inserir o estudante. Não foi possível criar um perfil de aprendizado.")
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Erro ao inserir o estudante. Não foi possível criar o perfil de aprendizado."
+                    )
+                print("Registro de estudante criado com sucesso.")
 
-                # Criar um perfil de aprendizado com um curso nulo (não associado ainda)
-                print(f"Creating learning profile for student ID: {student_id}")
+                # Cria o perfil de aprendizado para o estudante (assegure que o relacionamento use o user_id)
                 self.database_manager.inserir_dado(
                     tabela_perfil_aprendizado_aluno,
                     {
-                        'IdUsuario': student_id,
-                        'DadosPerfil': {},  # Inicialmente vazio, você pode atualizar depois
+                        'IdUsuario': user_id,
+                        'DadosPerfil': {},  # Inicialmente vazio; pode ser atualizado posteriormente
                         'IdPerfilFelderSilverman': None
                     }
                 )
-                print("Learning profile created successfully.")
+                print("Perfil de aprendizado criado com sucesso.")
 
-            elif user_type == 'educator':
-                print("Inserting educator into database")
-                # Inserir o educador na tabela Educadores
-                self.database_manager.inserir_dado_retorna_id(
-                    tabela_educadores,
-                    {
-                        'IdUsuario': user_id,
-                        'Instituicao': instituicao or "CESAR School",
-                    },
-                    'IdEducador'
-                )
-            else:
-                raise HTTPException(status_code=400, detail="Tipo de usuário inválido.")
-
-            # Commit da transação ao final de todas as operações bem-sucedidas
+            # Para educadores, não há inserção adicional em outra tabela, pois os dados específicos já estão em Usuarios
             session.commit()
             session.close()
             return {"message": "Conta criada com sucesso"}
 
         except IntegrityError as e:
-            session.rollback()  # Reverter a transação em caso de erro
-            print(f"IntegrityError encountered: {e}")
-            raise HTTPException(status_code=400, detail="Email já cadastrado.")
+            session.rollback()
+            raise HTTPException(status_code=409, detail="Email já cadastrado.")
+        except HTTPException as e:
+            session.rollback()
+            raise e
         except Exception as e:
-            session.rollback()  # Reverter a transação em caso de erro geral
-            print(f"General exception encountered: {e}")
+            session.rollback()
             raise HTTPException(status_code=500, detail="Internal server error.")
-
 
     def login(self, email: str, password: str):
         user = self.database_manager.get_user_by_email(email)
@@ -115,34 +103,30 @@ class CredentialsDispatcher:
             name = google_data.get('name')
 
             print("Tentando buscar usuário pelo email:", email)
-            # Procura o usuário no banco de dados usando o email
             user = self.database_manager.get_user_by_email(email)
 
             if user:
                 print("Usuário já existe para o email:", email)
                 return user
             else:
-                # Se o usuário não existir, cria um novo registro
-                dummy_password = "GoogleAccount"  # Senha dummy (fixa)
-                hashed_dummy = hash_password(dummy_password)
-                print("Criando novo usuário com senha dummy para o email:", email)
+                print("Criando novo usuário sem senha (acesso Google) para o email:", email)
 
-                # Insere o usuário na tabela Usuarios
                 user_id = self.database_manager.inserir_dado_retorna_id(
                     tabela_usuarios,
                     {
                         'Nome': name,
                         'Email': email,
-                        'SenhaHash': hashed_dummy,  # utiliza a senha dummy
-                        'TipoUsuario': 'student',   # define o tipo padrão (ou adapte conforme necessário)
+                        'SenhaHash': None,
+                        'TipoUsuario': 'student', #possivel bug no futuro
+                        'TipoDeConta': 'google',
                         'CriadoEm': datetime.now(timezone.utc),
-                        'AtualizadoEm': datetime.now(timezone.utc),
+                        'AtualizadoEm': datetime.now(timezone.utc)
                     },
                     'IdUsuario'
                 )
                 print(f"Novo usuário criado com ID: {user_id}")
 
-                # Cria o perfil de estudante (na tabela Estudantes)
+                # Cria o registro do estudante na tabela Estudantes
                 student_id = self.database_manager.inserir_dado_retorna_id(
                     tabela_estudantes,
                     {
@@ -153,20 +137,36 @@ class CredentialsDispatcher:
                 )
                 print(f"Novo estudante criado com ID: {student_id}")
 
-                # Cria o perfil de aprendizado para o estudante
+                # Cria o perfil de aprendizado para o estudante utilizando o user_id
                 self.database_manager.inserir_dado(
                     tabela_perfil_aprendizado_aluno,
                     {
-                        'IdUsuario': student_id,
+                        'IdUsuario': user_id,
                         'DadosPerfil': {},  # Inicialmente vazio; poderá ser atualizado depois
                         'IdPerfilFelderSilverman': None
                     }
                 )
                 print("Perfil de aprendizado criado com sucesso.")
 
-                # Busca o usuário criado (para retornar o registro completo)
+                # Busca e retorna o usuário criado (registro completo)
                 user = self.database_manager.get_user_by_email(email)
                 print("Usuário após criação:", user)
+
+                profile_data = {
+                    "Nome": name,
+                    "Email": email,
+                    "EstiloAprendizagem": None,
+                    "Feedback": None,
+                    "PreferenciaAprendizado": None,
+                    "created_at": datetime.now(timezone.utc)
+                }
+
+                mongo_manager = MongoDatabaseManager()
+                await mongo_manager.create_student_profile(
+                    email=email,
+                    profile_data=profile_data
+                )
+
                 return user
 
         except Exception as e:

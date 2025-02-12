@@ -2,6 +2,7 @@
 
 import traceback
 from bson import Binary
+from fastapi import HTTPException
 import motor.motor_asyncio
 from utils import MONGO_DB_NAME, MONGO_URI
 from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory

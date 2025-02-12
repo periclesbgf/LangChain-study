@@ -97,73 +97,70 @@ async def process_webrtc_audio(
 async def create_account(
     register_model: RegisterModel,
 ):
-    print("Creating account")
     try:
-        # Inicializa o gerenciador SQL
+        if register_model.senha == "" or register_model.senha == None:
+            raise HTTPException(status_code=400, detail="Senha não pode ser vazia")
+
         sql_database_manager = DatabaseManager(session, metadata)
         sql_database_controller = CredentialsDispatcher(sql_database_manager)
-        
-        print("connecting to database")
+        mongo_manager = MongoDatabaseManager()
 
-        # Verifica se o código especial está correto para educadores
-        if register_model.tipo_usuario == "educator":
+        if register_model.tipo_usuario == "student":
+            sql_database_controller.create_account(
+                name=register_model.nome,
+                email=register_model.email,
+                password=register_model.senha,
+                user_type=register_model.tipo_usuario,
+                matricula=register_model.matricula,
+                instituicao=register_model.instituicao
+            )
+            profile_data = {
+                "Nome": register_model.nome,
+                "Email": register_model.email,
+                "EstiloAprendizagem": None,  # Inicialmente como None
+                "Feedback": None,
+                "PreferenciaAprendizado": None,
+                "created_at": datetime.now(timezone.utc)
+            }
+
+            profile_id = await mongo_manager.create_student_profile(
+                email=register_model.email,
+                profile_data=profile_data
+            )
+
+        elif register_model.tipo_usuario == "educator":
             if register_model.special_code != SECRET_EDUCATOR_CODE:
-                raise HTTPException(status_code=400, detail="Invalid special code")
+                raise HTTPException(status_code=400, detail="Código especial inválido")
 
-        # Cria a conta no banco de dados SQL
-        sql_database_controller.create_account(
-            register_model.nome,
-            register_model.email,
-            register_model.senha,
-            register_model.tipo_usuario,
-            register_model.instituicao,
-        )
-
-        # Cria automaticamente o perfil no MongoDB
-        await create_profile_in_mongo(register_model.nome, register_model.email)
+            sql_database_controller.create_account(
+                name=register_model.nome,
+                email=register_model.email,
+                password=register_model.senha,
+                user_type=register_model.tipo_usuario,
+                matricula=None,
+                instituicao=register_model.instituicao
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Tipo de usuário inválido.")
 
         return {"message": "Conta e perfil criados com sucesso"}
 
-    except IntegrityError:
-        raise HTTPException(status_code=400, detail="Email já cadastrado.")
+    except HTTPException as e:
+        if e.status_code == 409:
+            raise HTTPException(status_code=e.status_code, detail="Email já cadastrado.")
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-async def create_profile_in_mongo(nome: str, email: str):
-    try:
-        # Inicializa o gerenciador MongoDB
-        mongo_manager = MongoDatabaseManager()
-
-        # Monta os dados do perfil
-        profile_data = {
-            "Nome": nome,
-            "Email": email,
-            "EstiloAprendizagem": None,  # Inicialmente como None
-            "Feedback": None,
-            "PreferenciaAprendizado": None,
-            "created_at": datetime.now(timezone.utc)
-        }
-
-        # Cria o perfil no MongoDB
-        profile_id = await mongo_manager.create_student_profile(
-            email=email,
-            profile_data=profile_data
-        )
-
-        if not profile_id:
-            raise HTTPException(status_code=500, detail="Erro ao criar perfil.")
-
-        print(f"Perfil criado com ID: {profile_id}")
-
-    except Exception as e:
-        print(f"Erro ao criar perfil no MongoDB: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao criar perfil: {str(e)}")
 
 @router.post("/login")
 async def login(
     login_model: LoginModel,
 ):
     try:
+        if login_model.senha == "" or login_model.senha == None:
+            raise HTTPException(status_code=400, detail="Senha não pode ser vazia")
+
         sql_database_manager = DatabaseManager(session, metadata)
         sql_database_controller = CredentialsDispatcher(sql_database_manager)
         print("Tentando login")
