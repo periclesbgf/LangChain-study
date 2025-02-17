@@ -169,6 +169,8 @@ async def login(
             login_model.email,
             login_model.senha
         )
+        print("Login efetuado")
+        print(user)
 
         access_token = create_access_token(data={"sub": user.Email})
         print("Login efetuado com sucesso")
@@ -176,15 +178,17 @@ async def login(
         return {"access_token": access_token, "token_type": "bearer"}
 
     except HTTPException as e:
-        raise e
+        if e.status_code == 401:
+            raise HTTPException(status_code=e.status_code, detail="Email ou senha inválidos")
+        if e.status_code == 404:
+            raise HTTPException(status_code=e.status_code, detail="Email ou senha inválidos")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/")
-def read_root():
-    return {"Hello": "World"}
-
+@router.get("/user_email")
+def read_user_email(current_user: dict = Depends(get_current_user)):
+    return {"user_email": current_user["sub"]}
 
 @router.post("/question")
 async def read_question(

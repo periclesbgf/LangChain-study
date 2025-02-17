@@ -89,10 +89,10 @@ class CredentialsDispatcher:
         user = self.database_manager.get_user_by_email(email)
         print("user: ", user)
         if not user:
-            raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+            raise HTTPException(status_code=404, detail="Email ou senha inválidos")
 
         if not verify_password(password, user.SenhaHash):
-            raise HTTPException(status_code=400, detail="Senha incorreta.")
+            raise HTTPException(status_code=404, detail="Email ou senha inválidos")
 
         return user
 
