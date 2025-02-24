@@ -1,7 +1,17 @@
 # endpoints/routes.py
 
 from typing import Dict, Optional
-from api.endpoints.models import GoogleLoginRequest, Question, ResponseModel, RegisterModel, LoginModel, Token, AudioResponseModel
+from api.endpoints.models import (
+    GoogleLoginRequest,
+    Question,
+    ResponseModel,
+    RegisterModel,
+    LoginModel,
+    Token,
+    AudioResponseModel,
+    ResetPasswordModel,
+    ForgotPasswordModel,
+    )
 from api.controllers.controller import (
     code_confirmation,
     build_chain,
@@ -13,28 +23,34 @@ from api.dispatchers.login_dispatcher import CredentialsDispatcher
 from api.dispatchers.calendar_dispatcher import CalendarDispatcher
 from api.controllers.calendar_controller import CalendarController
 from database.sql_database_manager import DatabaseManager, session, metadata
-from fastapi import APIRouter, HTTPException, File, Form, UploadFile, Depends, HTTPException, Request # Import Request e Session
-from fastapi.logger import logger
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy import insert
-from fastapi.security import OAuth2PasswordRequestForm
-from api.controllers.auth import create_access_token, get_current_user, create_google_flow, credentials_to_dict, dict_to_credentials # Import funções auth
+from fastapi import APIRouter, HTTPException, File, Form, UploadFile, Depends, HTTPException, Request
+
+from api.controllers.auth import (
+    create_access_token,
+    get_current_user,
+    create_google_flow,
+    credentials_to_dict,
+    dict_to_credentials,
+    decode_reset_token,
+    send_reset_email
+    )
 from utils import SECRET_EDUCATOR_CODE
 from database.mongo_database_manager import MongoDatabaseManager
-from datetime import datetime, timezone
-from agent.calendar_agent import CalendarAgent, CalendarOrchestrator
+from datetime import datetime, timedelta, timezone
+from agent.calendar_agent import CalendarOrchestrator
 from chains.chain_setup import ClassificationChain
 from audio.text_to_speech import AudioService
 from utils import OPENAI_API_KEY
 from sqlalchemy.orm import Session
 from fastapi.responses import RedirectResponse
-from api.controllers.classroom_api_client import ClassroomAPIClient  # Importe ClassroomAPIClient
+from api.controllers.classroom_api_client import ClassroomAPIClient
 import os
 import json
+import secrets
+import time
 
 
 router = APIRouter()
-
 
 
 @router.post("/webrtc-audio", response_model=ResponseModel)
@@ -437,3 +453,55 @@ async def get_classroom_courses(request: Request, session: Session = Depends(Dat
         print(f"Erro ao acessar Classroom API: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao acessar a API do Google Classroom: {e}")
 
+
+@router.post("/forgot-password")
+async def forgot_password(forgotPassword: ForgotPasswordModel):
+    """
+    Endpoint para solicitar o reset da senha.
+    Se o usuário for autenticado, gera um token de reset e envia por email.
+    """
+    try:
+        sql_database_manager = DatabaseManager(session, metadata)
+        sql_database_controller = CredentialsDispatcher(sql_database_manager)
+        user_email = forgotPassword.user_email
+        reset_token = sql_database_controller.generate_reset_token(user_email)
+
+        if reset_token is None:
+            return {
+            "message": "Instruções para reset de senha foram enviadas para o seu email."
+        }
+
+        send_reset_email(user_email, reset_token)
+
+        return {
+            "message": "Instruções para reset de senha foram enviadas para o seu email."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reset-password")
+async def reset_password(reset_data: ResetPasswordModel):
+    """
+    Endpoint para resetar a senha do usuário.
+    Recebe o token de reset e a nova senha (com confirmação).
+    """
+    if reset_data.new_password != reset_data.confirm_password:
+        raise HTTPException(status_code=400, detail="As senhas não coincidem.")
+
+    payload = decode_reset_token(reset_data.reset_token)
+    if payload is None:
+        raise HTTPException(status_code=400, detail="Token inválido ou expirado")
+
+    email = payload.get("sub")
+    if not email:
+        raise HTTPException(status_code=400, detail="Token inválido")
+
+    try:
+        sql_database_manager = DatabaseManager(session, metadata)
+        credentials_controller = CredentialsDispatcher(sql_database_manager)
+        credentials_controller.reset_password(email, reset_data.new_password)
+
+        return {"message": "Senha atualizada com sucesso."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

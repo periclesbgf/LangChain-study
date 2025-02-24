@@ -141,7 +141,7 @@ tabela_feedback_ia = Table('FeedbackIAPerfil', metadata,
 
 tabela_eventos_calendario = Table('EventosCalendario', metadata,
     Column('IdEvento', Integer, primary_key=True),
-    Column('GoogleEventId', String(250), nullable=False, unique=True),
+    Column('GoogleEventId', String(250), nullable=True, unique=True),
     Column('Titulo', String(200), nullable=False),
     Column('Descricao', Text),
     Column('Inicio', DateTime, nullable=False),

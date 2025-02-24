@@ -292,3 +292,11 @@ class AutomaticStudyPlanRequest(BaseModel):
 class AutomaticStudyPlanResponse(BaseModel):
     message: str
     plano: dict
+
+class ResetPasswordModel(BaseModel):
+    reset_token: str
+    new_password: str
+    confirm_password: str
+
+class ForgotPasswordModel(BaseModel):
+    user_email: str

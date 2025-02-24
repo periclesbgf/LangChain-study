@@ -71,7 +71,7 @@ class DisciplineDispatcher:
             # Use o IdEstudante para buscar as disciplinas associadas
             courses = self.database_manager.get_courses_by_student_id(student_id)
             if not courses:
-                return {"message": "Nenhuma disciplina encontrada para o estudante."}
+                return []
 
             # Converter as disciplinas em formato JSON-friendly (dicionários)
             courses_list = []
@@ -88,7 +88,7 @@ class DisciplineDispatcher:
             return courses_list
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Erro ao buscar disciplinas do estudante: {e}")
+            raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
     def create_discipline(self, discipline_data: dict, current_user: str):

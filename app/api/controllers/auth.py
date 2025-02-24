@@ -6,22 +6,29 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from google.oauth2 import credentials
-from google_auth_oauthlib.flow import Flow  # Import Flow
+from google_auth_oauthlib.flow import Flow
+import smtplib
+from email.mime.text import MIMEText
 from api.controllers.constants import (
     SECRET_KEY,
     ALGORITHM,
     ACCESS_TOKEN_EXPIRE_MINUTES,
+    RESET_TOKEN_EXPIRY_MINUTES,
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
     GOOGLE_REDIRECT_URI,
-    GOOGLE_PROJECT_ID  # Certifique-se de definir essa constante ou ajustar conforme sua necessidade
+    GOOGLE_PROJECT_ID,
 )
-import os
+from utils import(
+    SMTP_SERVER,
+    SMTP_PORT,
+    SENDER_EMAIL,
+    SENDER_PASSWORD,
+    RESET_PASSWORD_URL,
+)
 
-# Bcrypt context for hashing passwords
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# OAuth2 password bearer scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # Escopos necessários para Calendar, Classroom, userinfo e OpenID Connect
@@ -102,3 +109,60 @@ def credentials_to_dict(credentials_obj: credentials.Credentials) -> dict:
 def dict_to_credentials(credentials_dict: dict) -> credentials.Credentials:
     """Função para desserializar as credentials."""
     return credentials.Credentials(**credentials_dict)
+
+def create_reset_token(email: str, expires_delta: timedelta = None):
+    payload = {"sub": email}
+    print("Payload do token de reset:")
+    print(payload)
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRY_MINUTES)
+    payload.update({"exp": expire})
+    encoded_jwt = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    print("Token de reset criado:")
+    print(encoded_jwt)
+    return encoded_jwt
+
+def decode_reset_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload if payload else None
+    except JWTError:
+        return None
+
+def send_reset_email(recipient_email: str, reset_token: str):
+    """
+    Envia um email contendo um link para resetar a senha para o endereço do usuário.
+    O link é composto pela URL base (definida em RESET_LINK_BASE_URL) com o token
+    passado como parâmetro de query.
+    """
+    if not SENDER_EMAIL or not SENDER_PASSWORD:
+        raise HTTPException(status_code=500, detail="Configuração de email inválida.")
+
+    # Gera o link para reset, ex.: https://sua-aplicacao.com/reset-password?token=...
+    reset_link = f"{RESET_PASSWORD_URL}?token={reset_token}"
+
+    subject = "Reset de Senha - Eden AI"
+    body = (
+        f"Olá,\n\nVocê solicitou o reset da sua senha. Por favor, clique no link abaixo para redefinir sua senha:\n\n"
+        f"{reset_link}\n\n"
+        "O link é válido por 30 minutos. Após esse período, será necessário solicitar um novo reset.\n\n"
+        "Se você não fez essa solicitação, por favor, ignore este email."
+    )
+
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = SENDER_EMAIL
+    msg["To"] = recipient_email
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()  # Inicia a conexão segura via TLS
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.send_message(msg)
+            print(f"Email de reset enviado para {recipient_email}")
+        return True
+    except Exception as e:
+        print(f"Erro ao enviar email: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao enviar email de reset.")

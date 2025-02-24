@@ -1,5 +1,5 @@
 from typing import Any, Dict, Optional
-from sqlalchemy import and_, create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey, select, join
+from sqlalchemy import and_, create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey, select, join, update
 from sqlalchemy.orm import sessionmaker
 import os
 from dotenv import load_dotenv
@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy.sql import text
 import json
 from sqlalchemy.sql import select
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 
 # Carregar variáveis de ambiente
 load_dotenv()
@@ -619,7 +619,7 @@ class DatabaseManager:
                     Fim=end_time
                 )
             )
-            
+
             # Executar o update
             result = self.session.execute(update_stmt)
             self.session.commit()
@@ -721,10 +721,10 @@ class DatabaseManager:
                     tabela_estudante_curso.c.IdCurso == discipline_id
                 )
             )
-            
+
             print(f"Query de matrícula gerada: {enrollment_query}")
             enrollment = self.session.execute(enrollment_query).first()
-            
+
             if not enrollment:
                 print(f"AVISO: Estudante {student_id} não está matriculado na disciplina {discipline_id}")
                 raise HTTPException(
@@ -747,7 +747,7 @@ class DatabaseManager:
 
             print(f"Query de disciplina gerada: {discipline_query}")
             result = self.session.execute(discipline_query).mappings().first()
-            
+
             if not result:
                 print(f"ERRO: Disciplina {discipline_id} não encontrada")
                 raise HTTPException(
@@ -790,14 +790,14 @@ class DatabaseManager:
                 status_code=500,
                 detail="Erro no banco de dados ao buscar detalhes da disciplina"
             )
-        
+
         except json.JSONDecodeError as e:
             print(f"ERRO: Erro ao interpretar JSON dos dados da disciplina: {e}")
             raise HTTPException(
                 status_code=500,
                 detail="Erro ao interpretar dados da disciplina"
             )
-        
+
         except Exception as e:
             print(f"ERRO: Erro inesperado em get_discipline_details: {e}")
             print("Stack trace completo:", exc_info=True)
@@ -818,10 +818,10 @@ class DatabaseManager:
             result = self.session.execute(query).fetchone()
             if not result:
                 return None
-            
+
             # Caso deseje retornar os dados em formato de dicionário:
             return dict(result._mapping)
-            
+
             # Se preferir retornar o objeto result diretamente, utilize:
             # return result
 
@@ -831,3 +831,77 @@ class DatabaseManager:
                 detail=f"Erro ao buscar o curso para a sessão '{session_id}': {str(e)}"
             )
 
+    def update_user_account(self, email: str, updated_data: dict):
+        """
+        Atualiza os dados da conta de um usuário com base no e-mail.
+
+        Parâmetros:
+            email (str): E-mail do usuário a ser atualizado.
+            updated_data (dict): Dicionário contendo os campos e valores a serem atualizados.
+
+        Exemplo de updated_data:
+            {
+                "Nome": "Novo Nome",
+                "Instituicao": "Nova Instituição",
+                "SenhaHash": "novo_hash_da_senha"  # se for atualizar a senha
+            }
+
+        Retorna:
+            Nenhum valor, mas realiza a atualização no banco de dados.
+
+        Lança:
+            HTTPException com status 404 se o usuário não for encontrado.
+            HTTPException com status 500 em caso de erro interno.
+        """
+        try:
+            # Atualiza o campo de data/hora de modificação
+            updated_data["AtualizadoEm"] = datetime.now(timezone.utc)
+
+            # Cria a instrução de atualização com base no email
+            stmt = tabela_usuarios.update() \
+                .where(tabela_usuarios.c.Email == email) \
+                .values(**updated_data)
+
+            result = self.session.execute(stmt)
+            self.session.commit()
+
+            if result.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+
+            print(f"Conta do usuário com email {email} atualizada com sucesso.")
+        except Exception as e:
+            self.session.rollback()
+            print(f"Erro ao atualizar a conta do usuário: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao atualizar a conta do usuário.")
+
+    def update_user_password(self, email: str, new_password_hash: str) -> bool:
+        """
+        Atualiza apenas o hash da senha do usuário com base no e-mail.
+
+        Parâmetros:
+            email (str): E-mail do usuário que terá a senha atualizada.
+            new_password_hash (str): Novo hash da senha a ser armazenado.
+
+        Retorna:
+            bool: True se a atualização for bem-sucedida.
+
+        Lança:
+            HTTPException com status 404 se o usuário não for encontrado.
+            HTTPException com status 500 em caso de erro interno.
+        """
+        try:
+            updated_data = {
+                "SenhaHash": new_password_hash,
+                "AtualizadoEm": datetime.now(timezone.utc)
+            }
+            stmt = tabela_usuarios.update().where(tabela_usuarios.c.Email == email).values(**updated_data)
+            result = self.session.execute(stmt)
+            self.session.commit()
+            if result.rowcount == 0:
+                raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+            print(f"Senha do usuário com email {email} atualizada com sucesso.")
+            return True
+        except Exception as e:
+            self.session.rollback()
+            print(f"Erro ao atualizar a senha do usuário: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao atualizar a senha do usuário.")

@@ -7,7 +7,12 @@ from fastapi import APIRouter, HTTPException, File, Form, UploadFile
 from passlib.context import CryptContext
 from sql_test.sql_test_create import tabela_usuarios, tabela_estudantes, tabela_educadores, tabela_perfil_aprendizado_aluno, tabela_cursos
 from datetime import datetime, timezone
-from api.controllers.auth import hash_password, verify_password
+from api.controllers.auth import (
+    hash_password,
+    verify_password,
+    create_reset_token,
+    decode_reset_token,
+    )
 from database.mongo_database_manager import MongoDatabaseManager
 
 class CredentialsDispatcher:
@@ -172,3 +177,21 @@ class CredentialsDispatcher:
         except Exception as e:
             print(f"Erro no google_login: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    def generate_reset_token(self, user_email: str):
+        user = self.database_manager.get_user_by_email(user_email)
+        if not user:
+            return None
+        if user.TipoDeConta == 'google' and user.SenhaHash is None:
+            return "google account"
+
+        return create_reset_token(user_email)
+
+    def reset_password(self, email: str, new_password: str):
+        user_obj = self.database_manager.get_user_by_email(email)
+        if not user_obj:
+            raise HTTPException(status_code=404, detail="Email não encontrado")
+
+        password_hash = hash_password(new_password)
+        is_updated = self.database_manager.update_user_password(email, password_hash)
+        return is_updated

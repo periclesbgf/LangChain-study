@@ -24,13 +24,16 @@ async def get_all_user_disciplines(current_user: dict = Depends(get_current_user
         dispatcher = DisciplineDispatcher(sql_database_manager)
         controller = DisciplineController(dispatcher)
 
-        # Fetch all disciplines for the current user
         disciplines = controller.get_all_user_disciplines(current_user['sub'])
-        print("Disciplinas: ", disciplines)
         return {"disciplines": disciplines}
+
     except Exception as e:
-        logger.error(f"Erro ao buscar disciplinas para o usuário: {current_user['sub']} - {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        if e.status_code == 404:
+            logger.error(f"Disciplinas não encontradas para o usuário: {current_user['sub']}")
+            raise HTTPException(status_code=404, detail=str(e.detail))
+        if e.status_code == 500:
+            logger.error(f"Erro ao buscar disciplinas para o usuário: {current_user['sub']} - {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e.detail))
 
 @router_disciplines.get("/disciplines/{discipline_id}")
 async def get_discipline_by_id(
@@ -53,7 +56,7 @@ async def get_discipline_by_id(
 
         # Acessar diretamente o nome da disciplina do resultado
         discipline_name = result["NomeCurso"] if isinstance(result, dict) else None
-        
+
         if discipline_name is None:
             raise HTTPException(
                 status_code=500,
@@ -62,7 +65,7 @@ async def get_discipline_by_id(
 
         print(f"Disciplina {discipline_id} encontrada para o usuário: {current_user['sub']}")
         return {"discipline_name": discipline_name}
-    
+
     except KeyError as e:
         logger.error(f"Erro de estrutura de dados ao acessar disciplina {discipline_id}: {str(e)}")
         raise HTTPException(

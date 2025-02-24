@@ -60,3 +60,5 @@ wave
 google-auth
 google-auth-oauthlib
 itsdangerous
+logfire
+pydantic-ai
