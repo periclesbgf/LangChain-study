@@ -180,10 +180,12 @@ class CredentialsDispatcher:
 
     def generate_reset_token(self, user_email: str):
         user = self.database_manager.get_user_by_email(user_email)
-        if not user:
-            return None
-        if user.TipoDeConta == 'google' and user.SenhaHash is None:
-            return "google account"
+
+        if not user or (user.TipoDeConta == 'google' and user.SenhaHash is None):
+            raise HTTPException(
+                status_code=400,
+                detail="Se o email informado estiver cadastrado, você receberá um email com instruções para redefinir sua senha."
+            )
 
         return create_reset_token(user_email)
 

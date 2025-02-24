@@ -477,7 +477,7 @@ async def forgot_password(forgotPassword: ForgotPasswordModel):
             "message": "Instruções para reset de senha foram enviadas para o seu email."
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=e.status_code, detail=str(e.detail))
 
 
 @router.post("/reset-password")
