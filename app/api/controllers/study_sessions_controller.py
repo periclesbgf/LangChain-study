@@ -1,12 +1,6 @@
 # controllers/study_sessions_controller.py
 
 from chains.chain_setup import DisciplinChain
-from database.sql_database_manager import DatabaseManager
-from sql_test.sql_test_create import tabela_cursos, tabela_sessoes_estudo, tabela_encontros, tabela_eventos_calendario
-from database.search import execute_query
-from database.vector_db import TextSplitter, Embeddings, QdrantHandler
-from audio.text_to_speech import AudioService
-from fastapi.logger import logger
 from datetime import datetime
 from api.controllers.plan_controller import PlanController
 from api.dispatchers.study_sessions_dispatcher import StudySessionsDispatcher
@@ -14,8 +8,6 @@ from api.dispatchers.discipline_dispatcher import DisciplineDispatcher
 import json
 from datetime import datetime, timezone
 from typing import Dict, Any
-
-from utils import OPENAI_API_KEY, CODE
 
 
 class StudySessionsController:
