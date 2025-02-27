@@ -157,4 +157,28 @@ tabela_perfis_felder_silverman = Table('PerfisFelderSilverman', metadata,
     Column('Recomendacoes', Text)
 )
 
+tabela_feedback_plataforma = Table('FeedbackPlataforma', metadata,
+    Column('IdFeedback', Integer, primary_key=True),
+    Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario'), nullable=False, index=True),
+    Column('TipoFeedback', Enum('bug', 'sugestao', 'elogio', name='user_type_enum'), nullable=False),
+    Column('ConteudoFeedback', Text),
+    Column('DataAvaliacao', DateTime, server_default=text('CURRENT_TIMESTAMP'))
+)
+
+tabela_suporte_tecnico = Table('SuporteTecnico', metadata,
+    Column('IdChamado', Integer, primary_key=True),
+    Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario'), nullable=False, index=True),
+    Column('TipoChamado', Enum('duvida', 'problema', 'sugestao', name='chamado_tipo_enum'), nullable=False),
+    Column('ConteudoChamado', Text),
+    Column('DataChamado', DateTime, server_default=text('CURRENT_TIMESTAMP'))
+)
+
+tabela_notificacoes = Table('Notificacoes', metadata,
+    Column('IdNotificacao', Integer, primary_key=True),
+    Column('IdUsuario', Integer, ForeignKey('Usuarios.IdUsuario'), nullable=False, index=True),
+    Column('Titulo', String(200), nullable=False),
+    Column('Descricao', Text),
+    Column('DataEnvio', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+    Column('Lida', Boolean, default=False)
+)
 #metadata.create_all(engine)

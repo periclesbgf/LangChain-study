@@ -3,7 +3,7 @@ from sqlalchemy import and_, create_engine, MetaData, Table, Column, Integer, St
 from sqlalchemy.orm import sessionmaker
 import os
 from dotenv import load_dotenv
-from sql_test.sql_test_create import tabela_usuarios, tabela_educadores, tabela_cursos,tabela_encontros,tabela_cronograma, tabela_sessoes_estudo, tabela_estudante_curso, tabela_eventos_calendario, tabela_estudantes, tabela_perfil_aprendizado_aluno
+from app.sql_interface.sql_tables import tabela_usuarios, tabela_educadores, tabela_cursos,tabela_encontros,tabela_cronograma, tabela_sessoes_estudo, tabela_estudante_curso, tabela_eventos_calendario, tabela_estudantes, tabela_perfil_aprendizado_aluno
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from fastapi import HTTPException
 from sqlalchemy.sql import text

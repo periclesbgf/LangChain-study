@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from typing import Dict
 from database.sql_database_manager import DatabaseManager, session
 from api.controllers.auth import get_current_user
-from sql_test.sql_test_create import tabela_perfil_aprendizado_aluno
+from app.sql_interface.sql_tables import tabela_perfil_aprendizado_aluno
 from api.endpoints.models import EstiloAprendizagem, Feedback, PreferenciasAprendizado
 from database.mongo_database_manager import MongoDatabaseManager
 from datetime import datetime, timezone

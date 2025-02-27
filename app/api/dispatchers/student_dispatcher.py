@@ -1,6 +1,6 @@
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
-from sql_test.sql_test_create import tabela_estudantes
+from app.sql_interface.sql_tables import tabela_estudantes
 from database.sql_database_manager import DatabaseManager
 
 class StudentDispatcher:

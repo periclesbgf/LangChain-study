@@ -4,7 +4,7 @@ import select
 from sqlalchemy.exc import IntegrityError
 from database.sql_database_manager import DatabaseManager
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile
-from sql_test.sql_test_create import tabela_cursos, tabela_encontros, tabela_eventos_calendario, tabela_sessoes_estudo, tabela_cronograma, tabela_usuarios, tabela_estudantes
+from app.sql_interface.sql_tables import tabela_cursos, tabela_encontros, tabela_eventos_calendario, tabela_sessoes_estudo, tabela_cronograma, tabela_usuarios, tabela_estudantes
 from datetime import datetime, timezone
 from api.controllers.auth import hash_password, verify_password
 from sqlalchemy import text
