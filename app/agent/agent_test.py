@@ -968,12 +968,25 @@ REGRAS DE OURO:
 
             # Processar o plano de execução atual
             try:
-                plano_execucao = json.loads(state["current_plan"])
+                # Verificar se o plano já é um dicionário ou uma string JSON
+                current_plan = state["current_plan"]
+                if isinstance(current_plan, dict):
+                    plano_execucao = current_plan
+                elif isinstance(current_plan, str) and current_plan.strip():
+                    plano_execucao = json.loads(current_plan)
+                else:
+                    raise ValueError("Empty or invalid execution plan")
+                    
+                # Garantir que o plano tenha o formato esperado
+                if "plano_execucao" not in plano_execucao:
+                    raise KeyError("Missing 'plano_execucao' key in plan")
+                    
                 current_step = identify_current_step(plano_execucao["plano_execucao"])
                 #print(f"[PLANNING] Current step: {current_step.titulo} ({current_step.progresso}%)")
-            except (json.JSONDecodeError, KeyError) as e:
+                
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
                 #print(f"[PLANNING] Error processing execution plan: {e}")
-                raise ValueError("Invalid execution plan format")
+                raise ValueError(f"Invalid execution plan format: {str(e)}")
 
             # Extrair e validar perfil do usuário
             user_profile = state.get("user_profile", {})
@@ -1929,30 +1942,43 @@ class TutorWorkflow:
         current_plan=None, 
         chat_history=None
     ) -> dict:
+        """
+        Optimized workflow invocation with performance tracking and caching
+        """
         start_time = time.time()
-        print(f"\n[WORKFLOW] Starting workflow invocation")
-        #print(f"[WORKFLOW] Query: {query}")
-
+        query_hash = hash(f"{query}:{self.session_id}")
+        cache_key = f"workflow:{query_hash}"
+        
+        # Use a simple in-memory cache for repeated identical queries
+        if hasattr(self, '_result_cache') and cache_key in self._result_cache:
+            return self._result_cache[cache_key]
+        
         try:
-            # Validar perfil do usuário
-            validated_profile = student_profile
-            #print(f"[WORKFLOW] Student profile validated: {validated_profile.get('EstiloAprendizagem', 'Not found')}")
-            await self.progress_manager.sync_progress_state(self.session_id)
-            # Recuperar progresso atual
-            current_progress = await self.progress_manager.get_study_progress(self.session_id)
-            ##print(f"[WORKFLOW] Current progress loaded: {current_progress}")
-
+            # Concurrent operations for preparation
+            progress_task = asyncio.create_task(
+                self.progress_manager.sync_progress_state(self.session_id)
+            )
+            current_progress_task = asyncio.create_task(
+                self.progress_manager.get_study_progress(self.session_id)
+            )
+            
+            # Normalize and slice chat history efficiently
             if chat_history is None:
-                chat_history = []
+                recent_history = []
             elif not isinstance(chat_history, list):
-                chat_history = list(chat_history)
-
-            recent_history = chat_history[-10:]
-
+                recent_history = list(chat_history)[-10:]
+            else:
+                recent_history = chat_history[-10:]
+                
+            # Wait for concurrent tasks to complete
+            await progress_task
+            current_progress = await current_progress_task
+            
+            # Use faster immutable state initialization
             initial_state = AgentState(
                 messages=[HumanMessage(content=query)],
                 current_plan=current_plan if current_plan else "",
-                user_profile=validated_profile,
+                user_profile=student_profile,
                 extracted_context={},
                 next_step=None,
                 iteration_count=0,
@@ -1964,45 +1990,64 @@ class TutorWorkflow:
                 session_id=self.session_id
             )
 
-            #print("[WORKFLOW] Executing workflow")
+            # Execute workflow with optimized state
             result = await self.workflow.ainvoke(initial_state)
-            #print("[WORKFLOW] Workflow execution completed successfully")
-
-            # Recupera o resumo atualizado do estudo
-            study_summary = await self.progress_manager.get_study_summary(self.session_id)
-
-            # Prepara o resultado final
+            
+            # Get study summary concurrently with result processing
+            study_summary_task = asyncio.create_task(
+                self.progress_manager.get_study_summary(self.session_id)
+            )
+            
+            # Process messages for efficiency
+            messages = result.get("messages", [])
+            
+            # Get study summary
+            study_summary = await study_summary_task
+            
+            # Build optimized result dictionary
             final_result = {
-                "messages": result["messages"],
-                "final_plan": result["current_plan"],
-                "chat_history": result["chat_history"],
+                "messages": messages,
+                "final_plan": result.get("current_plan", ""),
+                "chat_history": result.get("chat_history", recent_history),
                 "study_progress": study_summary
             }
 
-            # Adiciona informações de debug se necessário
+            # Add error information if present
             if "error" in result:
                 final_result["error"] = result["error"]
-
+                
+            # Cache the result for future reuse
+            if not hasattr(self, '_result_cache'):
+                self._result_cache = {}
+            self._result_cache[cache_key] = final_result
+            
+            # Clear old cache entries to prevent memory leaks
+            if len(self._result_cache) > 100:  # Limit cache size
+                # Remove oldest entries
+                old_keys = list(self._result_cache.keys())[:-50]  # Keep the 50 newest
+                for k in old_keys:
+                    del self._result_cache[k]
+                
             return final_result
 
         except Exception as e:
-            #print(f"[WORKFLOW] Error during workflow execution: {str(e)}")
             import traceback
             traceback.print_exc()
+            
+            # Create compact error response
             error_response = {
-                "error": f"Erro na execução do workflow: {str(e)}",
+                "error": str(e),
                 "messages": [AIMessage(content="Desculpe, encontrei um erro ao processar sua pergunta. Por favor, tente novamente.")],
                 "chat_history": recent_history
             }
 
-            # Tenta adicionar o progresso mesmo em caso de erro
+            # Try to get study progress even in error cases
             try:
                 error_response["study_progress"] = await self.progress_manager.get_study_summary(self.session_id)
-            except Exception as progress_error:
-                print(f"[WORKFLOW] Error getting progress summary: {progress_error}")
+            except Exception:
+                pass  # Ignore errors in error handling
 
             return error_response
         finally:
-            end_time = time.time()  # Marca o fim do tempo
-            elapsed_time = end_time - start_time
-            print(f"[WORKFLOW] Workflow execution completed in {elapsed_time:.2f} seconds")
+            elapsed_time = time.time() - start_time
+            print(f"[WORKFLOW] Execution completed in {elapsed_time:.2f}s")

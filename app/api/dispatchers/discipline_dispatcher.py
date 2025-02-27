@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from database.sql_database_manager import DatabaseManager
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile
 from passlib.context import CryptContext
-from app.sql_interface.sql_tables import tabela_cursos, tabela_encontros, tabela_sessoes_estudo, tabela_eventos_calendario, tabela_estudantes, tabela_cronograma, tabela_usuarios, tabela_perfil_aprendizado_aluno, tabela_estudante_curso
+from sql_interface.sql_tables import tabela_cursos, tabela_encontros, tabela_sessoes_estudo, tabela_eventos_calendario, tabela_estudantes, tabela_cronograma, tabela_usuarios, tabela_perfil_aprendizado_aluno, tabela_estudante_curso
 from datetime import datetime, timedelta
 from api.controllers.auth import hash_password, verify_password
 from sqlalchemy import text

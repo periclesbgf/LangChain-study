@@ -5,7 +5,7 @@ from chains.chain_setup import CommandChain, SQLChain, AnswerChain, Classificati
 from database.sql_database_manager import DatabaseManager
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile
 from passlib.context import CryptContext
-from app.sql_interface.sql_tables import tabela_usuarios, tabela_estudantes, tabela_educadores, tabela_perfil_aprendizado_aluno, tabela_cursos
+from sql_interface.sql_tables import tabela_usuarios, tabela_estudantes, tabela_educadores, tabela_perfil_aprendizado_aluno, tabela_cursos
 from datetime import datetime, timezone
 from api.controllers.auth import (
     hash_password,

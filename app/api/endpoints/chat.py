@@ -5,23 +5,30 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from api.controllers.chat_controller import ChatController
 from api.controllers.auth import get_current_user
 from api.endpoints.models import MessageRequest
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from datetime import datetime
 import json
 import os
+import logging
 from functools import lru_cache
 import asyncio
 from contextlib import asynccontextmanager
+import time
+from cachetools import TTLCache
 
 from utils import MONGO_URI, MONGO_DB_NAME, QDRANT_URL, OPENAI_API_KEY
 from database.vector_db import (
     QdrantHandler,
     Embeddings,
     TextSplitter
-    )
+)
 from agent.image_handler import ImageHandler
 from database.mongo_database_manager import MongoDatabaseManager, MongoPDFHandler
 from agent.agent_test import TutorWorkflow
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 router_chat = APIRouter()
 
@@ -32,12 +39,54 @@ class DateTimeEncoder(json.JSONEncoder):
         return super().default(obj)
 
 class ChatEndpointManager:
+    """Singleton for managing shared resources with proper caching"""
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(ChatEndpointManager, cls).__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+    
     def __init__(self):
+        if self._initialized:
+            return
+            
         self.mongo_manager = None
         self.qdrant_handler = None
         self.image_handler = None
         self.embeddings = None
-        self._cache = {}
+        # TTL cache with 15-minute expiration
+        self._cache = TTLCache(maxsize=500, ttl=900)
+        # Cache for workflow instances
+        self._workflow_cache = TTLCache(maxsize=100, ttl=1800)
+        # Cache for controller instances
+        self._controller_cache = TTLCache(maxsize=100, ttl=900)
+        self._initialized = True
+        
+        # Preload common dependencies
+        self._preload_dependencies()
+    
+    def _preload_dependencies(self):
+        """Preload common dependencies in background"""
+        asyncio.create_task(self._async_preload())
+    
+    async def _async_preload(self):
+        """Asynchronously initialize core components"""
+        try:
+            # Initialize MongoDB connection
+            self.mongo_manager = MongoDatabaseManager()
+            
+            # Initialize image handler and embeddings
+            self.image_handler = ImageHandler(OPENAI_API_KEY)
+            self.embeddings = Embeddings()
+            
+            # Initialize Qdrant handler
+            self._init_qdrant_handler()
+            
+            logger.info("Preloaded all dependencies")
+        except Exception as e:
+            logger.error(f"Error preloading dependencies: {e}")
 
     @asynccontextmanager
     async def get_mongo_manager(self):
@@ -47,17 +96,15 @@ class ChatEndpointManager:
         try:
             yield self.mongo_manager
         except Exception as e:
-            print(f"Error with MongoDB manager: {e}")
+            logger.error(f"Error with MongoDB manager: {e}")
             raise
 
-    @lru_cache(maxsize=100)
-    def get_qdrant_handler(self) -> QdrantHandler:
-        """Get or create QdrantHandler with caching"""
+    def _init_qdrant_handler(self) -> None:
+        """Initialize QdrantHandler"""
         if not self.qdrant_handler:
             if not self.image_handler:
                 self.image_handler = ImageHandler(OPENAI_API_KEY)
             if not self.embeddings:
-                # Inicializa os embeddings corretamente
                 self.embeddings = Embeddings()
 
             self.qdrant_handler = QdrantHandler(
@@ -68,14 +115,20 @@ class ChatEndpointManager:
                 image_handler=self.image_handler,
                 mongo_manager=self.mongo_manager
             )
+
+    def get_qdrant_handler(self) -> QdrantHandler:
+        """Get QdrantHandler (initialized only once)"""
+        if not self.qdrant_handler:
+            self._init_qdrant_handler()
         return self.qdrant_handler
 
     async def get_student_data(
         self,
         user_email: str,
         session_id: str
-    ) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Get student profile and study plan concurrently"""
+        start_time = time.time()
         async with self.get_mongo_manager() as mongo_manager:
             # Execute requests concurrently
             profile_task = asyncio.create_task(
@@ -93,8 +146,9 @@ class ChatEndpointManager:
                 profile_task,
                 plan_task
             )
-            # print(f"Student profile: {student_profile}")
-            print(f"Study plan: {study_plan}")
+            
+            query_time = time.time() - start_time
+            logger.info(f"Student data retrieved in {query_time:.2f}s")
 
             if not student_profile:
                 raise HTTPException(
@@ -118,127 +172,180 @@ class ChatEndpointManager:
         self, 
         user_email: str, 
         session_id: str
-    ) -> tuple[Dict[str, Any], Dict[str, Any]]:
-        """Get student data with caching"""
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Get student data with TTL caching"""
         cache_key = self.get_cache_key(user_email, session_id)
 
-        if cache_key in self._cache:
-            return self._cache[cache_key]
+        try:
+            if cache_key in self._cache:
+                logger.info(f"Cache hit for {cache_key}")
+                return self._cache[cache_key]
+        except Exception:
+            # Safely handle cache errors and continue
+            logger.warning("Cache error, continuing with database query")
 
         data = await self.get_student_data(user_email, session_id)
         self._cache[cache_key] = data
         return data
+        
+    async def get_or_create_workflow(
+        self,
+        user_email: str,
+        discipline_id: str,
+        session_id: str
+    ) -> TutorWorkflow:
+        """Get or create TutorWorkflow with caching"""
+        cache_key = f"workflow:{user_email}:{discipline_id}:{session_id}"
+        
+        try:
+            if cache_key in self._workflow_cache:
+                logger.info(f"Workflow cache hit for {cache_key}")
+                return self._workflow_cache[cache_key]
+        except Exception:
+            logger.warning("Workflow cache error, creating new instance")
+        
+        # Initialize MongoDB if needed
+        if not self.mongo_manager:
+            self.mongo_manager = MongoDatabaseManager()
+            
+        # Get Qdrant handler
+        qdrant_handler = self.get_qdrant_handler()
+        
+        # Create workflow
+        workflow = TutorWorkflow(
+            qdrant_handler=qdrant_handler,
+            student_email=user_email,
+            disciplina=discipline_id,
+            session_id=session_id,
+            image_collection=self.mongo_manager.db.image_collection
+        )
+        
+        # Store in cache
+        self._workflow_cache[cache_key] = workflow
+        return workflow
+        
+    async def get_or_create_controller(
+        self,
+        request_data: dict,
+        user_email: str,
+        student_profile: Dict[str, Any],
+        study_plan: str,
+        workflow: TutorWorkflow,
+    ) -> ChatController:
+        """Get or create ChatController with caching"""
+        session_id = str(request_data.get("session_id", ""))
+        discipline_id = request_data.get("discipline_id", "")
+        cache_key = f"controller:{user_email}:{discipline_id}:{session_id}"
+        
+        try:
+            if cache_key in self._controller_cache:
+                logger.info(f"Controller cache hit for {cache_key}")
+                return self._controller_cache[cache_key]
+        except Exception:
+            logger.warning("Controller cache error, creating new instance")
+        
+        # Get resources
+        qdrant_handler = self.get_qdrant_handler()
+        
+        # Initialize PDF handler
+        if not self.mongo_manager:
+            self.mongo_manager = MongoDatabaseManager()
+        pdf_handler = MongoPDFHandler(self.mongo_manager)
+        
+        # Create controller
+        controller = ChatController(
+            session_id=session_id,
+            student_email=user_email,
+            disciplina=discipline_id,
+            qdrant_handler=qdrant_handler,
+            image_handler=self.image_handler,
+            retrieval_agent=workflow,
+            student_profile=student_profile,
+            mongo_db_name=MONGO_DB_NAME,
+            mongo_uri=MONGO_URI,
+            plano_execucao=study_plan,
+            pdf_handler=pdf_handler
+        )
+        
+        # Store in cache
+        self._controller_cache[cache_key] = controller
+        return controller
 
+# Initialize the singleton manager
 chat_manager = ChatEndpointManager()
 
 @router_chat.post("/chat")
 async def chat_endpoint(
     request: MessageRequest = Depends(MessageRequest.as_form),
     current_user=Depends(get_current_user),
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks = BackgroundTasks()
 ):
-    """Optimized chat endpoint with better error handling and performance"""
+    """High-performance chat endpoint with resource pooling and background processing"""
+    start_time = time.time()
+    
     try:
-        # Get cached student data
-        student_profile, study_plan_raw = await chat_manager.get_cached_student_data(
-            current_user["sub"],
-            str(request.session_id)
+        # Convert request to dict for caching
+        request_dict = {
+            "session_id": request.session_id,
+            "discipline_id": request.discipline_id
+        }
+        
+        # Process all setup tasks concurrently
+        student_data_task = asyncio.create_task(
+            chat_manager.get_cached_student_data(
+                current_user["sub"],
+                str(request.session_id)
+            )
         )
-        print(f"Student profile: {student_profile}")
+        
+        workflow_task = asyncio.create_task(
+            chat_manager.get_or_create_workflow(
+                current_user["sub"],
+                request.discipline_id,
+                str(request.session_id)
+            )
+        )
+        
+        # Wait for student data and workflow concurrently
+        (student_profile, study_plan_raw), workflow = await asyncio.gather(
+            student_data_task,
+            workflow_task
+        )
+        
         # Convert study plan to JSON
         study_plan = json.dumps(study_plan_raw, cls=DateTimeEncoder)
-        mongo_manager = MongoDatabaseManager()
-        pdf_handler = MongoPDFHandler(mongo_manager)
-
-        # Get or create handlers
-        qdrant_handler = chat_manager.get_qdrant_handler()
-
-        # Initialize workflow first
-        workflow = await initialize_workflow(
-            qdrant_handler,
+        
+        # Create or get controller
+        controller = await chat_manager.get_or_create_controller(
+            request_dict,
             current_user["sub"],
-            request.discipline_id,
-            str(request.session_id),
-            chat_manager.mongo_manager
-        )
-
-        # Then initialize controller with the workflow
-        controller = await initialize_controller(
-            request,
-            current_user["sub"],
-            qdrant_handler,
             student_profile,
             study_plan,
-            workflow,
-            pdf_handler
+            workflow
         )
-
-        # Process message
+        
+        # Process files in background if present
         files = [request.file] if request.file else []
+        if files:
+            background_tasks.add_task(controller._process_files, files)
+            
+        # Process message and get response
         response = await controller.handle_user_message(request.message, files)
-
-        # Add background task for cleanup if needed
-        if background_tasks:
-            background_tasks.add_task(cleanup_resources, controller)
-
+        
+        # Log performance metrics
+        total_time = time.time() - start_time
+        logger.info(f"Chat request processed in {total_time:.2f}s")
+        
         return {"response": response}
 
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Chat endpoint error: {e}")
-        traceback.print_exc()
+        logger.error(f"Chat endpoint error: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Internal server error: {str(e)}"
         )
-
-async def initialize_workflow(
-    qdrant_handler,
-    user_email: str,
-    discipline_id: str,
-    session_id: str,
-    mongo_manager
-) -> TutorWorkflow:
-    """Initialize TutorWorkflow asynchronously"""
-    return TutorWorkflow(
-        qdrant_handler=qdrant_handler,
-        student_email=user_email,
-        disciplina=discipline_id,
-        session_id=session_id,
-        image_collection=mongo_manager.db.image_collection
-    )
-
-async def initialize_controller(
-    request,
-    user_email: str,
-    qdrant_handler,
-    student_profile: Dict[str, Any],
-    study_plan: str,
-    tutor_workflow: TutorWorkflow,
-    pdf_handler: MongoPDFHandler
-) -> ChatController:
-    """Initialize ChatController asynchronously"""
-    return ChatController(
-        session_id=str(request.session_id),
-        student_email=user_email,
-        disciplina=request.discipline_id,
-        qdrant_handler=qdrant_handler,
-        image_handler=chat_manager.image_handler,
-        retrieval_agent=tutor_workflow,  # Pass the workflow here
-        student_profile=student_profile,
-        mongo_db_name=MONGO_DB_NAME,
-        mongo_uri=MONGO_URI,
-        plano_execucao=study_plan,
-        pdf_handler=pdf_handler
-    )
-
-async def cleanup_resources(controller: ChatController):
-    """Cleanup resources after request completion"""
-    try:
-        await controller.cleanup()
-    except Exception as e:
-        print(f"Error during cleanup: {e}")
 
 @router_chat.get("/chat_history/{session_id}")
 async def get_chat_history(
@@ -247,7 +354,7 @@ async def get_chat_history(
     before: Optional[str] = None,
     current_user=Depends(get_current_user)
 ):
-    """Get chat history with optimized database queries"""
+    """Get chat history with optimized database queries and projection"""
     try:
         async with chat_manager.get_mongo_manager() as mongo_manager:
             collection = mongo_manager.db['chat_history']
@@ -268,9 +375,18 @@ async def get_chat_history(
                         detail="Invalid 'before' timestamp format."
                     )
 
-            # Execute query
-            cursor = collection.find(query)
-            cursor = cursor.sort("timestamp", -1).limit(limit)
+            # Use projection to limit fields returned
+            projection = {
+                "timestamp": 1,
+                "history": 1,
+                "_id": 0
+            }
+            
+            # Execute optimized query
+            cursor = collection.find(
+                query, 
+                projection
+            ).sort("timestamp", -1).limit(limit)
 
             messages = []
             async for message_doc in cursor:
@@ -286,14 +402,14 @@ async def get_chat_history(
                         'timestamp': timestamp.isoformat()
                     })
                 except Exception as e:
-                    print(f"Error processing message: {e}")
+                    logger.warning(f"Error processing message: {e}")
                     continue
 
             messages.reverse()
             return {'messages': messages}
 
     except Exception as e:
-        print(f"Error in get_chat_history: {e}")
+        logger.error(f"Error in get_chat_history: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Error retrieving chat history: {str(e)}"
@@ -307,5 +423,5 @@ def _carregar_json(caminho_arquivo: str) -> Dict[str, Any]:
         with open(caminho_absoluto, 'r', encoding='utf-8') as arquivo:
             return json.load(arquivo)
     except (FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"Erro ao carregar {caminho_arquivo}: {e}")
+        logger.error(f"Erro ao carregar {caminho_arquivo}: {e}")
         return {}
