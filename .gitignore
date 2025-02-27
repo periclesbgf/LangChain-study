@@ -13,3 +13,6 @@ app/certs
 *.wav
 secret/
 __pycache__/
+qdrant_storage/
+figures/
+mongo_data/

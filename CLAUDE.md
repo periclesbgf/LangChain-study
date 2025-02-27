@@ -37,6 +37,47 @@ The application uses a 3-tier architecture:
 - **MongoDB**: Document storage (student profiles, chat history, study plans, images, PDFs)
 - **Qdrant**: Vector database for embeddings and semantic search
 
+#### Database Schema (PostgreSQL)
+The relational database consists of the following key tables:
+
+1. **Usuarios**: User accounts with authentication
+   - IdUsuario, Nome, Email, SenhaHash
+   - TipoUsuario (student, educator, admin)
+   - TipoDeConta (google, email)
+
+2. **Estudantes/Educadores**: Profile tables linked to users
+   - Estudantes: IdEstudante, IdUsuario, Matricula
+   - Educadores: IdEducador, IdUsuario, EspecializacaoDisciplina
+
+3. **Cursos**: Course information
+   - IdCurso, IdEducador, NomeCurso, Ementa, Objetivos
+   - HorarioInicio, HorarioFim
+
+4. **PerfilAprendizadoAluno**: Student learning profiles
+   - IdPerfil, IdUsuario, DadosPerfil (JSON)
+   - IdPerfilFelderSilverman (learning style model)
+
+5. **SessoesEstudo**: Study session tracking
+   - IdSessao, IdEstudante, IdCurso, Assunto
+   - Inicio, Fim, Produtividade, FeedbackDoAluno
+   - HistoricoConversa (JSON)
+
+6. **RecursosAprendizagem**: Learning materials
+   - IdRecurso, IdCurso, Titulo, Tipo (video, documento, link)
+   - URL, CaminhoArquivo, VectorId (for vector DB integration)
+
+7. **EventosCalendario**: Calendar event management
+   - IdEvento, GoogleEventId, Titulo, Descricao
+   - Inicio, Fim, Local, CriadoPor
+
+8. **Additional Tables**:
+   - Cronograma/Encontros: Course schedules
+   - Atividades: Course assignments
+   - ProgressoAluno: Student grades and progress
+   - FeedbackIAPerfil: AI feedback on student profiles
+   - PerfisFelderSilverman: Learning style definitions
+   - Notificacoes: User notification system
+
 ### 2. API Layer
 - **FastAPI**: Web framework for API endpoints
 - **Controllers**: Business logic implementation (authentication, chat, calendar, etc.)
