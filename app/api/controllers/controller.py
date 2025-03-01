@@ -2,7 +2,7 @@
 
 from chains.chain_setup import CommandChain, SQLChain, AnswerChain, ClassificationChain, SQLSchoolChain, DefaultChain, RetrievalChain
 from database.sql_database_manager import DatabaseManager
-from app.trash.search import execute_query
+from trash.search import execute_query
 from database.vector_db import Embeddings, QdrantHandler
 from audio.text_to_speech import AudioService
 from fastapi.logger import logger

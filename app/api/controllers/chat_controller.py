@@ -25,7 +25,6 @@ from utils import (
     MONGO_URI,
 )
 from agent.agent_test import TutorWorkflow
-from agent.complete_agent import TutorOrchestrator
 
 # Carregue as variáveis de ambiente, se necessário
 # load_dotenv()

@@ -2,7 +2,7 @@
 
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
-from app.sql_interface.sql_tables import tabela_eventos_calendario
+from sql_interface.sql_tables import tabela_eventos_calendario
 from database.sql_database_manager import DatabaseManager
 
 class CalendarDispatcher:

@@ -1,4 +1,4 @@
-from app.sql_interface.sql_tables import tabela_perfil_aprendizado_aluno, tabela_perfis_felder_silverman
+from sql_interface.sql_tables import tabela_perfil_aprendizado_aluno, tabela_perfis_felder_silverman
 
 class StudentProfileDispatcher:
     def __init__(self, database_manager):
