@@ -429,19 +429,52 @@ class CustomMongoDBChatMessageHistory(MongoDBChatMessageHistory):
     def messages(self) -> List[BaseMessage]:
         """Retrieve messages filtered by session_id and user_email, sorted by timestamp."""
         try:
+            print(f"[DEBUG] Retrieving messages for session_id: {self.session_id}, user_email: {self.user_email}")
+            
             cursor = self.collection.find(
                 {
                     self.session_id_key: self.session_id,
                     "user_email": self.user_email
                 }
             ).sort("timestamp", 1)
-        except errors.OperationFailure as error:
-            print(f"Error retrieving messages: {error}")
-            return []
             
-        items = [json.loads(document[self.history_key]) for document in cursor]
-        messages = messages_from_dict(items)
-        return messages
+            documents = list(cursor)
+            print(f"[DEBUG] Found {len(documents)} messages in chat history")
+            
+            if not documents:
+                print(f"[DEBUG] No messages found for session_id: {self.session_id}, user_email: {self.user_email}")
+                return []
+            
+            items = []
+            for document in documents:
+                try:
+                    history_text = document.get(self.history_key, '{}')
+                    print(f"[DEBUG] Message raw data: {history_text[:50]}...")
+                    history_data = json.loads(history_text)
+                    items.append(history_data)
+                except json.JSONDecodeError as e:
+                    print(f"[DEBUG] Error decoding message JSON: {e}")
+                    continue
+                except Exception as e:
+                    print(f"[DEBUG] Error processing message: {e}")
+                    continue
+            
+            if not items:
+                print(f"[DEBUG] No valid messages found after processing")
+                return []
+                
+            messages = messages_from_dict(items)
+            print(f"[DEBUG] Successfully converted {len(messages)} messages")
+            return messages
+            
+        except errors.OperationFailure as error:
+            print(f"[DEBUG] MongoDB operation error retrieving messages: {error}")
+            return []
+        except Exception as e:
+            print(f"[DEBUG] Unexpected error retrieving messages: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
 
 class MongoImageHandler:
     def __init__(self, mongo_manager):

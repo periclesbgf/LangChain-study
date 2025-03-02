@@ -34,6 +34,7 @@ from utils import (
     MONGO_URI,
 )
 from agent.agent_test import TutorWorkflow
+from agent.react_educational_agent import ReactTutorWorkflow
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -85,7 +86,7 @@ class ChatController:
         disciplina: str,
         qdrant_handler: QdrantHandler,
         image_handler: ImageHandler,
-        retrieval_agent: TutorWorkflow,
+        retrieval_agent: ReactTutorWorkflow,  # Changed to use ReactTutorWorkflow
         student_profile: dict,
         mongo_db_name: str,
         mongo_uri: str,
@@ -261,13 +262,26 @@ class ChatController:
                 logger.info(f"Cache hit for message: {interaction_key}")
                 return self._response_cache[interaction_key]
 
-            # Get current chat history efficiently
-            current_history = self.chat_history.messages[-MAX_HISTORY_MESSAGES:] if self.chat_history.messages else []
+            # Get current chat history efficiently with better error handling
+            try:
+                current_history = self.chat_history.messages[-MAX_HISTORY_MESSAGES:] if self.chat_history.messages else []
+                print(f"[CHAT_CONTROLLER] Retrieved chat history: {len(current_history)} messages")
+                # Log the message types to debug
+                for i, msg in enumerate(current_history):
+                    print(f"[CHAT_CONTROLLER] Message {i}: type={type(msg).__name__}, content preview: {str(msg.content)[:50]}...")
+            except Exception as hist_error:
+                print(f"[CHAT_CONTROLLER] ERROR retrieving chat history: {str(hist_error)}")
+                import traceback
+                traceback.print_exc()
+                current_history = []
 
             # Process workflow with optimized parameters
             if user_input:
                 # If streaming is requested, handle differently
                 if stream:
+                    print(f"CONTROLLER: Stream=True, using streaming response for: {user_input[:30]}...")
+                    print(f"CONTROLLER: Tutor workflow type: {type(self._tutor_workflow)}")
+                    print(f"CONTROLLER: Tutor workflow has invoke_streaming: {hasattr(self._tutor_workflow, 'invoke_streaming')}")
                     return self._create_streaming_response(user_input, current_history)
 
                 # Non-streaming path - invoke workflow with current context
@@ -326,7 +340,7 @@ class ChatController:
     async def _create_streaming_response(self, user_input: str, current_history: List[BaseMessage]) -> AsyncGenerator[Dict[str, str], None]:
         """
         Creates a streaming response for the frontend with chunked delivery.
-        Uses a plan-then-respond approach with immediate feedback during processing.
+        Uses ReactTutorWorkflow to generate streaming responses.
         """
         start_time = time.time()
 
@@ -334,102 +348,58 @@ class ChatController:
             # Initial progress message
             yield {"type": "processing", "content": "Iniciando processamento da pergunta..."}
 
-            # Step 1: Generate plan (async)
-            yield {"type": "processing", "content": "Analisando sua pergunta..."}
+            # Log detailed information about the history being passed
+            print(f"CHAT_CONTROLLER: Passing {len(current_history)} history messages to workflow")
+            for i, msg in enumerate(current_history):
+                msg_type = type(msg).__name__
+                content_preview = str(msg.content)[:30] + "..." if len(str(msg.content)) > 30 else str(msg.content)
+                print(f"CHAT_CONTROLLER: History[{i}]: {msg_type} - {content_preview}")
 
-            # Invoke plan generation
-            plan_result = None
-            try:
-                # Use a simpler planning prompt for quick response
-                plan_response = await self.llm.ainvoke([
-                    {"role": "system", "content": "Gere um plano rápido para responder à pergunta do aluno."},
-                    {"role": "user", "content": user_input}
-                ])
-                print("Plan response:", plan_response)
-                plan_result = plan_response.content
-                yield {"type": "processing", "content": "Preparando contexto relevante..."}
-            except Exception as e:
-                logger.error(f"Error in plan generation: {e}")
-                # Continue without a plan
+            # Use the ReactTutorWorkflow's streaming method directly
+            logger.info(f"Starting ReactTutorWorkflow.invoke_streaming with type: {type(self._tutor_workflow)}")
+            print(f"CHAT_CONTROLLER: Starting ReactTutorWorkflow streaming with query: {user_input[:50]}...")
+            
+            # Verificar se o workflow tem o método invoke_streaming
+            if not hasattr(self._tutor_workflow, 'invoke_streaming'):
+                logger.error(f"Workflow does not have invoke_streaming method. Available methods: {dir(self._tutor_workflow)}")
+                print(f"CHAT_CONTROLLER ERROR: Workflow does not have invoke_streaming method")
+                yield {"type": "error", "content": "Erro interno: método de streaming não disponível"}
+                return
+            
+            # Debug information about current plan
+            plan_type = type(self.plano_execucao).__name__
+            plan_preview = str(self.plano_execucao)[:100] + "..." if len(str(self.plano_execucao)) > 100 else str(self.plano_execucao)
+            print(f"CHAT_CONTROLLER: Current plan type: {plan_type}")
+            print(f"CHAT_CONTROLLER: Current plan preview: {plan_preview}")
+                
+            # Ensure we have a valid chat history (never pass None)
+            safe_history = current_history if current_history else []
+            
+            # Usar o método de streaming
+            async for chunk in self._tutor_workflow.invoke_streaming(
+                query=user_input,
+                student_profile=self.perfil,
+                current_plan=self.plano_execucao,
+                chat_history=safe_history
+            ):
+                # Pass chunks directly from the workflow
+                print(f"CHAT_CONTROLLER: Received chunk: {chunk.get('type')}")
+                yield chunk
 
-            # Step 2: Context retrieval
-            context_result = {}
-            try:
-                # Use the actual qdrant handler for context retrieval
-                yield {"type": "processing", "content": "Buscando informações relevantes..."}
-
-                # Transform query for better results (simplified version)
-                transformed_query = user_input
-                if hasattr(self._tutor_workflow, "tools"):
-                    # Use tools.transform_question if available
-                    try:
-                        transformed_query = await self._tutor_workflow.tools.transform_question(user_input)
-                    except Exception:
-                        pass  # Use original query if transformation fails
-
-                # Get text context (more important for the initial response)
-                text_results = self._qdrant_handler.similarity_search_with_filter(
-                    query=transformed_query,
-                    student_email=self.student_email,
-                    session_id=self.session_id,
-                    disciplina_id=self.disciplina,
-                    specific_metadata={"type": "text"},
-                    k=2  # Get fewer results for faster response
-                )
-
-                if text_results:
-                    # Format context in chunks (one paragraph at a time)
-                    text_context = "\n\n".join([doc.page_content for doc in text_results])
-                    context_result["text"] = text_context
-                    yield {"type": "processing", "content": "Contexto recuperado, gerando resposta..."}
-            except Exception as e:
-                logger.error(f"Error in context retrieval: {e}")
-                yield {"type": "processing", "content": "Preparando resposta com conhecimento geral..."}
-
-            # Step 3: Generate response in chunks
-            try:
-                # Prepare prompt
-                profile_summary = f"Perfil do aluno: {str(self.perfil)[:200]}..." if self.perfil else "Perfil não disponível"
-                context_summary = context_result.get("text", "Sem contexto específico disponível")
-
-                prompt_messages = [
-                    {"role": "system", "content": 
-                        f"Você é um tutor educacional que responde às perguntas dos alunos. "
-                        f"{profile_summary}\n\n"
-                        f"Informações relevantes:\n{context_summary[:1000]}"
-                    },
-                    {"role": "user", "content": user_input}
-                ]
-
-                # Generate response with streaming
-                stream = self.llm.astream(prompt_messages)
-
-                # Track initial chunks to save in chat history
-                full_response = ""
-
-                # Stream each chunk to the user
-                async for chunk in stream:
-                    if chunk.content:
-                        full_response += chunk.content
-                        yield {"type": "chunk", "content": chunk.content}
-
-                # Save to chat history
-                if full_response:
-                    await self._save_chat_history(
-                        HumanMessage(content=user_input),
-                        AIMessage(content=full_response)
-                    )
-
-                # Final completion message
-                processing_time = time.time() - start_time
-                yield {"type": "complete", "content": f"Resposta completa em {processing_time:.2f}s"}
-
-            except Exception as e:
-                logger.error(f"Error generating response chunks: {e}")
-                yield {"type": "error", "content": f"Erro ao gerar resposta completa: {str(e)}"}
+            # Add final completion message if needed (but workflow should already send this)
+            processing_time = time.time() - start_time
+            logger.info(f"Streaming response completed in {processing_time:.2f}s")
+            
+            # Save this chat exchange to history
+            await self._save_chat_history(
+                HumanMessage(content=user_input), 
+                AIMessage(content="[Streaming response]")
+            )
 
         except Exception as e:
             logger.error(f"Error in streaming generator: {e}")
+            import traceback
+            traceback.print_exc()
             yield {"type": "error", "content": f"Ocorreu um erro ao processar sua mensagem: {str(e)}"}
 
     async def _process_response_content(
@@ -598,7 +568,7 @@ class ChatController:
                 "timestamp": datetime.now().isoformat(),
                 "access_level": "session"
             }
-            
+            print("File metadata:", metadata)
             # Process based on file type
             is_pdf = file.content_type == "application/pdf" or filename.lower().endswith(".pdf")
             

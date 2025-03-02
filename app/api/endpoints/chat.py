@@ -26,6 +26,7 @@ from database.vector_db import (
 from agent.image_handler import ImageHandler
 from database.mongo_database_manager import MongoDatabaseManager, MongoPDFHandler
 from agent.agent_test import TutorWorkflow
+from agent.react_educational_agent import ReactTutorWorkflow
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -108,7 +109,7 @@ class ChatEndpointManager:
             if not self.embeddings:
                 self.embeddings = Embeddings()
 
-            self.qdrant_handler = QdrantHandler(
+            self.qdrant_handler = QdrantHandler( #ponto de atenção
                 url=QDRANT_URL,
                 collection_name="student_documents",
                 embeddings=self.embeddings.get_embeddings(),
@@ -194,8 +195,8 @@ class ChatEndpointManager:
         user_email: str,
         discipline_id: str,
         session_id: str
-    ) -> TutorWorkflow:
-        """Get or create TutorWorkflow with caching"""
+    ) -> ReactTutorWorkflow:
+        """Get or create ReactTutorWorkflow with caching"""
         cache_key = f"workflow:{user_email}:{discipline_id}:{session_id}"
 
         try:
@@ -212,14 +213,28 @@ class ChatEndpointManager:
         # Get Qdrant handler
         qdrant_handler = self.get_qdrant_handler()
 
-        # Create workflow
-        workflow = TutorWorkflow(
-            qdrant_handler=qdrant_handler,
-            student_email=user_email,
-            disciplina=discipline_id,
-            session_id=session_id,
-            image_collection=self.mongo_manager.db.image_collection
-        )
+        # Create workflow using ReactTutorWorkflow instead of TutorWorkflow
+        print(f"ENDPOINT: Creating ReactTutorWorkflow for session {session_id}")
+        try:
+            workflow = ReactTutorWorkflow(
+                qdrant_handler=qdrant_handler,
+                student_email=user_email,
+                disciplina=discipline_id,
+                session_id=session_id,
+                image_collection=self.mongo_manager.db.image_collection
+            )
+            print(f"ENDPOINT: Successfully created ReactTutorWorkflow: {type(workflow)}")
+            # Verificar se o método invoke_streaming existe
+            if hasattr(workflow, 'invoke_streaming'):
+                print(f"ENDPOINT: invoke_streaming method exists in workflow")
+            else:
+                print(f"ENDPOINT ERROR: invoke_streaming method NOT FOUND in workflow")
+                print(f"ENDPOINT: Available methods: {dir(workflow)}")
+        except Exception as e:
+            print(f"ENDPOINT ERROR: Failed to create ReactTutorWorkflow: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
 
         # Store in cache
         self._workflow_cache[cache_key] = workflow
@@ -231,12 +246,14 @@ class ChatEndpointManager:
         user_email: str,
         student_profile: Dict[str, Any],
         study_plan: str,
-        workflow: TutorWorkflow,
+        workflow: ReactTutorWorkflow,
     ) -> ChatController:
         """Get or create ChatController with caching"""
         session_id = str(request_data.get("session_id", ""))
         discipline_id = request_data.get("discipline_id", "")
         cache_key = f"controller:{user_email}:{discipline_id}:{session_id}"
+        print("Session ID: ", session_id)
+        print("Discipline ID: ", discipline_id)
 
         try:
             if cache_key in self._controller_cache:
@@ -313,6 +330,9 @@ async def chat_endpoint(
             student_data_task,
             workflow_task
         )
+        
+        print(f"ENDPOINT: After gather, workflow type: {type(workflow)}")
+        print(f"ENDPOINT: Workflow has invoke_streaming: {hasattr(workflow, 'invoke_streaming')}")
 
         # Convert study plan to JSON
         study_plan = json.dumps(study_plan_raw, cls=DateTimeEncoder)
@@ -331,10 +351,18 @@ async def chat_endpoint(
         if files:
             background_tasks.add_task(controller._process_files, files)
 
+        print("Stream: ", stream)
+
         # Handle streaming response if requested
         if stream:
+            print(f"ENDPOINT: Setting up streaming response")
+            print(f"ENDPOINT: Controller type: {type(controller)}")
+            print(f"ENDPOINT: Controller's workflow type: {type(controller._tutor_workflow)}")
+            print(f"ENDPOINT: Workflow has invoke_streaming: {hasattr(controller._tutor_workflow, 'invoke_streaming')}")
+            
             # Use a separate async generator function to properly handle the streaming
             async def response_stream():
+                print(f"ENDPOINT: Starting response stream")
                 # The controller.handle_user_message now directly returns an async generator when stream=True
                 async_generator = await controller.handle_user_message(
                     request.message,
@@ -414,18 +442,49 @@ async def get_chat_history(
             messages = []
             async for message_doc in cursor:
                 try:
-                    history_data = json.loads(message_doc.get('history', '{}'))
-                    content = history_data.get('data', {}).get('content', '')
-                    role = history_data.get('type', 'unknown')
+                    # O formato das mensagens mudou, precisamos extrair corretamente
+                    history_raw = message_doc.get('history', '{}')
+                    
+                    # Logging adicional para debug
+                    logger.info(f"Raw history data: {history_raw[:100]}...")  # Mostra apenas os primeiros 100 chars
+                    
+                    # Parse do JSON
+                    history_data = json.loads(history_raw)
+                    
+                    # Estrutura correta para as mensagens do langchain
+                    # Se for o formato antigo, tenta extrair content do data.content
+                    if 'data' in history_data and 'content' in history_data.get('data', {}):
+                        content = history_data.get('data', {}).get('content', '')
+                        role = history_data.get('type', 'unknown')
+                    # Novo formato
+                    else:
+                        # Novo formato tem tipo e conteúdo diretamente
+                        content = history_data.get('kwargs', {}).get('content', '') or history_data.get('content', '')
+                        role = history_data.get('type', 'unknown')
+                    
                     timestamp = message_doc.get('timestamp')
+                    
+                    # Verificação extra para multimodal
+                    if isinstance(content, str) and content.startswith('{"type":"multimodal"'):
+                        try:
+                            # Se for conteúdo multimodal em formato string JSON, extrair apenas texto
+                            multimodal_data = json.loads(content)
+                            if multimodal_data.get('type') == 'multimodal':
+                                content = multimodal_data.get('content', '')
+                        except:
+                            # Se falhar o parsing, manter o conteúdo original
+                            pass
 
                     messages.append({
                         'role': 'user' if role == 'human' else 'assistant',
                         'content': content,
-                        'timestamp': timestamp.isoformat()
+                        'timestamp': timestamp.isoformat() if timestamp else datetime.now().isoformat()
                     })
+                    logger.info(f"Processed message: {role}, content: {content[:30]}...")
+                    
                 except Exception as e:
                     logger.warning(f"Error processing message: {e}")
+                    logger.warning(f"Problematic document: {message_doc}")
                     continue
 
             messages.reverse()
