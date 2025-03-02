@@ -607,10 +607,12 @@ class RetrievalTools:
             return self._get_default_analysis()
 
     def _get_default_analysis(self) -> Dict[str, Any]:
+        """Retorna uma análise de relevância padrão para uso em caso de erro."""
+        # Corrige a estrutura da análise para garantir compatibilidade completa
         return {
-            "text": {"score": 0, "reason": "Default fallback due to analysis error"},
-            "image": {"score": 0, "reason": "Default fallback due to analysis error"},
-            "table": {"score": 0, "reason": "Default fallback due to analysis error"},
+            "text": {"score": 0.5, "reason": "Default text relevance score"},
+            "image": {"score": 0.5, "reason": "Default image relevance score"},
+            "table": {"score": 0.5, "reason": "Default table relevance score"},
             "recommended_context": "combined"
         }
 
@@ -713,7 +715,7 @@ Progresso: {progresso}%
    - Identifique o que o aluno está tentando alcançar com a pergunta
 
 2. AÇÃO: Escolha a ação pedagógica mais apropriada:
-   - retrieval: Buscar contexto relevante do material de estudo para INCORPORAR na sua explicação
+   - retrieval: PRIORIZE ESTA AÇÃO para buscar contexto relevante do material de estudo, incluindo imagens, tabelas ou textos que possam ajudar na explicação
    - websearch: Procurar recursos adicionais para ENRIQUECER sua explicação
    - direct_teaching: Fornecer uma explicação estruturada e aprofundada do tópico atual
    - challenge_thinking: Apresentar um problema ou cenário que desafie o entendimento do aluno
@@ -736,10 +738,11 @@ Progresso: {progresso}%
 - USE EXEMPLOS CONCRETOS: Forneça exemplos práticos e cenários do mundo real
 - VERIFIQUE A COMPREENSÃO: Regularmente faça perguntas para confirmar o entendimento
 - CORRIJA EQUÍVOCOS: Identifique e corrija gentilmente mal-entendidos
+- USE MATERIAIS VISUAIS: Incorpore imagens quando disponíveis, especialmente para alunos com perfil visual
 
 ## ESTRUTURA DE RESPOSTA:
 1. <pensamento>Seu raciocínio pedagógico detalhado</pensamento>
-2. <ação>Estratégia de ensino escolhida e detalhes</ação>
+2. <ação>Estratégia de ensino escolhida e detalhes. MUITO IMPORTANTE: Se o material de estudo puder conter imagens ou tabelas, escolha 'retrieval' para buscá-las.</ação>
 3. <observação>Reflexão sobre o processo de ensino</observação>
 4. Explicação educacional para o aluno (clara, estruturada e adaptada ao contexto)
    * Introduza o tópico atual e conecte-o ao plano de estudos
@@ -749,6 +752,7 @@ Progresso: {progresso}%
    * Conclua com uma síntese e aponte para o próximo tópico do plano
 
 IMPORTANTE:
+- ESCOLHA 'retrieval' SEMPRE QUE POSSÍVEL para integrar conteúdo visual e contextual do material de estudo
 - SEU PAPEL É ENSINAR ATIVAMENTE, não apenas responder ou sugerir
 - Mantenha seu raciocínio invisível para o aluno (use as tags apenas para organizar seu processo)
 - Quando o aluno estiver desviando do plano, gentilmente redirecione-o ao tópico atual
@@ -1372,7 +1376,10 @@ async def process_action(action: str, state: AgentState, question: str,
     """Processa a ação escolhida pelo modelo ReAct."""
     action_lower = action.lower()
     
-    # Ação de busca em material de estudo
+    # Log para debug
+    print(f"[REACT_ACTION] Processing action: '{action_lower[:50]}...'")
+    
+    # Ação de busca em material de estudo (o caso mais importante para correção)
     if "retrieval" in action_lower:
         return await process_retrieval_action(question, retrieval_tools, state)
     
@@ -1386,6 +1393,16 @@ async def process_action(action: str, state: AgentState, question: str,
     
     # Novas ações pedagógicas proativas
     elif "direct_teaching" in action_lower:
+        # Para ensino direto, vamos verificar se há contexto já carregado em state
+        if not state.get("extracted_context"):
+            # Se não houver contexto, podemos tentar recuperar
+            try:
+                print(f"[REACT_ACTION] No context found for direct_teaching, retrieving...")
+                context_result = await process_retrieval_action(question, retrieval_tools, state)
+                return context_result
+            except Exception as e:
+                print(f"[REACT_ACTION] Failed to retrieve context: {e}")
+                
         return {"type": "direct_teaching", "content": "Explicação estruturada fornecida"}
     
     elif "challenge_thinking" in action_lower:
@@ -1407,7 +1424,15 @@ async def process_action(action: str, state: AgentState, question: str,
     elif "suggest_activity" in action_lower:
         return {"type": "activity", "content": "Nova atividade sugerida"}
     
-    # Ação padrão se nenhuma das anteriores for identificada
+    # Ação padrão - tentar fazer retrieval para garantir
+    print(f"[REACT_ACTION] Using default action, attempting retrieval first")
+    try:
+        context_result = await process_retrieval_action(question, retrieval_tools, state)
+        if context_result and "context" in context_result:
+            return context_result
+    except Exception as e:
+        print(f"[REACT_ACTION] Error in default retrieval: {e}")
+        
     return {"type": "direct_teaching", "content": "Explicação estruturada fornecida"}
 
 async def process_retrieval_action(question: str, tools: RetrievalTools, state: AgentState) -> Dict[str, Any]:
@@ -1420,10 +1445,36 @@ async def process_retrieval_action(question: str, tools: RetrievalTools, state: 
         tools.state = state
         context_results = await tools.parallel_context_retrieval(question)
         
-        # Logging de resultados
+        # Logging de resultados detalhados
         has_text = bool(context_results.get("text", ""))
         has_image = isinstance(context_results.get("image", {}), dict) and context_results["image"].get("type") == "image"
         has_table = isinstance(context_results.get("table", {}), dict) and context_results["table"].get("content")
+        
+        # Detalhamento do conteúdo recuperado para debug
+        if has_text:
+            text_preview = context_results["text"][:100] + "..." if len(context_results["text"]) > 100 else context_results["text"]
+            print(f"[REACT_ACTION] Text context preview: {text_preview}")
+        
+        if has_image:
+            image_info = context_results["image"]
+            has_image_bytes = bool(image_info.get("image_bytes"))
+            desc_preview = image_info.get("description", "")[:100] + "..." if len(image_info.get("description", "")) > 100 else image_info.get("description", "")
+            print(f"[REACT_ACTION] Image found: has_bytes={has_image_bytes}, type={image_info.get('type')}")
+            print(f"[REACT_ACTION] Image description: {desc_preview}")
+        
+        if has_table:
+            table_preview = str(context_results["table"].get("content", ""))[:100] + "..." if len(str(context_results["table"].get("content", ""))) > 100 else str(context_results["table"].get("content", ""))
+            print(f"[REACT_ACTION] Table context preview: {table_preview}")
+        
+        # Análise de relevância
+        if "relevance_analysis" in context_results:
+            print(f"[REACT_ACTION] Relevance analysis: {context_results['relevance_analysis']}")
+            # Garantir que a análise de relevância tenha todos os campos necessários
+            analysis = context_results['relevance_analysis']
+            if not all(field in analysis for field in ["text", "image", "table", "recommended_context"]):
+                print(f"[REACT_ACTION] Fixing incomplete relevance analysis")
+                analysis = tools._get_default_analysis()
+                context_results['relevance_analysis'] = analysis
         
         print(f"[REACT_ACTION] Retrieval completed in {time.time() - start_time:.2f}s")
         print(f"[REACT_ACTION] Found: text={has_text}, image={has_image}, table={has_table}")
@@ -1563,20 +1614,52 @@ async def process_progress_action(action: str, state: AgentState, progress_manag
 
 def format_response_with_image(response: str, action_result: Dict[str, Any]) -> Any:
     """Formata a resposta final, possivelmente incluindo uma imagem."""
+    # Log detalhado para debug
+    print(f"[REACT_AGENT] Formatting response with action_result type: {action_result.get('type', 'unknown')}")
+    
     # Verificar se temos uma imagem no contexto recuperado
-    if (action_result.get("type") == "retrieval" and 
-        "context" in action_result and 
-        action_result["context"].get("image", {}).get("type") == "image" and
-        action_result["context"].get("image", {}).get("image_bytes")):
+    has_image = False
+    image_bytes = None
+    
+    if action_result.get("type") == "retrieval" and "context" in action_result:
+        context = action_result["context"]
+        image_data = context.get("image", {})
         
-        image_content = action_result["context"]["image"]["image_bytes"]
-        base64_image = base64.b64encode(image_content).decode('utf-8')
+        # Log detalhado da estrutura da imagem
+        print(f"[REACT_AGENT] Image data keys: {image_data.keys() if isinstance(image_data, dict) else 'not a dict'}")
         
-        return {
-            "type": "multimodal",
-            "content": response,
-            "image": f"data:image/jpeg;base64,{base64_image}"
-        }
+        if (isinstance(image_data, dict) and 
+            image_data.get("type") == "image" and 
+            image_data.get("image_bytes")):
+            
+            has_image = True
+            image_bytes = image_data["image_bytes"]
+            print(f"[REACT_AGENT] Found valid image in context, size: {len(image_bytes) if image_bytes else 'unknown'} bytes")
+            
+            # Verificar se a imagem está em análise de relevância
+            if "relevance_analysis" in context:
+                image_score = context["relevance_analysis"].get("image", {}).get("score", 0)
+                print(f"[REACT_AGENT] Image relevance score: {image_score}")
+                # Se score for muito baixo, talvez não valha a pena incluir
+                if image_score < 0.2:
+                    print(f"[REACT_AGENT] Image relevance too low, not including image")
+                    has_image = False
+    
+    # Formatar a resposta com imagem se necessário
+    if has_image and image_bytes:
+        try:
+            base64_image = base64.b64encode(image_bytes).decode('utf-8')
+            print(f"[REACT_AGENT] Successfully encoded image to base64")
+            
+            return {
+                "type": "multimodal",
+                "content": response,
+                "image": f"data:image/jpeg;base64,{base64_image}"
+            }
+        except Exception as e:
+            print(f"[REACT_AGENT] Error encoding image: {e}")
+    else:
+        print(f"[REACT_AGENT] No valid image found, returning text only")
     
     return response
 
