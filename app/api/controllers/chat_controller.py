@@ -345,6 +345,7 @@ class ChatController:
         start_time = time.time()
 
         try:
+            print(f"CHAT_CONTROLLER: Starting streaming response for: {user_input[:30]}...")
             # Initial progress message
             yield {"type": "processing", "content": "Iniciando processamento da pergunta..."}
 

@@ -440,6 +440,7 @@ class RetrievalTools:
             image_context=image_context,
             table_context=table_context
         )
+        print(relevance_analysis)
 
         return {
             "text": text_context,
@@ -534,10 +535,10 @@ class RetrievalTools:
                 use_session=True,
                 specific_metadata={"image_uuid": image_uuid, "type": "image"}
             )
-            
+
             if not results:
                 return {"type": "error", "message": "Descrição da imagem não encontrada"}
-                
+            print("Image Bytes:", processed_bytes)
             return {
                 "type": "image",
                 "image_bytes": processed_bytes,
@@ -610,9 +611,9 @@ class RetrievalTools:
         """Retorna uma análise de relevância padrão para uso em caso de erro."""
         # Corrige a estrutura da análise para garantir compatibilidade completa
         return {
-            "text": {"score": 0.5, "reason": "Default text relevance score"},
-            "image": {"score": 0.5, "reason": "Default image relevance score"},
-            "table": {"score": 0.5, "reason": "Default table relevance score"},
+            "text": {"score": 0.0, "reason": "Default text relevance score"},
+            "image": {"score": 0.0, "reason": "Default image relevance score"},
+            "table": {"score": 0.0, "reason": "Default table relevance score"},
             "recommended_context": "combined"
         }
 
@@ -744,7 +745,7 @@ Progresso: {progresso}%
 1. <pensamento>Seu raciocínio pedagógico detalhado</pensamento>
 2. <ação>Estratégia de ensino escolhida e detalhes. MUITO IMPORTANTE: Se o material de estudo puder conter imagens ou tabelas, escolha 'retrieval' para buscá-las.</ação>
 3. <observação>Reflexão sobre o processo de ensino</observação>
-4. Explicação educacional para o aluno (clara, estruturada e adaptada ao contexto)
+4. Sua resposta educacional para o aluno (clara, estruturada e adaptada ao contexto)
    * Introduza o tópico atual e conecte-o ao plano de estudos
    * Explique os conceitos fundamentais com clareza e profundidade
    * Forneça exemplos relevantes e aplicações práticas

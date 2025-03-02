@@ -420,7 +420,6 @@ async def get_chat_history(
 ):
     """Get chat history with optimized database queries"""
     try:
-        print(f"CHAT_HISTORY: Getting history for session {session_id}, user {current_user['sub']}")
         async with chat_manager.get_mongo_manager() as mongo_manager:
             collection = mongo_manager.db['chat_history']
 
@@ -443,63 +442,25 @@ async def get_chat_history(
             # Execute query
             cursor = collection.find(query)
             cursor = cursor.sort("timestamp", -1).limit(limit)
-            
-            # Log the count for debugging
-            count = await collection.count_documents(query)
-            print(f"CHAT_HISTORY: Found {count} documents matching query")
 
             messages = []
             async for message_doc in cursor:
                 try:
-                    # Log the raw history data for debugging
-                    raw_history = message_doc.get('history', '{}')
-                    print(f"CHAT_HISTORY: Raw history data: {raw_history[:100]}...")
-                    
-                    history_data = json.loads(raw_history)
+                    history_data = json.loads(message_doc.get('history', '{}'))
                     content = history_data.get('data', {}).get('content', '')
                     role = history_data.get('type', 'unknown')
                     timestamp = message_doc.get('timestamp')
-                    
-                    # Log more details about the content structure
-                    print(f"CHAT_HISTORY: Content type: {type(content)}")
-                    if role == 'ai' and isinstance(content, str) and len(content) > 0:
-                        print(f"CHAT_HISTORY: AI Content first char: '{content[0]}'")
-                        if content[0] == '{':
-                            print(f"CHAT_HISTORY: Content appears to be JSON")
-
-                    # Check if content is JSON (could be multimodal or other structured data)
-                    if isinstance(content, str) and content.startswith('{'):
-                        try:
-                            # Try to parse as JSON
-                            content_json = json.loads(content)
-                            print(f"CHAT_HISTORY: Successfully parsed content as JSON: {content_json.keys()}")
-                            
-                            # Handle multimodal content
-                            if content_json.get("type") == "multimodal":
-                                # Extract just the text content
-                                text_content = content_json.get("content", "")
-                                print(f"CHAT_HISTORY: Extracted text from multimodal content: {text_content[:50]}...")
-                                content = text_content
-                            # Check for other structured data formats
-                            elif "content" in content_json:
-                                # Extract content field from other JSON formats
-                                content = content_json.get("content", "")
-                                print(f"CHAT_HISTORY: Extracted content from JSON structure: {content[:50]}...")
-                        except json.JSONDecodeError as e:
-                            print(f"CHAT_HISTORY: Failed to parse content as JSON: {e}")
 
                     messages.append({
                         'role': 'user' if role == 'human' else 'assistant',
                         'content': content,
                         'timestamp': timestamp.isoformat()
                     })
-                    print(f"CHAT_HISTORY: Processed message with role {role}, content preview: {content[:50]}...")
                 except Exception as e:
-                    print(f"CHAT_HISTORY: Error processing message: {e}")
+                    print(f"Error processing message: {e}")
                     continue
 
             messages.reverse()
-            print(f"CHAT_HISTORY: Returning {len(messages)} messages")
             return {'messages': messages}
 
     except Exception as e:
