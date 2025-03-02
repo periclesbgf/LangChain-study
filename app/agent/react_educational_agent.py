@@ -742,18 +742,23 @@ Progresso: {progresso}%
 - USE MATERIAIS VISUAIS: Incorpore imagens se achar necessário, especialmente para alunos com perfil visual
 
 ## ESTRUTURA DE RESPOSTA:
-1. <pensamento>Seu raciocínio pedagógico detalhado</pensamento>
-2. <ação>Estratégia de ensino escolhida e detalhes. MUITO IMPORTANTE: Se o material de estudo puder conter imagens ou tabelas, escolha 'retrieval' para buscá-las.</ação>
+1. <pensamento>Seu raciocínio pedagógico detalhado. Considere se imagens ou recursos visuais seriam úteis para este tópico e este aluno específico. Para alunos com estilo visual de aprendizagem, material visual é particularmente valioso.</pensamento>
+2. <ação>Estratégia de ensino escolhida e detalhes. Se você decidir que imagens seriam úteis para este tópico, escolha 'retrieval' para buscar material visual relevante.</ação>
 3. <observação>Reflexão sobre o processo de ensino</observação>
 4. Sua resposta para o aluno (clara, estruturada e adaptada ao contexto)
    * Introduza o tópico atual e conecte-o ao plano de estudos
+   * Se uma imagem for recuperada: VOCÊ DEVE FAZER REFERÊNCIAS EXPLÍCITAS a ela no início da sua explicação (ex: "Como podemos ver na imagem...", "Conforme ilustrado na figura..."). Incorpore detalhes da descrição da imagem para mostrar como ela se relaciona com o conteúdo.
    * Explique os conceitos fundamentais com clareza e profundidade
    * Forneça exemplos relevantes e aplicações práticas
    * Inclua perguntas de reflexão para estimular o pensamento crítico
    * Conclua com uma síntese e aponte para o próximo tópico do plano
 
 IMPORTANTE:
-- ESCOLHA 'retrieval' SEMPRE QUE JULGAR NECESSARIO integrar conteúdo visual e contextual do material de estudo
+- Avalie CUIDADOSAMENTE se imagens ou materiais visuais seriam úteis para o tópico específico
+- Se você decidir usar material visual, escolha 'retrieval' para buscar conteúdo relevante
+- QUANDO UMA IMAGEM FOR RECUPERADA E FOR RELEVANTE, você DEVE SEMPRE incorporá-la explicitamente na sua explicação
+- FAÇA REFERÊNCIA CLARA E DIRETA à imagem no início da sua resposta. Use frases como "Como podemos ver na imagem...", "A figura ilustra...", "Conforme mostrado na ilustração..."
+- O SISTEMA NÃO MODIFICARÁ SUA RESPOSTA, então é sua responsabilidade incluir referências adequadas à imagem
 - SEU PAPEL É ENSINAR ATIVAMENTE, não apenas responder ou sugerir
 - Mantenha seu raciocínio invisível para o aluno (use as tags apenas para organizar seu processo)
 - Quando o aluno estiver desviando do plano, gentilmente redirecione-o ao tópico atual
@@ -851,6 +856,33 @@ def create_react_node(retrieval_tools: RetrievalTools, web_tools: WebSearchTools
         chat_history = format_chat_history(state["chat_history"], max_messages=5)
         
         try:
+            # Verificar se o estado contém contexto recuperado de imagem 
+            has_image_context = False
+            image_description = ""
+            
+            if "extracted_context" in state and isinstance(state["extracted_context"], dict):
+                context = state["extracted_context"]
+                if "image" in context and isinstance(context["image"], dict):
+                    image_data = context["image"]
+                    # Verificar se a imagem é válida: tipo correto, tem descrição E imagem_bytes
+                    if (image_data.get("type") == "image" and 
+                        image_data.get("description") and 
+                        image_data.get("image_bytes")):
+                        has_image_context = True
+                        image_description = image_data.get("description", "")
+                        print(f"[REACT_AGENT] Found existing image context: {image_description[:50]}...")
+                    else:
+                        print(f"[REACT_AGENT] Image data found but incomplete: type={image_data.get('type')}, has_desc={bool(image_data.get('description'))}, has_bytes={bool(image_data.get('image_bytes'))}")
+                
+                # Se há contexto de imagem VÁLIDO, adicionar na pergunta para informar o modelo
+                if has_image_context and image_description:
+                    latest_question = f"{latest_question}\n\n[CONTEXTO: Há uma imagem disponível com a seguinte descrição: '{image_description}'. Faça referência a ela na sua resposta.]"
+                    print(f"[REACT_AGENT] Added image context to question")
+                elif "image" in context:
+                    # Se há contexto de imagem mas não é válido, informar ao modelo para NÃO mencionar imagens
+                    latest_question = f"{latest_question}\n\n[CONTEXTO: NÃO há imagens disponíveis para este tópico. Não mencione ou faça referência a imagens na sua resposta.]"
+                    print(f"[REACT_AGENT] Added warning about no valid images")
+            
             # Processar o plano de execução atual
             current_plan = state.get("current_plan", "{}")
             plano_execucao = []
@@ -1062,6 +1094,33 @@ def create_react_node(retrieval_tools: RetrievalTools, web_tools: WebSearchTools
         
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
         chat_history = format_chat_history(state["chat_history"], max_messages=5)
+        
+        # Verificar se o estado contém contexto recuperado de imagem
+        has_image_context = False
+        image_description = ""
+        
+        if "extracted_context" in state and isinstance(state["extracted_context"], dict):
+            context = state["extracted_context"]
+            if "image" in context and isinstance(context["image"], dict):
+                image_data = context["image"]
+                # Verificar se a imagem é válida: tipo correto, tem descrição E imagem_bytes
+                if (image_data.get("type") == "image" and 
+                    image_data.get("description") and 
+                    image_data.get("image_bytes")):
+                    has_image_context = True
+                    image_description = image_data.get("description", "")
+                    print(f"[REACT_AGENT] Found existing image context: {image_description[:50]}...")
+                else:
+                    print(f"[REACT_AGENT] Image data found but incomplete: type={image_data.get('type')}, has_desc={bool(image_data.get('description'))}, has_bytes={bool(image_data.get('image_bytes'))}")
+            
+            # Se há contexto de imagem VÁLIDO, adicionar na pergunta para informar o modelo
+            if has_image_context and image_description:
+                latest_question = f"{latest_question}\n\n[CONTEXTO: Há uma imagem disponível com a seguinte descrição: '{image_description}'. Faça referência a ela na sua resposta.]"
+                print(f"[REACT_AGENT] Added image context to question")
+            elif "image" in context:
+                # Se há contexto de imagem mas não é válido, informar ao modelo para NÃO mencionar imagens
+                latest_question = f"{latest_question}\n\n[CONTEXTO: NÃO há imagens disponíveis para este tópico. Não mencione ou faça referência a imagens na sua resposta.]"
+                print(f"[REACT_AGENT] Added warning about no valid images")
         
         print(f"[REACT_AGENT] Processing question: '{latest_question[:50]}...'")
         print(f"[REACT_AGENT] Chat history has {len(state['chat_history'])} messages")
@@ -1486,7 +1545,10 @@ async def process_retrieval_action(question: str, tools: RetrievalTools, state: 
         return {
             "type": "retrieval",
             "content": "Contexto recuperado com sucesso",
-            "context": context_results
+            "context": context_results,
+            "has_image": has_image,
+            "has_text": has_text,
+            "has_table": has_table
         }
     except Exception as e:
         import traceback
@@ -1622,8 +1684,9 @@ def format_response_with_image(response: str, action_result: Dict[str, Any]) -> 
     print(f"[REACT_AGENT] Formatting response with action_result type: {action_result.get('type', 'unknown')}")
     
     # Verificar se temos uma imagem no contexto recuperado
-    has_image = False
+    has_image = action_result.get("has_image", False)
     image_bytes = None
+    image_description = ""
     
     if action_result.get("type") == "retrieval" and "context" in action_result:
         context = action_result["context"]
@@ -1636,18 +1699,63 @@ def format_response_with_image(response: str, action_result: Dict[str, Any]) -> 
             image_data.get("type") == "image" and 
             image_data.get("image_bytes")):
             
-            has_image = True
             image_bytes = image_data["image_bytes"]
+            image_description = image_data.get("description", "")
             print(f"[REACT_AGENT] Found valid image in context, size: {len(image_bytes) if image_bytes else 'unknown'} bytes")
+            print(f"[REACT_AGENT] Image description: {image_description[:100]}...")
             
+            # Primeiro verificar se a imagem tem bytes válidos antes de qualquer outra avaliação
+            if not image_bytes:
+                has_image = False
+                print(f"[REACT_AGENT] Image rejected: Missing image bytes")
             # Verificar se a imagem está em análise de relevância
-            if "relevance_analysis" in context:
+            elif "relevance_analysis" in context:
                 image_score = context["relevance_analysis"].get("image", {}).get("score", 0)
-                print(f"[REACT_AGENT] Image relevance score: {image_score}")
-                # Se score for muito baixo, talvez não valha a pena incluir
-                if image_score < 0.2:
-                    print(f"[REACT_AGENT] Image relevance too low, not including image")
+                image_reason = context["relevance_analysis"].get("image", {}).get("reason", "")
+                print(f"[REACT_AGENT] Image relevance score: {image_score}, reason: {image_reason}")
+                
+                # Considerar imagens mais relevantes (threshold mais alto para garantir qualidade)
+                if image_score > 0.5:
+                    has_image = True
+                    print(f"[REACT_AGENT] Image considered highly relevant with score {image_score}")
+                elif image_score > 0.3:
+                    # Para relevância média, verificar o estilo de aprendizagem do aluno
+                    user_profile = state.get("user_profile", {})
+                    learning_styles = user_profile.get("EstiloAprendizagem", {})
+                    is_visual_learner = learning_styles.get("Entrada", "").lower() == "visual"
+                    
+                    if is_visual_learner:
+                        has_image = True
+                        print(f"[REACT_AGENT] Image with medium relevance ({image_score}) included for visual learner")
+                    else:
+                        print(f"[REACT_AGENT] Image with medium relevance not included for non-visual learner")
+                        has_image = False
+                else:
+                    print(f"[REACT_AGENT] Image relevance too low ({image_score}), not including image")
                     has_image = False
+            else:
+                # Sem análise de relevância, usar critérios mais conservadores
+                # Verificar se a descrição da imagem parece relevante para o contexto
+                if image_description and len(image_description) > 30:
+                    has_image = True
+                    print(f"[REACT_AGENT] Using image based on description without relevance score")
+                else:
+                    has_image = False
+                    print(f"[REACT_AGENT] Image description too short or missing, not including image")
+        else:
+            has_image = False
+            print(f"[REACT_AGENT] No valid image data found in context")
+    
+    # NÃO MODIFICAMOS MAIS A RESPOSTA - o modelo deve incorporar naturalmente referências à imagem
+    # Apenas verificamos se há alguma referência à imagem
+    # Verificar se a resposta menciona imagens quando não deveria, ou vice-versa
+    if has_image and any(ref in response.lower() for ref in ["imagem", "figura", "ilustração", "visual", "diagrama"]):
+        print(f"[REACT_AGENT] Response correctly contains references to the available image")
+    elif has_image:
+        print(f"[REACT_AGENT] WARNING: Image is available but response doesn't reference it explicitly")
+    elif not has_image and any(ref in response.lower() for ref in ["imagem", "figura", "ilustração", "visual", "diagrama", 
+                                                                    "como podemos ver", "conforme mostrado", "observe na"]):
+        print(f"[REACT_AGENT] WARNING: Response mentions images but no valid images are available")
     
     # Formatar a resposta com imagem se necessário
     if has_image and image_bytes:
@@ -1662,10 +1770,10 @@ def format_response_with_image(response: str, action_result: Dict[str, Any]) -> 
             }
         except Exception as e:
             print(f"[REACT_AGENT] Error encoding image: {e}")
+            return response
     else:
         print(f"[REACT_AGENT] No valid image found, returning text only")
-    
-    return response
+        return response
 
 class ReactTutorWorkflow:
     def __init__(
