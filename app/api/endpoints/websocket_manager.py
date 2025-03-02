@@ -209,3 +209,133 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     except Exception as e:
         logger.error(f"Error in websocket endpoint: {str(e)}")
         manager.disconnect(websocket, session_id)
+
+@router_websocket.websocket("/ws/chat/{session_id}")
+async def chat_websocket_endpoint(websocket: WebSocket, session_id: str):
+    """
+    WebSocket endpoint for streaming chat responses.
+    This allows for immediate feedback and chunk-based responses from the tutor.
+    """
+    from api.controllers.chat_controller import ChatController
+    from utils import MONGO_URI, MONGO_DB_NAME
+    from database.mongo_database_manager import MongoDatabaseManager, MongoPDFHandler
+    from database.vector_db import QdrantHandler, Embeddings, TextSplitter
+    from agent.image_handler import ImageHandler
+    from agent.agent_test import TutorWorkflow
+    
+    # Setup needed controllers and dependencies
+    mongo_manager = MongoDatabaseManager()
+    embeddings = Embeddings()
+    image_handler = ImageHandler(os.environ.get("OPENAI_API_KEY"))
+    text_splitter = TextSplitter()
+    
+    # Connect websocket
+    await manager.connect(websocket, session_id)
+    
+    try:
+        # Accept initial connection
+        logger.info(f"Chat WebSocket connected for session: {session_id}")
+        
+        # Send initial confirmation
+        await websocket.send_text(json.dumps({
+            "type": "connection", 
+            "status": "connected",
+            "session_id": session_id
+        }))
+        
+        # Main message loop
+        while True:
+            # Receive message
+            message_text = await websocket.receive_text()
+            data = json.loads(message_text)
+            
+            # Handle chat message
+            if data["type"] == "chat":
+                logger.info(f"Received chat message from session {session_id}")
+                
+                # Extract data
+                user_email = data.get("user_email")
+                discipline_id = data.get("discipline_id") 
+                user_message = data.get("message")
+                
+                if not user_email or not discipline_id or not user_message:
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "content": "Missing required fields (user_email, discipline_id, message)"
+                    }))
+                    continue
+                
+                try:
+                    # Initialize required components
+                    qdrant_handler = QdrantHandler(
+                        embeddings=embeddings.get_embeddings(),
+                        text_splitter=text_splitter,
+                        image_handler=image_handler,
+                        mongo_manager=mongo_manager
+                    )
+                    
+                    pdf_handler = MongoPDFHandler(mongo_manager)
+                    
+                    # Get student profile and study plan
+                    student_profile = await mongo_manager.get_student_profile(
+                        email=user_email,
+                        collection_name="student_learn_preference"
+                    )
+                    
+                    study_plan = await mongo_manager.get_study_plan(session_id)
+                    
+                    if not student_profile or not study_plan:
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "content": "Could not load student profile or study plan"
+                        }))
+                        continue
+                    
+                    # Initialize tutor workflow
+                    workflow = TutorWorkflow(
+                        qdrant_handler=qdrant_handler,
+                        student_email=user_email,
+                        disciplina=discipline_id,
+                        session_id=session_id,
+                        image_collection=mongo_manager.db.image_collection
+                    )
+                    
+                    # Create controller
+                    controller = ChatController(
+                        session_id=session_id,
+                        student_email=user_email,
+                        disciplina=discipline_id,
+                        qdrant_handler=qdrant_handler,
+                        image_handler=image_handler,
+                        retrieval_agent=workflow,
+                        student_profile=student_profile,
+                        mongo_db_name=MONGO_DB_NAME,
+                        mongo_uri=MONGO_URI,
+                        plano_execucao=study_plan,
+                        pdf_handler=pdf_handler
+                    )
+                    
+                    # Get response generator
+                    response_generator = controller.handle_user_message(
+                        user_input=user_message, 
+                        stream=True
+                    )
+                    
+                    # Stream chunks to client
+                    async for chunk in response_generator:
+                        # Send formatted chunk
+                        await websocket.send_text(json.dumps(chunk))
+                        
+                except Exception as e:
+                    logger.error(f"Error processing chat message: {str(e)}")
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "content": f"Error processing message: {str(e)}"
+                    }))
+                    
+    except WebSocketDisconnect:
+        logger.info(f"Chat WebSocket disconnected: {session_id}")
+        manager.disconnect(websocket, session_id)
+    except Exception as e:
+        logger.error(f"Error in chat websocket endpoint: {str(e)}")
+        manager.disconnect(websocket, session_id)

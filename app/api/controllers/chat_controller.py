@@ -7,7 +7,7 @@ import logging
 import asyncio
 import time
 from datetime import datetime
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any, Union, AsyncGenerator
 import uuid
 import hashlib
 from cachetools import TTLCache, LRUCache
@@ -77,7 +77,7 @@ class ChatController:
     Optimized ChatController that manages interactions between users and the agent system
     with performance enhancements including caching, lazy loading, and parallel processing.
     """
-    
+
     def __init__(
         self,
         session_id: str,
@@ -142,7 +142,7 @@ class ChatController:
         
         # Background loading
         asyncio.create_task(self._preload_resources())
-        
+
     async def _preload_resources(self):
         """Preload common resources in background"""
         try:
@@ -152,18 +152,18 @@ class ChatController:
                 temperature=0.1,
                 openai_api_key=OPENAI_API_KEY
             )
-            
+
             # Initialize chat history
             _ = self.chat_history
-            
+
             # Initialize remaining resources
             self._text_splitter = TextSplitter()
             self._embeddings = Embeddings().get_embeddings()
-            
+
             logger.info(f"Preloaded resources for session {self.session_id}")
         except Exception as e:
             logger.error(f"Error preloading resources: {e}")
-    
+
     @property
     def llm(self):
         """Lazy-loaded LLM model"""
@@ -174,7 +174,7 @@ class ChatController:
                 openai_api_key=OPENAI_API_KEY
             )
         return self._llm
-    
+
     @property
     def db(self):
         """Lazy-loaded MongoDB connection"""
@@ -188,7 +188,7 @@ class ChatController:
                 )
             self._db = self._mongo_client[MONGO_DB_NAME]
         return self._db
-    
+
     @property
     def image_collection(self):
         """Lazy-loaded image collection"""
@@ -210,6 +210,7 @@ class ChatController:
                 session_id_key="session_id",
                 history_key="history",
             )
+            print("Chat history:", self._chat_history)
         return self._chat_history
     
     @property
@@ -238,37 +239,45 @@ class ChatController:
     async def handle_user_message(
         self,
         user_input: Optional[str] = None,
-        files=None
-    ) -> Union[str, Dict[str, Any]]:
+        files=None,
+        stream: bool = False
+    ) -> Union[str, Dict[str, Any], AsyncGenerator[Dict[str, str], None]]:
         """
-        Process user message and files with optimized execution
+        Process user message and files with optimized execution.
+        When stream=True, returns an async generator that yields response chunks.
         """
         start_time = time.time()
         interaction_key = f"{self.session_id}:{hash(user_input)}"
-        
+
         try:
             # Handle empty input
             if not user_input and not files:
+                if stream:
+                    return self._create_simple_generator({"type": "error", "content": "Nenhuma entrada fornecida."})
                 return "Nenhuma entrada fornecida."
-                
-            # Check cache for identical recent requests
-            if user_input and interaction_key in self._response_cache:
+
+            # Check cache for identical recent requests (skip if streaming)
+            if not stream and user_input and interaction_key in self._response_cache:
                 logger.info(f"Cache hit for message: {interaction_key}")
                 return self._response_cache[interaction_key]
-                
+
             # Get current chat history efficiently
             current_history = self.chat_history.messages[-MAX_HISTORY_MESSAGES:] if self.chat_history.messages else []
-            
+
             # Process workflow with optimized parameters
             if user_input:
-                # Invoke workflow with current context
+                # If streaming is requested, handle differently
+                if stream:
+                    return self._create_streaming_response(user_input, current_history)
+
+                # Non-streaming path - invoke workflow with current context
                 workflow_response = await self._tutor_workflow.invoke(
                     query=user_input,
                     student_profile=self.perfil,
                     current_plan=self.plano_execucao,
                     chat_history=current_history
                 )
-                
+
                 # Process response
                 if isinstance(workflow_response, dict):
                     messages = workflow_response.get("messages", [])
@@ -276,31 +285,152 @@ class ChatController:
                         ai_messages = [msg for msg in messages if isinstance(msg, AIMessage)]
                         if ai_messages:
                             final_message = ai_messages[-1]
-                            
+
                             # Process multimodal content
                             response = await self._process_response_content(
                                 final_message, user_input
                             )
-                            
+
                             # Cache the response
                             self._response_cache[interaction_key] = response
-                            
+
                             # Track performance
                             self._analytics["interaction_count"] += 1
                             self._analytics["last_response_time"] = time.time() - start_time
-                            
+
                             logger.info(f"Processed message in {self._analytics['last_response_time']:.2f}s")
                             return response
-                
+
             # Handle file upload with background processing
             if files:
+                if stream:
+                    return self._create_simple_generator({"type": "processing", "content": "Arquivo em processamento. Os resultados estarão disponíveis em breve."})
                 return "Arquivo em processamento. Os resultados estarão disponíveis em breve."
-                
+
+            if stream:
+                return self._create_simple_generator({"type": "complete", "content": "Processamento concluído."})
             return "Processamento concluído."
 
         except Exception as e:
             logger.error(f"Error handling message: {e}", exc_info=True)
+            if stream:
+                return self._create_simple_generator({"type": "error", "content": f"Ocorreu um erro ao processar sua mensagem: {str(e)}"})
             return "Ocorreu um erro ao processar sua mensagem. Por favor, tente novamente."
+
+    def _create_simple_generator(self, message: Dict[str, str]):
+        """Helper to create a simple async generator with a single message"""
+        async def generator():
+            yield message
+        return generator()
+
+    async def _create_streaming_response(self, user_input: str, current_history: List[BaseMessage]) -> AsyncGenerator[Dict[str, str], None]:
+        """
+        Creates a streaming response for the frontend with chunked delivery.
+        Uses a plan-then-respond approach with immediate feedback during processing.
+        """
+        start_time = time.time()
+
+        try:
+            # Initial progress message
+            yield {"type": "processing", "content": "Iniciando processamento da pergunta..."}
+
+            # Step 1: Generate plan (async)
+            yield {"type": "processing", "content": "Analisando sua pergunta..."}
+
+            # Invoke plan generation
+            plan_result = None
+            try:
+                # Use a simpler planning prompt for quick response
+                plan_response = await self.llm.ainvoke([
+                    {"role": "system", "content": "Gere um plano rápido para responder à pergunta do aluno."},
+                    {"role": "user", "content": user_input}
+                ])
+                print("Plan response:", plan_response)
+                plan_result = plan_response.content
+                yield {"type": "processing", "content": "Preparando contexto relevante..."}
+            except Exception as e:
+                logger.error(f"Error in plan generation: {e}")
+                # Continue without a plan
+
+            # Step 2: Context retrieval
+            context_result = {}
+            try:
+                # Use the actual qdrant handler for context retrieval
+                yield {"type": "processing", "content": "Buscando informações relevantes..."}
+
+                # Transform query for better results (simplified version)
+                transformed_query = user_input
+                if hasattr(self._tutor_workflow, "tools"):
+                    # Use tools.transform_question if available
+                    try:
+                        transformed_query = await self._tutor_workflow.tools.transform_question(user_input)
+                    except Exception:
+                        pass  # Use original query if transformation fails
+
+                # Get text context (more important for the initial response)
+                text_results = self._qdrant_handler.similarity_search_with_filter(
+                    query=transformed_query,
+                    student_email=self.student_email,
+                    session_id=self.session_id,
+                    disciplina_id=self.disciplina,
+                    specific_metadata={"type": "text"},
+                    k=2  # Get fewer results for faster response
+                )
+
+                if text_results:
+                    # Format context in chunks (one paragraph at a time)
+                    text_context = "\n\n".join([doc.page_content for doc in text_results])
+                    context_result["text"] = text_context
+                    yield {"type": "processing", "content": "Contexto recuperado, gerando resposta..."}
+            except Exception as e:
+                logger.error(f"Error in context retrieval: {e}")
+                yield {"type": "processing", "content": "Preparando resposta com conhecimento geral..."}
+
+            # Step 3: Generate response in chunks
+            try:
+                # Prepare prompt
+                profile_summary = f"Perfil do aluno: {str(self.perfil)[:200]}..." if self.perfil else "Perfil não disponível"
+                context_summary = context_result.get("text", "Sem contexto específico disponível")
+
+                prompt_messages = [
+                    {"role": "system", "content": 
+                        f"Você é um tutor educacional que responde às perguntas dos alunos. "
+                        f"{profile_summary}\n\n"
+                        f"Informações relevantes:\n{context_summary[:1000]}"
+                    },
+                    {"role": "user", "content": user_input}
+                ]
+
+                # Generate response with streaming
+                stream = self.llm.astream(prompt_messages)
+
+                # Track initial chunks to save in chat history
+                full_response = ""
+
+                # Stream each chunk to the user
+                async for chunk in stream:
+                    if chunk.content:
+                        full_response += chunk.content
+                        yield {"type": "chunk", "content": chunk.content}
+
+                # Save to chat history
+                if full_response:
+                    await self._save_chat_history(
+                        HumanMessage(content=user_input),
+                        AIMessage(content=full_response)
+                    )
+
+                # Final completion message
+                processing_time = time.time() - start_time
+                yield {"type": "complete", "content": f"Resposta completa em {processing_time:.2f}s"}
+
+            except Exception as e:
+                logger.error(f"Error generating response chunks: {e}")
+                yield {"type": "error", "content": f"Erro ao gerar resposta completa: {str(e)}"}
+
+        except Exception as e:
+            logger.error(f"Error in streaming generator: {e}")
+            yield {"type": "error", "content": f"Ocorreu um erro ao processar sua mensagem: {str(e)}"}
 
     async def _process_response_content(
         self,

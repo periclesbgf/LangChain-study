@@ -426,11 +426,13 @@ def create_question_evaluation_node():
     return evaluate_question
 
 class RetrievalTools:
+    """
+    Versão aprimorada de RetrievalTools com caching, redução de consultas e
+    reaproveitamento inteligente de contextos.
+    """
+    
     def __init__(self, qdrant_handler: QdrantHandler, student_email: str, disciplina: str, image_collection, session_id: str, state: AgentState):
-        #print(f"[RETRIEVAL] Initializing RetrievalTools:")
-        #print(f"[RETRIEVAL] - Student: {student_email}")
-        #print(f"[RETRIEVAL] - Disciplina: {disciplina}")
-        #print(f"[RETRIEVAL] - Session: {session_id}")
+        # Inicialização básica
         self.qdrant_handler = qdrant_handler
         self.student_email = student_email
         self.disciplina = disciplina
@@ -438,176 +440,599 @@ class RetrievalTools:
         self.image_collection = image_collection
         self.model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
         self.state = state
-
+        
+        # Cache de consultas e resultados (TTL de 30 minutos para cada item)
+        self._context_cache = {}
+        self._cache_ttl = 1800  # 30 minutos em segundos
+        
+        # Contadores para monitoramento
+        self._consultas_reutilizadas = 0
+        self._consultas_realizadas = 0
+        
+        # Lista de termos educacionais para enriquecer prompts
+        self._variability_terms = [
+            "analise", "avalie", "compare", "explique", "defina", "discuta", 
+            "contraste", "critique", "sintetize", "relacione", "aplique",
+            "argumente", "classifique", "desenvolva", "exemplifique"
+        ]
+        
+        # Prompts otimizados
         self.QUESTION_TRANSFORM_PROMPT = """
-        Você é um especialista em transformar perguntas para melhorar a recuperação de contexto.
-
-        Histórico da conversa: {chat_history}
-
-        Pergunta original: {question}
-
-        O usuário pode fazer perguntas que remetam a perguntas anteriores, então é importante analisar o histórico da conversa.
-
-        Retorne apenas a pergunta reescrita, sem explicações adicionais.
+        Transforme esta pergunta para melhorar a recuperação de contexto educacional.
+        Conecte a nova pergunta com o contexto da conversa anterior, mas mantenha-a específica.
+        Torne-a mais precisa e focada nos termos técnicos relevantes.
+        
+        Histórico: {chat_history}
+        Pergunta: {question}
+        Termo de variabilidade: {variability_term}
+        
+        Retorne APENAS a pergunta reescrita, sem explicações.
         """
 
         self.RELEVANCE_ANALYSIS_PROMPT = """
-        Analise a relevância dos contextos recuperados para a pergunta do usuário.
-
+        Analise a relevância e relevância dos contextos para a pergunta:
+        
         Pergunta: {question}
-
-        Contextos recuperados:
-        Texto: {text_context}
-        Imagem: {image_context}
-        Tabela: {table_context}
-
-        Para cada contexto, avalie a relevância em uma escala de 0 a 1 e explique brevemente por quê.
-        Retorne um JSON no formato:
+        Contextos: 
+        - Texto: {text_context}
+        - Imagem: {image_context}
+        - Tabela: {table_context}
+        
+        Retorne um JSON exato:
         {{
-            "text": {{"score": 0.0, "reason": "string"}},
-            "image": {{"score": 0.0, "reason": "string"}},
-            "table": {{"score": 0.0, "reason": "string"}},
+            "text": {{"score": X, "reason": "Y"}},
+            "image": {{"score": X, "reason": "Y"}},
+            "table": {{"score": X, "reason": "Y"}},
             "recommended_context": "text|image|table|combined"
         }}
-
-        Mantenha o formato JSON exato e use apenas aspas duplas.
         """
+        
+        # Inicializa um contador para rotação de termos de variabilidade
+        self._variability_idx = 0
+
+    def _get_next_variability_term(self) -> str:
+        """Obtém o próximo termo de variabilidade em rotação"""
+        term = self._variability_terms[self._variability_idx]
+        self._variability_idx = (self._variability_idx + 1) % len(self._variability_terms)
+        return term
+    
+    def _get_cache_key(self, query_type: str, query: str) -> str:
+        """Gera uma chave de cache para consultas"""
+        return f"{query_type}:{self.disciplina}:{hash(query)}"
+    
+    def _is_cache_valid(self, timestamp: float) -> bool:
+        """Verifica se o item do cache ainda é válido"""
+        return (time.time() - timestamp) < self._cache_ttl
+
+    def _should_use_vector_search(self, question: str) -> bool:
+        """
+        Decide inteligentemente se deve usar busca vetorial ou reutilizar contexto
+        baseado no histórico de perguntas e padrões de consulta.
+        """
+        # Se é a primeira pergunta, sempre busca
+        if not self.state["chat_history"]:
+            return True
+            
+        # Analisa se a pergunta atual é similar à última pergunta
+        last_human_msgs = [m for m in self.state["chat_history"] if isinstance(m, HumanMessage)]
+        if not last_human_msgs:
+            return True
+            
+        # Extrai a última pergunta
+        last_question = last_human_msgs[-1].content.lower()
+        current_question = question.lower()
+        
+        # Verifica se é uma pergunta de follow-up óbvia
+        follow_up_indicators = ["explicar melhor", "poderia detalhar", "não entendi", 
+                               "como assim", "por que", "mais sobre", "explique novamente",
+                               "o que significa", "como funciona", "pode dar um exemplo"]
+                               
+        # Se é um follow-up claro, reutiliza o contexto
+        if any(indicator in current_question for indicator in follow_up_indicators):
+            return False
+            
+        # Compara similaridade de palavras-chave entre perguntas
+        last_words = set(last_question.split())
+        current_words = set(current_question.split())
+        common_words = last_words.intersection(current_words)
+        
+        # Se há muitas palavras em comum (continuação do mesmo tópico)
+        if len(common_words) >= 3 and len(common_words) / len(current_words) > 0.4:
+            return False
+            
+        # Por padrão, faz busca vetorial
+        return True
 
     async def transform_question(self, question: str) -> str:
-        """
-        Transforma a pergunta para melhor recuperação de contexto baseado no tipo de busca.
-        """
-        # Usa a nova função de formatação do histórico
-        formatted_history = format_chat_history(self.state["chat_history"], max_messages=4)
-
-        ##print(f"[RETRIEVAL] Using chat history for question transformation:")
-        #print(formatted_history)
-
+        """Transforma a pergunta para melhorar recuperação de contexto"""
+        # Otimiza o uso do histórico
+        formatted_history = format_chat_history(self.state["chat_history"], max_messages=3)
+        
+        # Adiciona variabilidade controlada
+        variability_term = self._get_next_variability_term()
+        
         prompt = ChatPromptTemplate.from_template(self.QUESTION_TRANSFORM_PROMPT)
         response = await self.model.ainvoke(prompt.format(
             chat_history=formatted_history,
             question=question,
+            variability_term=variability_term
         ))
 
-        transformed_question = response.content.strip()
-        #print(f"[RETRIEVAL] Transformed question: {transformed_question}")
-        return transformed_question
+        return response.content.strip()
 
     async def parallel_context_retrieval(self, question: str) -> Dict[str, Any]:
-        #print(f"\n[RETRIEVAL] Starting parallel context retrieval for: {question}")
-
-        text_question, image_question, table_question = await asyncio.gather(
-            self.transform_question(question),
-            self.transform_question(question),
-            self.transform_question(question)
-        )
-
+        """Recupera contextos de forma eficiente, com cache e evitando consultas desnecessárias"""
+        # Decisão inteligente sobre uso de busca vetorial
+        if not self._should_use_vector_search(question):
+            # Tenta reutilizar contexto existente se for apropriado
+            if "extracted_context" in self.state and self.state["extracted_context"]:
+                self._consultas_reutilizadas += 1
+                print(f"[OTIMIZAÇÃO] Reutilizando contexto existente. Total reutilizadas: {self._consultas_reutilizadas}")
+                return self.state["extracted_context"]
+        
+        # Transformando a pergunta para busca
+        transformed_question = await self.transform_question(question)
+        
+        # Execute as buscas em paralelo, mas com verificação de cache
+        text_context_task = asyncio.create_task(self._get_text_context(transformed_question))
+        image_context_task = asyncio.create_task(self._get_image_context(transformed_question))
+        table_context_task = asyncio.create_task(self._get_table_context(transformed_question))
+        
+        # Aguardar todos os resultados
         text_context, image_context, table_context = await asyncio.gather(
-            self.retrieve_text_context(text_question),
-            self.retrieve_image_context(image_question),
-            self.retrieve_table_context(table_question)
+            text_context_task, image_context_task, table_context_task
         )
-
+        
+        # Analisa a relevância dos contextos recuperados
         relevance_analysis = await self.analyze_context_relevance(
             original_question=question,
             text_context=text_context,
             image_context=image_context,
             table_context=table_context
         )
-
-        return {
+        
+        # Construa o resultado final
+        result = {
             "text": text_context,
             "image": image_context,
             "table": table_context,
             "relevance_analysis": relevance_analysis
         }
+        
+        # Registra o uso para análise
+        self._consultas_realizadas += 1
+        print(f"[OTIMIZAÇÃO] Consultas realizadas: {self._consultas_realizadas}, reutilizadas: {self._consultas_reutilizadas}")
+        
+        return result
 
-    async def retrieve_text_context(self, query: str) -> str:
+    async def _get_text_context(self, query: str) -> str:
+        """Obtém contexto de texto com cache e processamento em chunks"""
+        cache_key = self._get_cache_key("text", query)
+        
+        # Verifica se existe no cache
+        if cache_key in self._context_cache:
+            entry = self._context_cache[cache_key]
+            if self._is_cache_valid(entry["timestamp"]):
+                return entry["data"]
+        
+        # Caso não esteja em cache ou expirado, busca novamente
         try:
+            # Busca mais resultados para ter uma seleção melhor de chunks
             results = self.qdrant_handler.similarity_search_with_filter(
                 query=query,
                 student_email=self.student_email,
                 session_id=self.session_id,
                 disciplina_id=self.disciplina,
-                specific_metadata={"type": "text"}
+                specific_metadata={"type": "text"},
+                k=5  # Recupera mais resultados para seleção
             )
-            return "\n".join([doc.page_content for doc in results]) if results else ""
-        except Exception as e:
-            #print(f"[RETRIEVAL] Error in text retrieval: {e}")
-            return ""
-
-    async def retrieve_image_context(self, query: str) -> Dict[str, Any]:
-        try:
-            results = self.qdrant_handler.similarity_search_with_filter(
-                query=query,
-                student_email=self.student_email,
-                session_id=self.session_id,
-                disciplina_id=self.disciplina,
-                specific_metadata={"type": "image"}
-            )
-            #print("")
-            #print("--------------------------------------------------")
-            #print(f"[RETRIEVAL] Image search results: {results}")
-            #print("--------------------------------------------------")
-            #print("")
+            
             if not results:
-                return {"type": "image", "content": None, "description": ""}
+                return ""
+                
+            # Processa os resultados em chunks
+            chunks = []
+            for doc in results:
+                # Extrai metadados relevantes
+                source = doc.metadata.get("source", "")
+                chunk_id = doc.metadata.get("chunk_id", "")
+                
+                # Divide o conteúdo em parágrafos para melhor processamento
+                paragraphs = doc.page_content.split("\n")
+                
+                # Adiciona cabeçalho para cada chunk
+                chunk_header = f"[Fonte: {source}]"
+                if chunk_id:
+                    chunk_header += f" [Parte: {chunk_id}]"
+                
+                # Seleciona apenas os parágrafos mais relevantes (máx 250 palavras)
+                content = ""
+                word_count = 0
+                for para in paragraphs:
+                    para_words = len(para.split())
+                    if word_count + para_words <= 250:
+                        content += para + "\n"
+                        word_count += para_words
+                    else:
+                        # Adiciona um resumo se o parágrafo for muito longo
+                        truncated_words = 250 - word_count
+                        truncated_para = " ".join(para.split()[:truncated_words]) + "..."
+                        content += truncated_para
+                        break
+                
+                # Formata o chunk com seu cabeçalho
+                formatted_chunk = f"{chunk_header}\n{content.strip()}"
+                chunks.append(formatted_chunk)
+            
+            # Reranqueia os chunks por relevância e qualidade
+            ranked_chunks = await self._rank_chunks(chunks, query)
+            
+            # Seleciona os chunks mais relevantes (top 3)
+            selected_chunks = ranked_chunks[:3]
+            
+            # Junta os chunks com separadores claros
+            text_context = "\n\n---\n\n".join(selected_chunks)
+            
+            # Armazena no cache
+            self._context_cache[cache_key] = {
+                "data": text_context,
+                "timestamp": time.time()
+            }
+            
+            return text_context
+        except Exception as e:
+            print(f"[RETRIEVAL] Erro na recuperação de texto: {e}")
+            return ""
+    
+    async def _rank_chunks(self, chunks: List[str], query: str) -> List[str]:
+        """Reordena os chunks por relevância e qualidade"""
+        if not chunks:
+            return []
+            
+        try:
+            # Prompt para analisar relevância dos chunks
+            CHUNK_RANKING_PROMPT = """
+            Avalie a relevância de cada chunk de texto em relação à consulta do usuário.
+            
+            Consulta: {query}
+            
+            Chunks:
+            {chunks}
+            
+            Para cada chunk, atribua uma pontuação de 0 a 10 baseada na:
+            1. Relevância para a consulta (0-5 pontos)
+            2. Qualidade da informação (0-3 pontos)
+            3. Completude do conteúdo (0-2 pontos)
+            
+            Retorne apenas uma lista com os índices dos chunks em ordem de pontuação, do mais relevante ao menos relevante.
+            Exemplo: [2, 0, 3, 1] (onde 2 é o índice do chunk mais relevante)
+            """
+            
+            # Se tivermos menos de 3 chunks, não precisamos ranquear
+            if len(chunks) <= 3:
+                return chunks
+                
+            # Formata os chunks para análise
+            formatted_chunks = ""
+            for i, chunk in enumerate(chunks):
+                formatted_chunks += f"Chunk {i}:\n{chunk}\n\n"
+            
+            prompt = ChatPromptTemplate.from_template(CHUNK_RANKING_PROMPT)
+            
+            # Usa um modelo mais simples para economizar
+            ranking_model = ChatOpenAI(model="gpt-4o-mini", temperature=0.1)
+            
+            # Obtém o ranking
+            response = await ranking_model.ainvoke(prompt.format(
+                query=query,
+                chunks=formatted_chunks
+            ))
+            
+            # Extrai o ranking da resposta
+            response_text = response.content.strip()
+            
+            # Tenta encontrar uma lista na resposta
+            import re
+            match = re.search(r'\[([0-9, ]+)\]', response_text)
+            
+            if match:
+                # Extrai e converte a lista de índices
+                indices_str = match.group(1)
+                try:
+                    ranked_indices = [int(idx.strip()) for idx in indices_str.split(',')]
+                    # Verifica se os índices são válidos
+                    valid_indices = [idx for idx in ranked_indices if 0 <= idx < len(chunks)]
+                    # Adiciona índices que não foram mencionados ao final
+                    all_indices = set(range(len(chunks)))
+                    missing_indices = list(all_indices - set(valid_indices))
+                    complete_ranking = valid_indices + missing_indices
+                    
+                    # Retorna os chunks reordenados
+                    return [chunks[idx] for idx in complete_ranking]
+                except ValueError:
+                    print("[RETRIEVAL] Erro ao processar índices de ranking")
+            
+            # Fallback para a ordem original
+            return chunks
+            
+        except Exception as e:
+            print(f"[RETRIEVAL] Erro ao classificar chunks: {e}")
+            return chunks  # Retorna a ordem original em caso de erro
+
+    async def _get_image_context(self, query: str) -> Dict[str, Any]:
+        """Obtém contexto de imagem com cache"""
+        cache_key = self._get_cache_key("image", query)
+        
+        # Verifica se existe no cache
+        if cache_key in self._context_cache:
+            entry = self._context_cache[cache_key]
+            if self._is_cache_valid(entry["timestamp"]):
+                return entry["data"]
+        
+        # Caso não esteja em cache ou expirado, busca novamente
+        try:
+            results = self.qdrant_handler.similarity_search_with_filter(
+                query=query,
+                student_email=self.student_email,
+                session_id=self.session_id,
+                disciplina_id=self.disciplina,
+                specific_metadata={"type": "image"},
+                k=1  # Limita a 1 imagem para melhor desempenho
+            )
+            
+            if not results:
+                null_result = {"type": "image", "content": None, "description": ""}
+                self._context_cache[cache_key] = {
+                    "data": null_result,
+                    "timestamp": time.time()
+                }
+                return null_result
 
             image_uuid = results[0].metadata.get("image_uuid")
             if not image_uuid:
-                return {"type": "image", "content": None, "description": ""}
+                null_result = {"type": "image", "content": None, "description": ""}
+                self._context_cache[cache_key] = {
+                    "data": null_result,
+                    "timestamp": time.time()
+                }
+                return null_result
 
-            return await self.retrieve_image_and_description(image_uuid)
+            # Obtém a imagem e descrição
+            image_result = await self.retrieve_image_and_description(image_uuid)
+            
+            # Armazena no cache
+            self._context_cache[cache_key] = {
+                "data": image_result,
+                "timestamp": time.time()
+            }
+            
+            return image_result
         except Exception as e:
-            #print(f"[RETRIEVAL] Error in image retrieval: {e}")
+            print(f"[RETRIEVAL] Erro na recuperação de imagem: {e}")
             return {"type": "image", "content": None, "description": ""}
 
-    async def retrieve_table_context(self, query: str) -> Dict[str, Any]:
+    async def _get_table_context(self, query: str) -> Dict[str, Any]:
+        """Obtém contexto de tabela com cache e processamento inteligente"""
+        cache_key = self._get_cache_key("table", query)
+        
+        # Verifica se existe no cache
+        if cache_key in self._context_cache:
+            entry = self._context_cache[cache_key]
+            if self._is_cache_valid(entry["timestamp"]):
+                return entry["data"]
+        
+        # Caso não esteja em cache ou expirado, busca novamente
         try:
             results = self.qdrant_handler.similarity_search_with_filter(
                 query=query,
                 student_email=self.student_email,
                 session_id=self.session_id,
                 disciplina_id=self.disciplina,
-                specific_metadata={"type": "table"}
+                specific_metadata={"type": "table"},
+                k=2  # Busca até 2 tabelas
             )
 
             if not results:
-                return {"type": "table", "content": None}
-
-            return {
+                null_result = {"type": "table", "content": None}
+                self._context_cache[cache_key] = {
+                    "data": null_result,
+                    "timestamp": time.time()
+                }
+                return null_result
+            
+            # Processa a tabela para exibição
+            processed_table = await self._process_table_content(results[0].page_content, query)
+            source = results[0].metadata.get("source", "Tabela")
+            
+            table_result = {
                 "type": "table",
-                "content": results[0].page_content,
+                "content": processed_table,
+                "source": source,
                 "metadata": results[0].metadata
             }
+            
+            # Armazena no cache
+            self._context_cache[cache_key] = {
+                "data": table_result,
+                "timestamp": time.time()
+            }
+            
+            return table_result
         except Exception as e:
-            #print(f"[RETRIEVAL] Error in table retrieval: {e}")
+            print(f"[RETRIEVAL] Erro na recuperação de tabela: {e}")
             return {"type": "table", "content": None}
+            
+    async def _process_table_content(self, table_content: str, query: str) -> str:
+        """Processa o conteúdo da tabela para melhor usabilidade"""
+        try:
+            # Verifica se a tabela está em um formato reconhecível
+            if not table_content or len(table_content) < 10:
+                return table_content
+                
+            # Tenta identificar se é uma tabela CSV, Markdown ou outro formato
+            lines = table_content.strip().split("\n")
+            
+            # Verifica se parece uma tabela markdown
+            if len(lines) > 2 and "|" in lines[0] and "-+-" in lines[1]:
+                # Parece ser uma tabela markdown
+                return self._format_markdown_table(lines, query)
+                
+            # Verifica se parece uma tabela CSV
+            if len(lines) > 1 and "," in lines[0]:
+                # Parece ser uma tabela CSV
+                return self._format_csv_table(lines, query)
+                
+            # Para outros formatos, tenta fazer uma formatação básica
+            # Divide em linhas e trunca se for muito grande
+            if len(lines) > 15:
+                header = lines[:2]  # Mantém cabeçalho
+                # Seleciona linhas mais relevantes com base na consulta
+                relevant_lines = self._select_relevant_table_rows(lines[2:], query)
+                # Limita a 10 linhas no total
+                selected_lines = header + relevant_lines[:10]
+                # Adiciona indicação se truncou
+                if len(lines) > 12:
+                    selected_lines.append("... (tabela truncada)")
+                return "\n".join(selected_lines)
+            
+            # Se não for muito grande, retorna como está
+            return table_content
+                
+        except Exception as e:
+            print(f"[RETRIEVAL] Erro ao processar tabela: {e}")
+            return table_content  # Retorna o conteúdo original em caso de erro
+    
+    def _format_markdown_table(self, lines: List[str], query: str) -> str:
+        """Formata tabela markdown mantendo estrutura e selecionando linhas relevantes"""
+        # Preserva cabeçalho e linha separadora
+        header = lines[:2]
+        
+        # Se a tabela não for muito grande, usa toda
+        if len(lines) <= 12:
+            return "\n".join(lines)
+            
+        # Seleciona linhas mais relevantes
+        content_lines = lines[2:]
+        
+        # Filtra linhas relevantes com base na consulta
+        relevant_lines = self._select_relevant_table_rows(content_lines, query)
+        
+        # Limita a um número razoável de linhas
+        selected_lines = relevant_lines[:10]
+        
+        # Formata a tabela final
+        result_table = header + selected_lines
+        
+        # Indica se foi truncada
+        if len(content_lines) > len(selected_lines):
+            truncated_msg = f"| *Tabela truncada (mostrando {len(selected_lines)} de {len(content_lines)} linhas)* |"
+            result_table.append(truncated_msg)
+            
+        return "\n".join(result_table)
+    
+    def _format_csv_table(self, lines: List[str], query: str) -> str:
+        """Converte tabela CSV para formato markdown mais legível"""
+        if not lines:
+            return ""
+            
+        # Extrai cabeçalho
+        header = lines[0].split(",")
+        header = [col.strip() for col in header]
+        
+        # Cria linha separadora markdown
+        separator = "|" + "|".join(["---" for _ in header]) + "|"
+        
+        # Formata cabeçalho como markdown
+        header_md = "|" + "|".join(header) + "|"
+        
+        # Se a tabela não for muito grande, converte toda
+        if len(lines) <= 12:
+            # Converte linhas de conteúdo para markdown
+            content_lines = []
+            for line in lines[1:]:
+                cols = line.split(",")
+                cols = [col.strip() for col in cols]
+                content_lines.append("|" + "|".join(cols) + "|")
+                
+            return "\n".join([header_md, separator] + content_lines)
+        
+        # Para tabelas grandes, seleciona linhas relevantes
+        content_lines = lines[1:]
+        
+        # Filtra linhas relevantes
+        relevant_lines = self._select_relevant_table_rows(content_lines, query)
+        
+        # Limita a um número razoável de linhas
+        selected_lines = relevant_lines[:10]
+        
+        # Converte para markdown
+        md_lines = []
+        for line in selected_lines:
+            cols = line.split(",")
+            cols = [col.strip() for col in cols]
+            md_lines.append("|" + "|".join(cols) + "|")
+            
+        # Adiciona nota sobre truncamento se necessário
+        if len(content_lines) > len(selected_lines):
+            truncated_msg = f"|*Tabela truncada (mostrando {len(selected_lines)} de {len(content_lines)} linhas)*|"
+            md_lines.append(truncated_msg)
+            
+        return "\n".join([header_md, separator] + md_lines)
+    
+    def _select_relevant_table_rows(self, lines: List[str], query: str) -> List[str]:
+        """Seleciona linhas da tabela mais relevantes para a consulta"""
+        # Palavras-chave da consulta
+        keywords = query.lower().split()
+        
+        # Filtra palavras muito comuns
+        stopwords = {"de", "a", "o", "que", "e", "do", "da", "em", "um", "para", "é", "com", "não", "uma", "os", "no", "na", "se", "por", "como", "mas", "ao", "dos", "as", "ou", "seu", "sua", "quais", "qual", "quem", "quanto"}
+        keywords = [word for word in keywords if word not in stopwords and len(word) > 2]
+        
+        # Pontua cada linha com base na relevância
+        scored_lines = []
+        for line in lines:
+            line_lower = line.lower()
+            
+            # Calcula pontuação baseada em quantas palavras-chave aparecem
+            score = sum(1 for keyword in keywords if keyword in line_lower)
+            
+            # Adiciona a linha com sua pontuação
+            scored_lines.append((score, line))
+        
+        # Ordena por pontuação, maior primeiro
+        scored_lines.sort(reverse=True)
+        
+        # Retorna as linhas mais relevantes
+        return [line for _, line in scored_lines]
 
     async def retrieve_image_and_description(self, image_uuid: str) -> Dict[str, Any]:
-        """
-        Recupera a imagem e sua descrição de forma assíncrona.
-        """
+        """Recupera imagem e descrição de forma assíncrona"""
+        # Verifica o cache de imagem específica
+        cache_key = f"img:{image_uuid}"
+        if cache_key in self._context_cache:
+            entry = self._context_cache[cache_key]
+            if self._is_cache_valid(entry["timestamp"]):
+                return entry["data"]
+        
         try:
-            #print(f"[RETRIEVAL] Recuperando imagem com UUID: {image_uuid}")
+            # Busca no MongoDB
             image_data = await self.image_collection.find_one({"_id": image_uuid})
             if not image_data:
-                #print(f"[RETRIEVAL] Imagem não encontrada: {image_uuid}")
                 return {"type": "error", "message": "Imagem não encontrada"}
 
             image_bytes = image_data.get("image_data")
             if not image_bytes:
-                #print("[RETRIEVAL] Dados da imagem ausentes")
                 return {"type": "error", "message": "Dados da imagem ausentes"}
 
+            # Processamento de bytes
             if isinstance(image_bytes, bytes):
                 processed_bytes = image_bytes
             elif isinstance(image_bytes, str):
                 processed_bytes = image_bytes.encode('utf-8')
             else:
-                #print(f"[RETRIEVAL] Formato de imagem não suportado: {type(image_bytes)}")
                 return {"type": "error", "message": "Formato de imagem não suportado"}
 
+            # Busca metadados no vetor
             results = self.qdrant_handler.similarity_search_with_filter(
                 query="",
                 student_email=self.student_email,
@@ -619,18 +1044,25 @@ class RetrievalTools:
                 use_session=True,
                 specific_metadata={"image_uuid": image_uuid, "type": "image"}
             )
-            #print(f"[RETRIEVAL] Resultados da busca de descrição: {results}")
+            
             if not results:
                 return {"type": "error", "message": "Descrição da imagem não encontrada"}
-            #print("[RETRIEVAL] Imagem e descrição recuperadas com sucesso")
-            #print(f"[RETRIEVAL] Descrição da imagem: {results[0].page_content}")
-            return {
+                
+            result = {
                 "type": "image",
                 "image_bytes": processed_bytes,
                 "description": results[0].page_content
             }
+            
+            # Armazena no cache
+            self._context_cache[cache_key] = {
+                "data": result,
+                "timestamp": time.time()
+            }
+            
+            return result
         except Exception as e:
-            #print(f"[RETRIEVAL] Erro ao recuperar imagem: {e}")
+            print(f"[RETRIEVAL] Erro ao recuperar imagem: {e}")
             import traceback
             traceback.print_exc()
             return {"type": "error", "message": str(e)}
@@ -642,27 +1074,29 @@ class RetrievalTools:
         image_context: Dict[str, Any],
         table_context: Dict[str, Any]
     ) -> Dict[str, Any]:
+        """Analisa a relevância dos contextos com processamento otimizado"""
+        # Verifica se há algum contexto para analisar
+        if not any([text_context, image_context.get("description") if isinstance(image_context, dict) else False, 
+                  table_context.get("content") if isinstance(table_context, dict) else False]):
+            return self._get_default_analysis()
+
+        # Prepara os trechos de contexto para análise
+        image_description = ""
+        if image_context and isinstance(image_context, dict):
+            image_description = image_context.get("description", "")
+
+        table_content = ""
+        if table_context and isinstance(table_context, dict):
+            table_content = table_context.get("content", "")
+
+        # Trunca os contextos para economizar tokens
+        text_preview = str(text_context)[:300] + "..." if text_context and len(str(text_context)) > 300 else str(text_context or "")
+        image_preview = str(image_description)[:300] + "..." if len(str(image_description)) > 300 else str(image_description)
+        table_preview = str(table_content)[:300] + "..." if len(str(table_content)) > 300 else str(table_content)
+
+        # Gera a análise de relevância
         try:
-            if not any([text_context, image_context, table_context]):
-                #print("[RETRIEVAL] No context available for relevance analysis")
-                return self._get_default_analysis()
-
             prompt = ChatPromptTemplate.from_template(self.RELEVANCE_ANALYSIS_PROMPT)
-
-            image_description = ""
-            if image_context and isinstance(image_context, dict):
-                image_description = image_context.get("description", "")
-
-            # Tratamento seguro para contexto de tabela
-            table_content = ""
-            if table_context and isinstance(table_context, dict):
-                table_content = table_context.get("content", "")
-
-            # Garantir que todos os contextos são strings antes de aplicar slice
-            text_preview = str(text_context)[:500] + "..." if text_context and len(str(text_context)) > 500 else str(text_context or "")
-            image_preview = str(image_description)[:500] + "..." if len(str(image_description)) > 500 else str(image_description)
-            table_preview = str(table_content)[:500] + "..." if len(str(table_content)) > 500 else str(table_content)
-
             response = await self.model.ainvoke(prompt.format(
                 question=original_question,
                 text_context=text_preview,
@@ -670,42 +1104,39 @@ class RetrievalTools:
                 table_context=table_preview
             ))
 
-            try:
-                cleaned_content = response.content.strip()
-                if cleaned_content.startswith("```json"):
-                    cleaned_content = cleaned_content[7:]
-                if cleaned_content.endswith("```"):
-                    cleaned_content = cleaned_content[:-3]
-                cleaned_content = cleaned_content.strip()
+            # Processa o resultado
+            cleaned_content = response.content.strip()
+            if cleaned_content.startswith("```json"):
+                cleaned_content = cleaned_content[7:]
+            if cleaned_content.endswith("```"):
+                cleaned_content = cleaned_content[:-3]
+            cleaned_content = cleaned_content.strip()
 
-                analysis = json.loads(cleaned_content)
-                #print(f"[RETRIEVAL] Relevance analysis: {analysis}")
+            analysis = json.loads(cleaned_content)
+            
+            # Valida os campos
+            required_fields = ["text", "image", "table", "recommended_context"]
+            if not all(field in analysis for field in required_fields):
+                raise ValueError("Missing required fields in analysis")
 
-                required_fields = ["text", "image", "table", "recommended_context"]
-                if not all(field in analysis for field in required_fields):
-                    raise ValueError("Missing required fields in analysis")
+            return analysis
 
-                return analysis
-
-            except json.JSONDecodeError as e:
-                #print(f"[RETRIEVAL] Error parsing relevance analysis: {e}")
-                #print(f"[RETRIEVAL] Invalid JSON content: {cleaned_content}")
-                return self._get_default_analysis()
-            except ValueError as e:
-                #print(f"[RETRIEVAL] Validation error: {e}")
-                return self._get_default_analysis()
-
-        except Exception as e:
-            #print(f"[RETRIEVAL] Error in analyze_context_relevance: {e}")
+        except (json.JSONDecodeError, ValueError, Exception) as e:
+            print(f"[RETRIEVAL] Erro na análise de relevância: {str(e)}")
             return self._get_default_analysis()
 
     def _get_default_analysis(self) -> Dict[str, Any]:
+        """Análise padrão quando não há contexto ou ocorre erro"""
         return {
-            "text": {"score": 0, "reason": "Default fallback due to analysis error"},
-            "image": {"score": 0, "reason": "Default fallback due to analysis error"},
-            "table": {"score": 0, "reason": "Default fallback due to analysis error"},
-            "recommended_context": "combined"
+            "text": {"score": 0.5, "reason": "Contexto padrão utilizado"},
+            "image": {"score": 0.2, "reason": "Sem imagem relevante"},
+            "table": {"score": 0.1, "reason": "Sem tabela relevante"},
+            "recommended_context": "text"
         }
+        
+    def clear_cache(self):
+        """Limpa o cache de contexto"""
+        self._context_cache = {}
 
 def create_retrieval_node(tools: RetrievalTools):
     async def retrieve_context(state: AgentState) -> AgentState:
@@ -1187,153 +1618,408 @@ REGRAS DE OURO:
     return generate_plan
 
 def create_teaching_node():
-    CONTEXT_BASED_PROMPT = """
-    ROLE: Tutor especializado em explicar materiais e contextos educacionais.
+    """
+    Cria um nó de ensino melhorado com variabilidade nas respostas
+    e personalização baseada no perfil do aluno.
+    """
     
-    OBJETIVO: Explicar detalhadamente o contexto fornecido e guiar o aluno na compreensão do material.
-
-    Plano de Resposta:
-    {learning_plan}
-
-    Perfil do Aluno:
-    {user_profile}
-
-    Fonte de Informação:
-    {source_type}
-
-    Contexto Principal (OBRIGATÓRIO EXPLICAR):
-    {primary_context}
-
-    Contextos Secundários (EXPLICAR SE RELEVANTES):
-    {secondary_contexts}
-
-    Histórico da Conversa:
-    {chat_history}
-
-    Mensagem do aluno:
-    {question}
-
-    ESTRUTURA DA RESPOSTA:
-    - SE houver contexto principal, explique detalhadamente
-    - Responda como um tutor educacional sempre orientando o aluno a chegar na resposta e dando proximos passos.
-
-    DIRETRIZES:
-    - NUNCA presuma conhecimento prévio sem explicar
-    - NUNCA pule a explicação do contexto principal
-    - Use linguagem clara e objetiva
-    - Mantenha foco educacional
-
-    ATENÇÃO: 
-    - Você DEVE explicar o contexto fornecido antes de qualquer outra coisa
-    - A resposta deve ser direta ao aluno
-    - Mantenha a resposta educacional
-    - Incentive a busca da informação pelo aluno
-    """
-
-    DIRECT_RESPONSE_PROMPT = """
-    ROLE: Tutor educacional
-
-    TASK: Guiar o aluno na compreensão e resolução de questões sem dar respostas diretas.
-
-    INSTRUCTIONS: 
-    Leita atentamente o plano de resposta e a mensagem do aluno. Forneça orientações e dicas para ajudar o aluno a alcancar o objetivo do plano de resposta
-        - Plano de Resposta:
-        {learning_plan}
-
-        - Perfil do Aluno:
+    # Cada estilo de aprendizagem terá um template diferente
+    PROMPT_TEMPLATES = {
+        "Sequencial": """
+        ROLE: Tutor Educacional - Abordagem Sequencial
+        
+        PERFIL DO ALUNO:
         {user_profile}
-
-        - Histórico da Conversa:
-        {chat_history}
-
-        - Mensagem do aluno:
-        {question}
-
-    ESTRUTURA DA RESPOSTA:
-    - Responda como um tutor educacional sempre orientando o aluno a chegar na resposta. Incentive o raciocínio e a busca ativa de soluções.
-    - Siga o plano de resposta fornecido e adapte conforme necessário.
-
-    DIRETRIZES:
-    - Use linguagem amigavel e acessível
-    - Foque em conceitos fundamentais
-    - Adapte ao estilo de aprendizagem do aluno
-    - Incentive o raciocínio do aluno
-
-    ATENÇÃO:
-    - Voce DEVE guiar o aluno sem dar respostas diretas
-    - Voce responde diretamente ao aluno
+        
+        SUA ABORDAGEM:
+        Para este aluno com preferência Sequencial, use estas técnicas:
+        - Apresente conceitos em passos lógicos e ordenados
+        - Forneça explicações detalhadas passo a passo
+        - Destaque a progressão linear do conhecimento
+        - Construa sobre conceitos já apresentados
+        - Use listas numeradas e sequências claras
+        
+        CONTEXTO:
+        - Plano: {learning_plan}
+        - Fonte: {source_type}
+        - Contexto principal: {primary_context}
+        - Contextos secundários: {secondary_contexts}
+        - Histórico da conversa: {chat_history}
+        - Pergunta atual: {question}
+        
+        FORMATO DA RESPOSTA:
+        1. Inicie com uma breve conexão ao histórico recente
+        2. Apresente uma sequência clara de passos ou conceitos
+        3. Explique cada ponto separadamente e em ordem lógica
+        4. Faça conexões explícitas entre os conceitos
+        5. Conclua com os próximos passos lógicos para aprofundamento
+        
+        MANTENHA O FOCO EDUCACIONAL, GUIANDO O ALUNO SEM DAR RESPOSTAS DIRETAS.
+        """,
+        
+        "Global": """
+        ROLE: Tutor Educacional - Abordagem Global
+        
+        PERFIL DO ALUNO:
+        {user_profile}
+        
+        SUA ABORDAGEM:
+        Para este aluno com preferência Global, use estas técnicas:
+        - Comece com o panorama geral e a visão completa
+        - Relacione o tópico com o contexto mais amplo
+        - Faça conexões entre diferentes áreas do conhecimento
+        - Use analogias e metáforas
+        - Destaque padrões e relações entre conceitos
+        
+        CONTEXTO:
+        - Plano: {learning_plan}
+        - Fonte: {source_type}
+        - Contexto principal: {primary_context}
+        - Contextos secundários: {secondary_contexts}
+        - Histórico da conversa: {chat_history}
+        - Pergunta atual: {question}
+        
+        FORMATO DA RESPOSTA:
+        1. Inicie com uma visão geral do tema e sua relevância
+        2. Conecte o tópico com outros conceitos já conhecidos
+        3. Apresente o quadro completo antes dos detalhes
+        4. Destaque como as partes se encaixam no todo
+        5. Conclua mostrando como este conhecimento se integra ao campo maior
+        
+        MANTENHA O FOCO EDUCACIONAL, GUIANDO O ALUNO SEM DAR RESPOSTAS DIRETAS.
+        """,
+        
+        "Visual": """
+        ROLE: Tutor Educacional - Abordagem Visual
+        
+        PERFIL DO ALUNO:
+        {user_profile}
+        
+        SUA ABORDAGEM:
+        Para este aluno com preferência Visual, use estas técnicas:
+        - Descreva imagens mentais e representações visuais
+        - Use linguagem rica em descrições visuais
+        - Sugira diagramas, gráficos e mapas conceituais
+        - Organize informações espacialmente
+        - Utilize metáforas visuais para explicar conceitos
+        
+        CONTEXTO:
+        - Plano: {learning_plan}
+        - Fonte: {source_type}
+        - Contexto principal: {primary_context}
+        - Contextos secundários: {secondary_contexts}
+        - Histórico da conversa: {chat_history}
+        - Pergunta atual: {question}
+        
+        FORMATO DA RESPOSTA:
+        1. Crie uma imagem mental clara do conceito
+        2. Descreva relações espaciais entre elementos
+        3. Sugira como o aluno poderia visualizar o conceito
+        4. Utilize descrições ricas em detalhes visuais
+        5. Recomende recursos visuais complementares quando possível
+        
+        MANTENHA O FOCO EDUCACIONAL, GUIANDO O ALUNO SEM DAR RESPOSTAS DIRETAS.
+        """,
+        
+        "Verbal": """
+        ROLE: Tutor Educacional - Abordagem Verbal
+        
+        PERFIL DO ALUNO:
+        {user_profile}
+        
+        SUA ABORDAGEM:
+        Para este aluno com preferência Verbal, use estas técnicas:
+        - Utilize explicações detalhadas e precisas em texto
+        - Defina termos com cuidado e precisão
+        - Ofereça explicações claras e bem estruturadas
+        - Use narrativas e explicações passo a passo
+        - Forneça definições formais quando apropriado
+        
+        CONTEXTO:
+        - Plano: {learning_plan}
+        - Fonte: {source_type}
+        - Contexto principal: {primary_context}
+        - Contextos secundários: {secondary_contexts}
+        - Histórico da conversa: {chat_history}
+        - Pergunta atual: {question}
+        
+        FORMATO DA RESPOSTA:
+        1. Comece com definições claras dos termos-chave
+        2. Desenvolva explicações bem estruturadas
+        3. Use vocabulário preciso e técnico quando necessário
+        4. Forneça exemplos verbais e narrativos
+        5. Conclua com um resumo verbal conciso dos pontos principais
+        
+        MANTENHA O FOCO EDUCACIONAL, GUIANDO O ALUNO SEM DAR RESPOSTAS DIRETAS.
+        """,
+        
+        "Ativo": """
+        ROLE: Tutor Educacional - Abordagem Ativa
+        
+        PERFIL DO ALUNO:
+        {user_profile}
+        
+        SUA ABORDAGEM:
+        Para este aluno com preferência Ativa, use estas técnicas:
+        - Proponha exercícios práticos e aplicações
+        - Incentive a experimentação e tentativa-erro
+        - Faça perguntas que estimulem o pensamento
+        - Sugira atividades práticas e projetos
+        - Encoraje a aplicação imediata dos conceitos
+        
+        CONTEXTO:
+        - Plano: {learning_plan}
+        - Fonte: {source_type}
+        - Contexto principal: {primary_context}
+        - Contextos secundários: {secondary_contexts}
+        - Histórico da conversa: {chat_history}
+        - Pergunta atual: {question}
+        
+        FORMATO DA RESPOSTA:
+        1. Comece com uma questão desafiadora sobre o tema
+        2. Apresente o conteúdo intercalado com perguntas reflexivas
+        3. Sugira pelo menos um exercício prático ou atividade
+        4. Proponha um pequeno desafio que aplique o conceito
+        5. Incentive o aluno a experimentar e compartilhar resultados
+        
+        MANTENHA O FOCO EDUCACIONAL, GUIANDO O ALUNO SEM DAR RESPOSTAS DIRETAS.
+        """,
+        
+        "Reflexivo": """
+        ROLE: Tutor Educacional - Abordagem Reflexiva
+        
+        PERFIL DO ALUNO:
+        {user_profile}
+        
+        SUA ABORDAGEM:
+        Para este aluno com preferência Reflexiva, use estas técnicas:
+        - Ofereça tempo e espaço para reflexão
+        - Apresente diferentes perspectivas sobre o tema
+        - Estimule o pensamento crítico e a análise
+        - Forneça material para consideração aprofundada
+        - Encoraje a conexão com conhecimentos prévios
+        
+        CONTEXTO:
+        - Plano: {learning_plan}
+        - Fonte: {source_type}
+        - Contexto principal: {primary_context}
+        - Contextos secundários: {secondary_contexts}
+        - Histórico da conversa: {chat_history}
+        - Pergunta atual: {question}
+        
+        FORMATO DA RESPOSTA:
+        1. Apresente o conceito de forma completa primeiro
+        2. Ofereça múltiplas perspectivas ou interpretações
+        3. Levante questões reflexivas sobre as implicações
+        4. Convide o aluno a considerar e analisar o conteúdo
+        5. Conclua com perguntas abertas que estimulem reflexão contínua
+        
+        MANTENHA O FOCO EDUCACIONAL, GUIANDO O ALUNO SEM DAR RESPOSTAS DIRETAS.
+        """,
+        
+        "Sensorial": """
+        ROLE: Tutor Educacional - Abordagem Sensorial
+        
+        PERFIL DO ALUNO:
+        {user_profile}
+        
+        SUA ABORDAGEM:
+        Para este aluno com preferência Sensorial, use estas técnicas:
+        - Forneça exemplos concretos e práticos
+        - Concentre-se em fatos observáveis e dados
+        - Use exemplos do mundo real e aplicações práticas
+        - Apresente procedimentos e métodos específicos
+        - Inclua detalhes e passos bem definidos
+        
+        CONTEXTO:
+        - Plano: {learning_plan}
+        - Fonte: {source_type}
+        - Contexto principal: {primary_context}
+        - Contextos secundários: {secondary_contexts}
+        - Histórico da conversa: {chat_history}
+        - Pergunta atual: {question}
+        
+        FORMATO DA RESPOSTA:
+        1. Comece com um exemplo concreto ou caso prático
+        2. Forneça dados específicos e observáveis
+        3. Demonstre aplicações práticas do conceito
+        4. Use linguagem direta e precisa
+        5. Conclua com sugestões de aplicação no mundo real
+        
+        MANTENHA O FOCO EDUCACIONAL, GUIANDO O ALUNO SEM DAR RESPOSTAS DIRETAS.
+        """,
+        
+        "Intuitivo": """
+        ROLE: Tutor Educacional - Abordagem Intuitiva
+        
+        PERFIL DO ALUNO:
+        {user_profile}
+        
+        SUA ABORDAGEM:
+        Para este aluno com preferência Intuitiva, use estas técnicas:
+        - Foque em conceitos abstratos e teóricos
+        - Explore significados e interpretações
+        - Discuta possibilidades e inovações
+        - Apresente padrões e tendências gerais
+        - Conecte o tema com teoria e princípios gerais
+        
+        CONTEXTO:
+        - Plano: {learning_plan}
+        - Fonte: {source_type}
+        - Contexto principal: {primary_context}
+        - Contextos secundários: {secondary_contexts}
+        - Histórico da conversa: {chat_history}
+        - Pergunta atual: {question}
+        
+        FORMATO DA RESPOSTA:
+        1. Inicie com um princípio ou teoria geral
+        2. Explore significados subjacentes e implicações
+        3. Faça conexões com conceitos abstratos relacionados
+        4. Discuta potenciais inovações ou aplicações futuras
+        5. Conclua com considerações teóricas mais amplas
+        
+        MANTENHA O FOCO EDUCACIONAL, GUIANDO O ALUNO SEM DAR RESPOSTAS DIRETAS.
+        """
+    }
+    
+    # Prompt dedicado para respostas diretas (sem contexto)
+    DIRECT_PROMPT = """
+    ROLE: Tutor Educacional Personalizado
+    
+    PERFIL DO ALUNO E SUAS PREFERÊNCIAS:
+    {user_profile}
+    
+    PLANO DE RESPOSTA E CONTEXTO:
+    {learning_plan}
+    
+    HISTÓRICO DA CONVERSA:
+    {chat_history}
+    
+    PERGUNTA ATUAL:
+    {question}
+    
+    SUA MISSÃO:
+    1. Criar uma resposta educativa personalizada alinhada com as preferências de aprendizagem do aluno
+    2. Guiar sem dar respostas diretas, incentivando o desenvolvimento do raciocínio próprio
+    3. Variar seu estilo de comunicação para evitar respostas previsíveis e repetitivas 
+    4. Adaptar seu tom e abordagem para otimizar o engajamento
+    
+    DIRETRIZES DE RESPOSTA:
+    - SEMPRE personalize seu estilo conforme as preferências do aluno (Sensorial/Intuitivo, Visual/Verbal, Ativo/Reflexivo, Sequencial/Global)
+    - NUNCA dê a resposta completa, mas guie com ferramentas apropriadas ao estilo do aluno
+    - Use vocabulário progressivamente mais complexo e técnico conforme o aluno avança
+    - Evite repetir padrões de resposta usados anteriormente
+    
+    IMPORTANTE: Sua resposta deve ser diferente de interações anteriores, mesmo para perguntas similares. 
+    Inove constantemente na forma de apresentar o conteúdo.
     """
-
-    context_prompt = ChatPromptTemplate.from_template(CONTEXT_BASED_PROMPT)
-    direct_prompt = ChatPromptTemplate.from_template(DIRECT_RESPONSE_PROMPT)
-    model = ChatOpenAI(model="gpt-4o", temperature=0.2)
+    
+    # Cache para tracking de variabilidade
+    response_patterns = {}
+    
+    # Inicializa modelos com diferentes temperaturas para variabilidade
+    models = {
+        "precise": ChatOpenAI(model="gpt-4o", temperature=0.1),
+        "creative": ChatOpenAI(model="gpt-4o", temperature=0.4),
+        "balanced": ChatOpenAI(model="gpt-4o", temperature=0.2)
+    }
 
     def generate_teaching_response(state: AgentState) -> AgentState:
-        #print("\n[NODE:TEACHING] Starting teaching response generation")
+        """Gera resposta de ensino personalizada"""
+        # Obtém dados necessários
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
-        chat_history = format_chat_history(state["chat_history"])
-
+        chat_history = format_chat_history(state["chat_history"], max_messages=5)
+        
         try:
-            # Determinar se é resposta baseada em contexto ou direta
+            # Identifica modelo principal
+            session_id = state.get("session_id", "default")
+            request_count = len([m for m in state.get("chat_history", []) if isinstance(m, HumanMessage)])
+            
+            # Rotação de modelos para garantir variabilidade nas respostas
+            if request_count % 3 == 0:
+                model_key = "creative"  # Maior variabilidade a cada 3 perguntas
+            elif request_count % 3 == 1:
+                model_key = "balanced"  # Balanceado para maioria das respostas
+            else:
+                model_key = "precise"   # Mais preciso periodicamente
+            
+            model = models[model_key]
+            
+            # Determina o tipo de resposta (direta ou baseada em contexto)
             if state.get("next_step") == "direct_answer":
-                #print("[NODE:TEACHING] Using direct response prompt")
-                #print(f"[NODE:TEACHING] Current plan: {state["current_plan"]}")
-                explanation = model.invoke(direct_prompt.format(
+                # Resposta direta (sem retrieval)
+                prompt = ChatPromptTemplate.from_template(DIRECT_PROMPT)
+                explanation = model.invoke(prompt.format(
                     learning_plan=state["current_plan"],
                     user_profile=state["user_profile"],
                     question=latest_question,
                     chat_history=chat_history
                 ))
                 image_content = None
-                #print(f"[NODE:TEACHING] Direct response: {explanation.content}")
-
+                
             else:
-                #print("[NODE:TEACHING] Using context-based prompt")
-                # Processar contextos para resposta baseada em contexto
+                # Resposta baseada em contexto recuperado
+                # Processa os contextos disponíveis
                 if state.get("web_search_results"):
+                    # Formatação para dados de busca web
                     source_type = "Resultados de busca web"
                     web_results = state["web_search_results"]
                     primary_context = f"Wikipedia:\n{web_results.get('wikipedia', 'Não disponível')}"
                     secondary_contexts = f"YouTube:\n{web_results.get('youtube', 'Não disponível')}"
+                    
                 else:
+                    # Formatação para dados de retrieval de contexto
                     contexts = state["extracted_context"]
                     relevance = contexts.get("relevance_analysis", {})
-
+                    
+                    # Analisa scores de contexto
                     context_scores = {
                         "text": relevance.get("text", {}).get("score", 0),
                         "image": relevance.get("image", {}).get("score", 0),
                         "table": relevance.get("table", {}).get("score", 0)
                     }
-
+                    
+                    # Ordena contextos por relevância
                     sorted_contexts = sorted(
                         context_scores.items(), 
                         key=lambda x: x[1], 
                         reverse=True
                     )
-
+                    
+                    # Define tipo fonte e contexto principal
                     source_type = "Material de estudo"
-                    primary_type = sorted_contexts[0][0]
-
+                    primary_type = sorted_contexts[0][0] if sorted_contexts else "text"
+                    
+                    # Formata contexto primário
                     if primary_type == "text":
                         primary_context = f"Texto: {contexts.get('text', '')}"
                     elif primary_type == "image":
-                        primary_context = f"Imagem: {contexts.get('image', {}).get('description', '')}"
+                        primary_context = f"Descrição da Imagem: {contexts.get('image', {}).get('description', '')}"
                     else:
                         primary_context = f"Tabela: {contexts.get('table', {}).get('content', '')}"
-
+                    
+                    # Prepara contextos secundários
                     secondary_contexts_list = []
                     for context_type, score in sorted_contexts[1:]:
-                        if score > 0.3:
+                        if score > 0.3:  # Filtra apenas contextos relevantes
                             if context_type == "text":
-                                secondary_contexts_list.append(f"Texto Complementar: {contexts.get('text', '')}")
+                                secondary_contexts_list.append(f"Texto: {contexts.get('text', '')}")
                             elif context_type == "image":
                                 secondary_contexts_list.append(f"Descrição da Imagem: {contexts.get('image', {}).get('description', '')}")
                             elif context_type == "table":
-                                secondary_contexts_list.append(f"Dados da Tabela: {contexts.get('table', {}).get('content', '')}")
+                                secondary_contexts_list.append(f"Tabela: {contexts.get('table', {}).get('content', '')}")
                     
                     secondary_contexts = "\n\n".join(secondary_contexts_list)
-                #print(f"[NODE:TEACHING] Current CONTEXT plan: {state["current_plan"]}")
-                explanation = model.invoke(context_prompt.format(
+                
+                # Determina o estilo de aprendizagem predominante para personalizar o prompt
+                learning_style = determine_predominant_style(state["user_profile"])
+                prompt_template = PROMPT_TEMPLATES.get(learning_style, PROMPT_TEMPLATES["Verbal"])
+                
+                # Cria o prompt personalizado
+                prompt = ChatPromptTemplate.from_template(prompt_template)
+                
+                # Invoca o modelo
+                explanation = model.invoke(prompt.format(
                     learning_plan=state["current_plan"],
                     user_profile=state["user_profile"],
                     source_type=source_type,
@@ -1342,18 +2028,21 @@ def create_teaching_node():
                     question=latest_question,
                     chat_history=chat_history
                 ))
-                #print(f"[NODE:TEACHING] Context-based response: {explanation.content}")
-
-                # Processar imagem se disponível e relevante
+                
+                # Processa imagem se disponível e relevante
                 image_content = None
                 if (state.get("extracted_context") and 
                     state["extracted_context"].get("image", {}).get("type") == "image" and
                     state["extracted_context"].get("image", {}).get("image_bytes") and
                     context_scores.get("image", 0) > 0.3):
                     image_content = state["extracted_context"]["image"]["image_bytes"]
-
-            # Format response
+            
+            # Rastreia padrões de resposta para análise
+            track_response_pattern(session_id, latest_question, explanation.content)
+            
+            # Formata a resposta final
             if image_content:
+                # Formata resposta com imagem (multimodal)
                 base64_image = base64.b64encode(image_content).decode('utf-8')
                 response_content = {
                     "type": "multimodal",
@@ -1363,33 +2052,87 @@ def create_teaching_node():
                 response = AIMessage(content=json.dumps(response_content))
                 history_message = AIMessage(content=explanation.content)
             else:
+                # Resposta apenas texto
                 response = explanation
                 history_message = explanation
-
-            # Update state
+            
+            # Atualiza o estado do agente
             new_state = state.copy()
             new_state["messages"] = list(state["messages"]) + [response]
             new_state["chat_history"] = list(state["chat_history"]) + [
                 HumanMessage(content=latest_question),
                 history_message
             ]
+            
             return new_state
-
+            
         except Exception as e:
-            #print(f"[NODE:TEACHING] Error generating response: {str(e)}")
+            print(f"[NODE:TEACHING] Error generating response: {str(e)}")
             import traceback
             traceback.print_exc()
+            
+            # Resposta de erro
             error_message = "Desculpe, encontrei um erro ao processar sua pergunta. Por favor, tente novamente."
             response = AIMessage(content=error_message)
-            history_message = response
-
+            
+            # Atualiza estado com erro
             new_state = state.copy()
             new_state["messages"] = list(state["messages"]) + [response]
             new_state["chat_history"] = list(state["chat_history"]) + [
                 HumanMessage(content=latest_question),
-                history_message
+                response
             ]
+            
             return new_state
+
+    def determine_predominant_style(user_profile: Dict[str, Any]) -> str:
+        """Determina o estilo de aprendizagem predominante do aluno"""
+        try:
+            # Tenta encontrar o estilo de aprendizagem nos dados do perfil
+            learning_styles = user_profile.get("EstiloAprendizagem", {})
+            
+            # Se não houver dados de estilo, use verbal como padrão
+            if not learning_styles:
+                return "Verbal"
+                
+            # Mapeie os estilos para o formato esperado
+            style_map = {
+                "Entrada": {"Visual": "Visual", "Verbal": "Verbal"},
+                "Processamento": {"Ativo": "Ativo", "Reflexivo": "Reflexivo"},
+                "Entendimento": {"Sequencial": "Sequencial", "Global": "Global"},
+                "Percepcao": {"Sensorial": "Sensorial", "Intuitivo": "Intuitivo"}
+            }
+            
+            # Obtém os valores de cada dimensão
+            for dimension, styles in style_map.items():
+                if dimension in learning_styles:
+                    value = learning_styles[dimension]
+                    if value in styles.values():
+                        return value
+            
+            # Fallback para Verbal se nenhum estilo for identificado
+            return "Verbal"
+            
+        except Exception as e:
+            print(f"Error determining learning style: {e}")
+            return "Verbal"  # Estilo padrão em caso de erro
+    
+    def track_response_pattern(session_id: str, question: str, response: str) -> None:
+        """Rastreia padrões nas respostas para evitar repetições"""
+        if session_id not in response_patterns:
+            response_patterns[session_id] = []
+            
+        # Armazena apenas um resumo da resposta para análise
+        response_summary = response[:100] + "..." if len(response) > 100 else response
+        response_patterns[session_id].append({
+            "timestamp": time.time(),
+            "question": question,
+            "response_summary": response_summary
+        })
+        
+        # Limita o histórico para economia de memória
+        if len(response_patterns[session_id]) > 10:
+            response_patterns[session_id] = response_patterns[session_id][-10:]
 
     return generate_teaching_response
 
