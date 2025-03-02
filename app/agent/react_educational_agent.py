@@ -538,7 +538,7 @@ class RetrievalTools:
 
             if not results:
                 return {"type": "error", "message": "Descrição da imagem não encontrada"}
-            print("Image Bytes:", processed_bytes)
+
             return {
                 "type": "image",
                 "image_bytes": processed_bytes,
@@ -739,13 +739,13 @@ Progresso: {progresso}%
 - USE EXEMPLOS CONCRETOS: Forneça exemplos práticos e cenários do mundo real
 - VERIFIQUE A COMPREENSÃO: Regularmente faça perguntas para confirmar o entendimento
 - CORRIJA EQUÍVOCOS: Identifique e corrija gentilmente mal-entendidos
-- USE MATERIAIS VISUAIS: Incorpore imagens quando disponíveis, especialmente para alunos com perfil visual
+- USE MATERIAIS VISUAIS: Incorpore imagens se achar necessário, especialmente para alunos com perfil visual
 
 ## ESTRUTURA DE RESPOSTA:
 1. <pensamento>Seu raciocínio pedagógico detalhado</pensamento>
 2. <ação>Estratégia de ensino escolhida e detalhes. MUITO IMPORTANTE: Se o material de estudo puder conter imagens ou tabelas, escolha 'retrieval' para buscá-las.</ação>
 3. <observação>Reflexão sobre o processo de ensino</observação>
-4. Sua resposta educacional para o aluno (clara, estruturada e adaptada ao contexto)
+4. Sua resposta para o aluno (clara, estruturada e adaptada ao contexto)
    * Introduza o tópico atual e conecte-o ao plano de estudos
    * Explique os conceitos fundamentais com clareza e profundidade
    * Forneça exemplos relevantes e aplicações práticas
@@ -1366,6 +1366,9 @@ def remove_react_tags(text: str) -> str:
     text = re.sub(r'<observação>.*?</observação>', '', text, flags=re.DOTALL)
     text = re.sub(r'<action>.*?</action>', '', text, flags=re.DOTALL)
     text = re.sub(r'<observation>.*?</observation>', '', text, flags=re.DOTALL)
+    
+    # Remove numbered list format that appears at the beginning (1. 2. 3. 4.)
+    text = re.sub(r'^(\d+\.\s*)+', '', text, flags=re.DOTALL)
     
     # Limpar linhas em branco extras
     text = re.sub(r'\n\s*\n', '\n\n', text)
