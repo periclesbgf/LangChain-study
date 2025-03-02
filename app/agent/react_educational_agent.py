@@ -974,20 +974,35 @@ def create_react_node(retrieval_tools: RetrievalTools, web_tools: WebSearchTools
             # Formatar resposta com possível conteúdo de imagem
             response_content = format_response_with_image(final_response, action_result)
             
-            # Atualizar o estado
+            # Atualizar o estado com formato padrão do LangChain
             new_state = state.copy()
+            
+            # Criar mensagem do usuário em formato padrão
+            user_message = HumanMessage(content=latest_question)
+            
+            # Criar mensagem do assistente em formato padrão
             if isinstance(response_content, dict) and "type" in response_content and response_content["type"] == "multimodal":
+                # Para exibição usamos o conteúdo completo serializado
                 response = AIMessage(content=json.dumps(response_content))
-                history_message = AIMessage(content=response_content["content"])
+                
+                # Para compatibilidade com o armazenamento MongoDB, também serializar para histórico
+                # Esta abordagem corresponde ao formato esperado pelo chat_controller._save_chat_history()
+                history_message = AIMessage(content=json.dumps(response_content))
             else:
+                # Para texto simples, usar diretamente
                 response = AIMessage(content=response_content)
                 history_message = response
             
+            # Atualizar messages (para exibição) e chat_history (para contexto)
             new_state["messages"] = list(state["messages"]) + [response]
             new_state["chat_history"] = list(state["chat_history"]) + [
-                HumanMessage(content=latest_question),  # Guardamos a mensagem original do aluno
+                user_message,
                 history_message
             ]
+            
+            print(f"[REACT_AGENT] Adicionado ao histórico: Pergunta ({type(user_message).__name__}) e Resposta ({type(history_message).__name__})")
+            print(f"[REACT_AGENT] Conteúdo da pergunta: {user_message.content[:50]}...")
+            print(f"[REACT_AGENT] Conteúdo da resposta: {history_message.content[:50]}...")
             new_state["thoughts"] = thoughts
             
             # Atualizar contexto se disponível no resultado da ação
@@ -1247,9 +1262,14 @@ def create_react_node(retrieval_tools: RetrievalTools, web_tools: WebSearchTools
                 }
                 print(f"[REACT_AGENT] Image chunk sent")
                 
-                # Salvar na história como multimodal
+                # Preparar mensagens para o histórico de chat no formato correto
+                # Para visualização, usamos o JSON completo
                 response = AIMessage(content=json.dumps(response_content))
-                history_message = AIMessage(content=text_content)
+                
+                # Para o histórico de chat, usamos também o JSON completo para compatibilidade com MongoDB
+                # Esta abordagem corresponde ao formato esperado pelo chat_controller._save_chat_history()
+                history_message = AIMessage(content=json.dumps(response_content))
+                print(f"[REACT_AGENT] Created multimodal history message (serialized as JSON)")
             else:
                 # Se for apenas texto
                 text_content = response_content
@@ -1264,9 +1284,10 @@ def create_react_node(retrieval_tools: RetrievalTools, web_tools: WebSearchTools
                     if chunks_sent % 10 == 0:  # Log a cada 10 chunks
                         print(f"[REACT_AGENT] Sent {chunks_sent}/{len(text_chunks)} text chunks")
                 
-                # Salvar na história como texto normal
+                # Criar mensagem de usuário e assistente para o histórico
+                # Usamos o mesmo formato para ambos response e history_message para consistência
                 response = AIMessage(content=text_content)
-                history_message = response
+                history_message = AIMessage(content=text_content)
                 print(f"[REACT_AGENT] Finished streaming text response ({time.time() - step_time:.2f}s)")
             
             # Yield mensagem de conclusão
@@ -1274,15 +1295,24 @@ def create_react_node(retrieval_tools: RetrievalTools, web_tools: WebSearchTools
             yield {"type": "complete", "content": f"Resposta completa em {total_time:.2f}s."}
             print(f"[REACT_AGENT] Full processing completed in {total_time:.2f}s")
             
-            # Atualizar estado para uso posterior
+            # Atualizar estado para uso posterior com formato padrão do LangChain
             step_time = time.time()
+            
+            # Criar mensagem do usuário em formato padrão
+            user_message = HumanMessage(content=latest_question)
+            
+            # Atualizar state com as mensagens formatadas corretamente
             state["messages"] = list(state["messages"]) + [response]
             state["chat_history"] = list(state["chat_history"]) + [
-                HumanMessage(content=latest_question),
+                user_message,
                 history_message
             ]
             state["thoughts"] = thoughts
+            
             print(f"[REACT_AGENT] State updated, saved {len(thoughts)} chars of thoughts")
+            print(f"[REACT_AGENT] Added to chat_history: user message ({type(user_message).__name__}) and assistant message ({type(history_message).__name__})")
+            print(f"[REACT_AGENT] User message: {user_message.content[:50]}...")
+            print(f"[REACT_AGENT] Assistant message: {history_message.content[:50]}...")
             
             # Atualizar contexto se disponível no resultado da ação
             if "context" in action_result:
@@ -1661,6 +1691,14 @@ class ReactTutorWorkflow:
             
             # Recuperar o resumo atualizado do estudo
             study_summary = await self.progress_manager.get_study_summary(self.session_id)
+            
+            # Log the chat history for debugging
+            chat_history = result["chat_history"]
+            print(f"[REACT_AGENT] Result contains {len(chat_history)} chat history messages")
+            for i, msg in enumerate(chat_history):
+                msg_type = type(msg).__name__
+                content_preview = str(msg.content)[:30] + "..." if len(str(msg.content)) > 30 else str(msg.content)
+                print(f"[REACT_AGENT] Result chat_history[{i}]: {msg_type} - {content_preview}")
             
             # Preparar o resultado final
             final_result = {

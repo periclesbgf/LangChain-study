@@ -375,26 +375,55 @@ class ChatController:
             # Ensure we have a valid chat history (never pass None)
             safe_history = current_history if current_history else []
             
-            # Usar o método de streaming
+            # Usar o método de streaming e coletar texto completo
+            full_text = ""
+            has_image = False
+            image_data = None
+            
             async for chunk in self._tutor_workflow.invoke_streaming(
                 query=user_input,
                 student_profile=self.perfil,
                 current_plan=self.plano_execucao,
                 chat_history=safe_history
             ):
+                # Track content for complete message saving
+                if chunk.get("type") == "chunk":
+                    full_text += chunk.get("content", "")
+                elif chunk.get("type") == "image":
+                    has_image = True
+                    full_text = chunk.get("content", "")  # Texto associado à imagem
+                    image_data = chunk.get("image")
+                
                 # Pass chunks directly from the workflow
                 print(f"CHAT_CONTROLLER: Received chunk: {chunk.get('type')}")
                 yield chunk
 
-            # Add final completion message if needed (but workflow should already send this)
+            # Add final completion message if needed
             processing_time = time.time() - start_time
             logger.info(f"Streaming response completed in {processing_time:.2f}s")
             
-            # Save this chat exchange to history
-            await self._save_chat_history(
-                HumanMessage(content=user_input), 
-                AIMessage(content="[Streaming response]")
-            )
+            # Após finalizar o streaming, salvar mensagem completa no histórico
+            if full_text:
+                print(f"CHAT_CONTROLLER: Salvando mensagem completa no histórico (tamanho: {len(full_text)})")
+                if has_image and image_data:
+                    # Criar conteúdo multimodal
+                    multimodal_content = {
+                        "type": "multimodal",
+                        "content": full_text,
+                        "image": image_data
+                    }
+                    await self._save_chat_history(
+                        HumanMessage(content=user_input),
+                        AIMessage(content=json.dumps(multimodal_content))
+                    )
+                    print(f"CHAT_CONTROLLER: Salvo conteúdo multimodal no histórico")
+                else:
+                    # Texto simples
+                    await self._save_chat_history(
+                        HumanMessage(content=user_input),
+                        AIMessage(content=full_text)
+                    )
+                    print(f"CHAT_CONTROLLER: Salvo texto simples no histórico")
 
         except Exception as e:
             logger.error(f"Error in streaming generator: {e}")
@@ -442,13 +471,49 @@ class ChatController:
         return message.content
 
     async def _save_chat_history(self, user_message: HumanMessage, ai_message: AIMessage):
-        """Save chat history with optimized batching"""
+        """Save chat history with optimized batching and proper format validation"""
         try:
+            # Log the message details for debugging
+            print(f"[CHAT_CONTROLLER] Saving messages to history:")
+            print(f"[CHAT_CONTROLLER]   User message type: {type(user_message).__name__}")
+            if hasattr(user_message, 'content'):
+                print(f"[CHAT_CONTROLLER]   User content preview: {str(user_message.content)[:50]}...")
+            
+            print(f"[CHAT_CONTROLLER]   AI message type: {type(ai_message).__name__}")
+            if hasattr(ai_message, 'content'):
+                if isinstance(ai_message.content, str) and ai_message.content.startswith('{"type":"multimodal"'):
+                    print(f"[CHAT_CONTROLLER]   AI content is multimodal JSON string")
+                else:
+                    print(f"[CHAT_CONTROLLER]   AI content preview: {str(ai_message.content)[:50]}...")
+            
+            # Normalize multimodal content if needed
+            if hasattr(ai_message, 'content') and isinstance(ai_message.content, str):
+                try:
+                    if ai_message.content.startswith('{"type":"multimodal"'):
+                        # Parse the JSON to extract just the text content
+                        multimodal_data = json.loads(ai_message.content)
+                        if multimodal_data.get("type") == "multimodal":
+                            # Create a new message with just the text content
+                            text_content = multimodal_data.get("content", "")
+                            ai_message = AIMessage(
+                                content=text_content,
+                                additional_kwargs={"image_data": multimodal_data.get("image")}
+                            )
+                            print(f"[CHAT_CONTROLLER]   Normalized multimodal message to text + metadata")
+                except json.JSONDecodeError:
+                    print(f"[CHAT_CONTROLLER]   Failed to parse multimodal content as JSON")
+                except Exception as norm_error:
+                    print(f"[CHAT_CONTROLLER]   Error normalizing multimodal content: {norm_error}")
+            
             # Add messages using async-compatible method
             self.chat_history.add_message(user_message)
             self.chat_history.add_message(ai_message)
+            print(f"[CHAT_CONTROLLER]   Messages successfully added to history")
+            
         except Exception as e:
             logger.error(f"Error saving chat history: {e}")
+            import traceback
+            traceback.print_exc()
 
     def _create_chain(self):
         """Create optimized processing chain"""

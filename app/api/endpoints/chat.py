@@ -364,16 +364,29 @@ async def chat_endpoint(
             async def response_stream():
                 print(f"ENDPOINT: Starting response stream")
                 # The controller.handle_user_message now directly returns an async generator when stream=True
+                print(f"ENDPOINT: Starting handle_user_message with stream=True")
                 async_generator = await controller.handle_user_message(
                     request.message,
                     files,
                     stream=True
                 )
 
+                message_content = []  # Acumular o conteúdo completo da mensagem
+                
                 # Now we can iterate over the async generator
                 async for chunk in async_generator:
+                    # Track content for text chunks
+                    if chunk.get("type") == "chunk":
+                        message_content.append(chunk.get("content", ""))
+                    
                     # Convert dict to JSON string with newline for proper streaming
                     yield json.dumps(chunk) + "\n"
+                
+                # Após streaming completo, registrar o conteúdo acumulado para debug
+                if message_content:
+                    full_content = "".join(message_content)
+                    print(f"ENDPOINT: Streaming complete, total content length: {len(full_content)}")
+                    print(f"ENDPOINT: Content preview: {full_content[:100]}...")
 
             return StreamingResponse(
                 response_stream(),
@@ -405,8 +418,9 @@ async def get_chat_history(
     before: Optional[str] = None,
     current_user=Depends(get_current_user)
 ):
-    """Get chat history with optimized database queries and projection"""
+    """Get chat history with optimized database queries"""
     try:
+        print(f"CHAT_HISTORY: Getting history for session {session_id}, user {current_user['sub']}")
         async with chat_manager.get_mongo_manager() as mongo_manager:
             collection = mongo_manager.db['chat_history']
 
@@ -426,72 +440,70 @@ async def get_chat_history(
                         detail="Invalid 'before' timestamp format."
                     )
 
-            # Use projection to limit fields returned
-            projection = {
-                "timestamp": 1,
-                "history": 1,
-                "_id": 0
-            }
-
-            # Execute optimized query
-            cursor = collection.find(
-                query, 
-                projection
-            ).sort("timestamp", -1).limit(limit)
+            # Execute query
+            cursor = collection.find(query)
+            cursor = cursor.sort("timestamp", -1).limit(limit)
+            
+            # Log the count for debugging
+            count = await collection.count_documents(query)
+            print(f"CHAT_HISTORY: Found {count} documents matching query")
 
             messages = []
             async for message_doc in cursor:
                 try:
-                    # O formato das mensagens mudou, precisamos extrair corretamente
-                    history_raw = message_doc.get('history', '{}')
+                    # Log the raw history data for debugging
+                    raw_history = message_doc.get('history', '{}')
+                    print(f"CHAT_HISTORY: Raw history data: {raw_history[:100]}...")
                     
-                    # Logging adicional para debug
-                    logger.info(f"Raw history data: {history_raw[:100]}...")  # Mostra apenas os primeiros 100 chars
-                    
-                    # Parse do JSON
-                    history_data = json.loads(history_raw)
-                    
-                    # Estrutura correta para as mensagens do langchain
-                    # Se for o formato antigo, tenta extrair content do data.content
-                    if 'data' in history_data and 'content' in history_data.get('data', {}):
-                        content = history_data.get('data', {}).get('content', '')
-                        role = history_data.get('type', 'unknown')
-                    # Novo formato
-                    else:
-                        # Novo formato tem tipo e conteúdo diretamente
-                        content = history_data.get('kwargs', {}).get('content', '') or history_data.get('content', '')
-                        role = history_data.get('type', 'unknown')
-                    
+                    history_data = json.loads(raw_history)
+                    content = history_data.get('data', {}).get('content', '')
+                    role = history_data.get('type', 'unknown')
                     timestamp = message_doc.get('timestamp')
                     
-                    # Verificação extra para multimodal
-                    if isinstance(content, str) and content.startswith('{"type":"multimodal"'):
+                    # Log more details about the content structure
+                    print(f"CHAT_HISTORY: Content type: {type(content)}")
+                    if role == 'ai' and isinstance(content, str) and len(content) > 0:
+                        print(f"CHAT_HISTORY: AI Content first char: '{content[0]}'")
+                        if content[0] == '{':
+                            print(f"CHAT_HISTORY: Content appears to be JSON")
+
+                    # Check if content is JSON (could be multimodal or other structured data)
+                    if isinstance(content, str) and content.startswith('{'):
                         try:
-                            # Se for conteúdo multimodal em formato string JSON, extrair apenas texto
-                            multimodal_data = json.loads(content)
-                            if multimodal_data.get('type') == 'multimodal':
-                                content = multimodal_data.get('content', '')
-                        except:
-                            # Se falhar o parsing, manter o conteúdo original
-                            pass
+                            # Try to parse as JSON
+                            content_json = json.loads(content)
+                            print(f"CHAT_HISTORY: Successfully parsed content as JSON: {content_json.keys()}")
+                            
+                            # Handle multimodal content
+                            if content_json.get("type") == "multimodal":
+                                # Extract just the text content
+                                text_content = content_json.get("content", "")
+                                print(f"CHAT_HISTORY: Extracted text from multimodal content: {text_content[:50]}...")
+                                content = text_content
+                            # Check for other structured data formats
+                            elif "content" in content_json:
+                                # Extract content field from other JSON formats
+                                content = content_json.get("content", "")
+                                print(f"CHAT_HISTORY: Extracted content from JSON structure: {content[:50]}...")
+                        except json.JSONDecodeError as e:
+                            print(f"CHAT_HISTORY: Failed to parse content as JSON: {e}")
 
                     messages.append({
                         'role': 'user' if role == 'human' else 'assistant',
                         'content': content,
-                        'timestamp': timestamp.isoformat() if timestamp else datetime.now().isoformat()
+                        'timestamp': timestamp.isoformat()
                     })
-                    logger.info(f"Processed message: {role}, content: {content[:30]}...")
-                    
+                    print(f"CHAT_HISTORY: Processed message with role {role}, content preview: {content[:50]}...")
                 except Exception as e:
-                    logger.warning(f"Error processing message: {e}")
-                    logger.warning(f"Problematic document: {message_doc}")
+                    print(f"CHAT_HISTORY: Error processing message: {e}")
                     continue
 
             messages.reverse()
+            print(f"CHAT_HISTORY: Returning {len(messages)} messages")
             return {'messages': messages}
 
     except Exception as e:
-        logger.error(f"Error in get_chat_history: {e}", exc_info=True)
+        print(f"Error in get_chat_history: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Error retrieving chat history: {str(e)}"
