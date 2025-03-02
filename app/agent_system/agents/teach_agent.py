@@ -1,7 +1,13 @@
 import logfire
 import asyncio
 
-from pydantic_ai import Agent, RunContext
+from typing import Annotated
+
+from typing_extensions import TypedDict
+
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+
 from dotenv import load_dotenv
 import os
 
@@ -19,15 +25,16 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 agent = Agent('openai:gpt-4o-mini')
 
 
-async def main():
-    async with agent.run_stream('Where does "hello world" come from?') as result:  
-        async for message in result.stream_text(delta=True):  
-            print(message)
-            #> The first known
-            #> The first known use of "hello,
-            #> The first known use of "hello, world" was in
-            #> The first known use of "hello, world" was in a 1974 textbook
-            #> The first known use of "hello, world" was in a 1974 textbook about the C
-            #> The first known use of "hello, world" was in a 1974 textbook about the C programming language.
+"""Define a custom Reasoning and Action agent.
 
-asyncio.run(main())
+Works with a chat model with tool calling support.
+"""
+
+from datetime import datetime, timezone
+from typing import Dict, List, Literal, cast
+
+from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableConfig
+from langgraph.graph import StateGraph
+from langgraph.prebuilt import ToolNode
+

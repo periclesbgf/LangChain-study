@@ -246,6 +246,7 @@ class ChatController:
         """
         Process user message and files with optimized execution.
         When stream=True, returns an async generator that yields response chunks.
+        This method is already async and must be awaited.
         """
         start_time = time.time()
         interaction_key = f"{self.session_id}:{hash(user_input)}"
@@ -282,7 +283,10 @@ class ChatController:
                     print(f"CONTROLLER: Stream=True, using streaming response for: {user_input[:30]}...")
                     print(f"CONTROLLER: Tutor workflow type: {type(self._tutor_workflow)}")
                     print(f"CONTROLLER: Tutor workflow has invoke_streaming: {hasattr(self._tutor_workflow, 'invoke_streaming')}")
-                    return self._create_streaming_response(user_input, current_history)
+                    # Important: We need to return the generator directly, not awaiting it
+                    generator = self._create_streaming_response(user_input, current_history)
+                    print(f"CONTROLLER: Created streaming generator of type: {type(generator)}")
+                    return generator
 
                 # Non-streaming path - invoke workflow with current context
                 workflow_response = await self._tutor_workflow.invoke(
@@ -381,23 +385,39 @@ class ChatController:
             has_image = False
             image_data = None
             
-            async for chunk in self._tutor_workflow.invoke_streaming(
+            # Get the stream - this returns an async generator
+            stream_generator = self._tutor_workflow.invoke_streaming(
                 query=user_input,
                 student_profile=self.perfil,
                 current_plan=self.plano_execucao,
                 chat_history=safe_history
-            ):
+            )
+            
+            # Track chunk statistics
+            chunks_count = 0
+                
+            # Properly iterate through the async generator
+            async for chunk in stream_generator:
+                chunks_count += 1
+                chunk_type = chunk.get("type", "unknown")
+                
                 # Track content for complete message saving
-                if chunk.get("type") == "chunk":
-                    full_text += chunk.get("content", "")
-                elif chunk.get("type") == "image":
+                if chunk_type == "chunk":
+                    chunk_content = chunk.get("content", "")
+                    full_text += chunk_content
+                    print(f"CHAT_CONTROLLER: Received text chunk #{chunks_count}: {chunk_content[:20]}...")
+                elif chunk_type == "image":
                     has_image = True
                     full_text = chunk.get("content", "")  # Texto associado à imagem
                     image_data = chunk.get("image")
+                    print(f"CHAT_CONTROLLER: Received image chunk")
+                else:
+                    print(f"CHAT_CONTROLLER: Received {chunk_type} chunk")
                 
-                # Pass chunks directly from the workflow
-                print(f"CHAT_CONTROLLER: Received chunk: {chunk.get('type')}")
+                # Forward the chunk immediately to the client
                 yield chunk
+                
+            print(f"CHAT_CONTROLLER: Streaming completed, processed {chunks_count} chunks")
 
             # Add final completion message if needed
             processing_time = time.time() - start_time
