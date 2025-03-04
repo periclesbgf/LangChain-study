@@ -17,7 +17,7 @@ from agent_system.tools.teach_tools import RetrievalTools
 from agent_system.managers.progress_manager import StudyProgressManager
 #from agent_system.managers.memory_manager import MemoryManager
 from agent_system.states.common_states import AgentState, UserProfile, ExecutionStep
-from agent_system.prompts.teach_agent import create_react_prompt
+from agent_system.prompts.teach_prompt import create_react_prompt
 
 
 def update_state(state: AgentState, new_state: Dict[str, Any]) -> AgentState:

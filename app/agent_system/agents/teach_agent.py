@@ -121,15 +121,13 @@ class TutorReActAgent():
             "think",
             self._route_after_thinking,
             {
-                "retrieve_context": "retrieve_context",
                 "tools": "tools",
                 "direct_answer": "direct_answer"
             }
         )
-        graph.add_edge("retrieve_context", "direct_answer")
-        graph.add_edge("tools", "direct_answer")
+        graph.add_edge("tools", "think")
         graph.add_edge("direct_answer", END)
-        
+
         graph.set_entry_point("think")
         return graph.compile()
 
@@ -141,12 +139,12 @@ class TutorReActAgent():
         """
         model = ChatOpenAI(model="gpt-4o", temperature=0.1)
         prompt = create_react_prompt()
-        
+
         async def think(state: AgentState) -> AgentState:
             latest_message = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1]
             print(f"[NODE:THINK] Processing message: {latest_message.content}")
             question = latest_message.content
-            
+
             # Create formatted user profile for prompt
             user_profile = state.get("user_profile", {})
             print(f"[NODE:THINK] User profile: {user_profile}")
@@ -513,3 +511,9 @@ class TutorReActAgent():
         missing_fields = [field for field in required_fields if field not in plan]
         if missing_fields:
             raise ValueError(f"Missing required fields in plan: {missing_fields}")
+
+    # async def add_steps_to_state(self, plan: Dict[str, Any]) -> None:
+    #     """Adiciona os passos do plano ao estado do agente."""
+    #     #print(f"[PLANNING] Adding steps to state: {plan}")
+    #     # Adicionar os passos do plano ao estado do agente
+    #     for step in plan["steps
