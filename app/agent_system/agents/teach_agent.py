@@ -17,7 +17,7 @@ from agent_system.tools.teach_tools import RetrievalTools
 from agent_system.managers.progress_manager import StudyProgressManager
 #from agent_system.managers.memory_manager import MemoryManager
 from agent_system.states.common_states import AgentState, UserProfile, ExecutionStep
-from agent_system.prompts.teach_agent import create_react_prompt
+from agent_system.prompts.teach_prompt import create_react_prompt
 
 
 def update_state(state: AgentState, new_state: Dict[str, Any]) -> AgentState:
@@ -187,27 +187,42 @@ class TutorReActAgent():
                 "progresso": current_step.get("progresso", 0),
                 "last_message": chat_history,
                 "question": question,
-                "tools": str(self.retrieval_tools.parallel_context_retrieval.__doc__)
+                "tools": list[self.retrieval_tools.parallel_context_retrieval],
+                "thoughts": state.get("thoughts", ""),
+                "observations": state.get("observations", "")
             }
-            print(f"[NODE:THINK] Prompt variables: {prompt_variables}")
+            print(f"[NODE:THINK] Nome: {prompt_variables['nome']}")
+            print(f"[NODE:THINK] Percepção: {prompt_variables['percepcao']}")
+            print(f"[NODE:THINK] Entrada: {prompt_variables['entrada']}")
+            print(f"[NODE:THINK] Processamento: {prompt_variables['processamento']}")
+            print(f"[NODE:THINK] Entendimento: {prompt_variables['entendimento']}")
+            print(f"[NODE:THINK] Título: {prompt_variables['titulo']}")
+            print(f"[NODE:THINK] Descrição: {prompt_variables['descricao']}")
+            print(f"[NODE:THINK] Progresso: {prompt_variables['progresso']}")
+            print(f"[NODE:THINK] Última mensagem: {prompt_variables['last_message']}")
+            print(f"[NODE:THINK] Pergunta: {prompt_variables['question']}")
+            print(f"[NODE:THINK] Ferramentas: {prompt_variables['tools']}")
+            print(f"[NODE:THINK] Pensamentos: {prompt_variables['thoughts']}")
+            print(f"[NODE:THINK] Observações: {prompt_variables['observations']}")
             # Invoke model with the ReAct prompt
             response = await model.ainvoke(prompt.format(**prompt_variables))
             print(f"[NODE:THINK] Response: {response.content}")
             # Parse the response to determine if tools are needed
-            response_content = response.content.strip()
+            print(f"[NODE:THINK] Parsing response")
+            response_content = self._process_model_response(response.content)
             
             # Check if we need to use tools based on response
             needs_tools = False
             try:
                 # Try to parse as JSON to check if there's an action
-                parsed_response = json.loads(response_content)
-                if "action" in parsed_response and parsed_response["action"].get("name"):
+                print(f"[NODE:THINK] response_content: {response_content}")
+                response_type = response_content.get("type")
+                print(f"[NODE:THINK] Response type: {response_type}")
+                if response_type == "call_tool":
                     needs_tools = True
-            except json.JSONDecodeError:
-                # If not valid JSON, check if there's any text indicating tool use
-                if "action:" in response_content.lower() or "nome da tool" in response_content.lower():
-                    needs_tools = True
-            
+            except Exception as e:
+                print(f"[NODE:THINK] Error parsing response: {e}")
+
             # Update state with thinking and decision
             new_state = state.copy()
             new_state["thoughts"] = response_content
@@ -215,18 +230,20 @@ class TutorReActAgent():
                 "timestamp": datetime.now(timezone.utc).isoformat(), 
                 "thought": response_content
             })
-            
+            print(f"[NODE:THINK] Needs tools: {needs_tools}")
             # Set next step based on whether tools are needed
             if needs_tools:
                 new_state["next_step"] = "tools"
             else:
                 new_state["next_step"] = "direct_answer"
                 new_state["final_answer"] = response_content
-                
+
             return new_state
-            
+
         return think
-    
+
+
+
     def create_tools_node(self):
         """
         Creates the tools node that executes tools based on the agent's request.
@@ -234,6 +251,7 @@ class TutorReActAgent():
         async def tools_node(state: AgentState) -> AgentState:
             # Get the thinking output that contains the tool request
             thought = state.get("thoughts", "")
+            print(f"[NODE:TOOLS] Processing thought: {thought}")
             tool_result = None
             tool_input = None
             tool_name = None
@@ -242,6 +260,7 @@ class TutorReActAgent():
                 # Try to parse as JSON to extract tool info
                 try:
                     parsed_thought = json.loads(thought)
+                    print(f"[NODE:TOOLS] Parsed thought: {parsed_thought}")
                     if "action" in parsed_thought and isinstance(parsed_thought["action"], dict):
                         tool_name = parsed_thought["action"].get("name")
                         tool_input = parsed_thought["action"].get("input")
@@ -339,7 +358,9 @@ class TutorReActAgent():
                     "progresso": current_step.get("progresso", 0),
                     "last_message": chat_history,
                     "question": question,
-                    "tools": str(self.retrieval_tools.parallel_context_retrieval.__doc__)
+                    "tools": str(self.retrieval_tools.parallel_context_retrieval.__doc__),
+                    "thoughts": state.get("thoughts", ""),
+                    "observations": state.get("observations", "")
                 }
                 
                 # Add a special observation field if we have tool results
@@ -449,7 +470,8 @@ class TutorReActAgent():
         Routes to the next node based on the thinking node's decision.
         """
         try:
-            next_step = state.get("next_step")
+            next_step = state["next_step"]
+            print(f"[ROUTING] Next step after thinking: {next_step}")
             if next_step in ["retrieve_context", "tools", "direct_answer"]:
                 return next_step
             else:
@@ -460,3 +482,34 @@ class TutorReActAgent():
             # Fallback to direct_answer in case of error
             return "direct_answer"
 
+
+    def _process_model_response(self, content: str) -> Dict[str, Any]:
+        """Processa e valida a resposta do modelo."""
+        try:
+            # Limpar o conteúdo
+            cleaned_content = content.strip()
+            if cleaned_content.startswith("```json"):
+                cleaned_content = cleaned_content[7:]
+            if cleaned_content.endswith("```"):
+                cleaned_content = cleaned_content[:-3]
+            cleaned_content = cleaned_content.strip()
+
+            # Converter para JSON
+            json_content = json.loads(cleaned_content)
+            #print(f"[PLANNING] Processed model response: {plan}")
+            return json_content
+
+        except json.JSONDecodeError as e:
+            #print(f"[PLANNING] Error parsing model response: {e}")
+            raise ValueError("Invalid JSON in model response")
+
+    def validate_plan_structure(plan: Dict[str, Any]) -> None:
+        """Valida a estrutura do plano gerado."""
+        required_fields = [
+            "type",
+            "thought",
+        ]
+
+        missing_fields = [field for field in required_fields if field not in plan]
+        if missing_fields:
+            raise ValueError(f"Missing required fields in plan: {missing_fields}")

@@ -47,7 +47,9 @@ class RetrievalTools:
     @tool
     async def parallel_context_retrieval(self, question: str) -> Dict[str, Any]:
         """"
-        Recupera o contexto de textual, de imagem e de tabela de forma paralela.
+        Recupera conteudo educacional do aluno, como, Slides, livros, tabelas.
+        Args: Query do Agente educacional buscando conteudo educacional.
+        Return: Um dicionário com os contextos de texto, imagem e tabela, e a análise de relevância contendo a pontuação e a razão.
         """
 
         text_context, image_context, table_context = await asyncio.gather(
