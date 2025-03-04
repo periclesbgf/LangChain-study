@@ -8,7 +8,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import tool
 from langchain_community.tools.tavily_search import TavilySearchResults
 
-from app.database.vector_db import QdrantHandler
+from database.vector_db import QdrantHandler
 from agent_system.states.common_states import AgentState
 
 

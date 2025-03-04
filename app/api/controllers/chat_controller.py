@@ -35,6 +35,7 @@ from utils import (
 )
 from agent.agent_test import TutorWorkflow
 from agent.react_educational_agent import ReactTutorWorkflow
+from agent_system.agents.teach_agent import TutorReActAgent
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -86,7 +87,7 @@ class ChatController:
         disciplina: str,
         qdrant_handler: QdrantHandler,
         image_handler: ImageHandler,
-        retrieval_agent: ReactTutorWorkflow,  # Changed to use ReactTutorWorkflow
+        retrieval_agent: TutorReActAgent,  # Changed to use TutorReActAgent
         student_profile: dict,
         mongo_db_name: str,
         mongo_uri: str,
@@ -344,7 +345,7 @@ class ChatController:
     async def _create_streaming_response(self, user_input: str, current_history: List[BaseMessage]) -> AsyncGenerator[Dict[str, str], None]:
         """
         Creates a streaming response for the frontend with chunked delivery.
-        Uses ReactTutorWorkflow to generate streaming responses.
+        Uses TutorReActAgent to generate streaming responses.
         """
         start_time = time.time()
 
@@ -360,14 +361,14 @@ class ChatController:
                 content_preview = str(msg.content)[:30] + "..." if len(str(msg.content)) > 30 else str(msg.content)
                 print(f"CHAT_CONTROLLER: History[{i}]: {msg_type} - {content_preview}")
 
-            # Use the ReactTutorWorkflow's streaming method directly
-            logger.info(f"Starting ReactTutorWorkflow.invoke_streaming with type: {type(self._tutor_workflow)}")
-            print(f"CHAT_CONTROLLER: Starting ReactTutorWorkflow streaming with query: {user_input[:50]}...")
+            # Use the TutorReActAgent's run method for streaming
+            logger.info(f"Starting TutorReActAgent.run with type: {type(self._tutor_workflow)}")
+            print(f"CHAT_CONTROLLER: Starting TutorReActAgent streaming with query: {user_input[:50]}...")
             
-            # Verificar se o workflow tem o método invoke_streaming
-            if not hasattr(self._tutor_workflow, 'invoke_streaming'):
-                logger.error(f"Workflow does not have invoke_streaming method. Available methods: {dir(self._tutor_workflow)}")
-                print(f"CHAT_CONTROLLER ERROR: Workflow does not have invoke_streaming method")
+            # Verificar se o agente tem o método run
+            if not hasattr(self._tutor_workflow, 'run'):
+                logger.error(f"Agent does not have run method. Available methods: {dir(self._tutor_workflow)}")
+                print(f"CHAT_CONTROLLER ERROR: Agent does not have run method")
                 yield {"type": "error", "content": "Erro interno: método de streaming não disponível"}
                 return
             
@@ -376,22 +377,28 @@ class ChatController:
             plan_preview = str(self.plano_execucao)[:100] + "..." if len(str(self.plano_execucao)) > 100 else str(self.plano_execucao)
             print(f"CHAT_CONTROLLER: Current plan type: {plan_type}")
             print(f"CHAT_CONTROLLER: Current plan preview: {plan_preview}")
-                
-            # Ensure we have a valid chat history (never pass None)
-            safe_history = current_history if current_history else []
             
-            # Usar o método de streaming e coletar texto completo
+            # Ensure we have the current plan and profile in agent state
+            if hasattr(self._tutor_workflow, 'state'):
+                # Update state with current profile and plan
+                if isinstance(self.perfil, dict):
+                    self._tutor_workflow.state["user_profile"] = self.perfil
+                
+                # Update state with current execution plan
+                if isinstance(self.plano_execucao, dict):
+                    self._tutor_workflow.state["current_progress"] = self.plano_execucao
+                    
+                # Update chat history in agent state
+                if current_history:
+                    self._tutor_workflow.state["chat_history"] = current_history
+            
+            # Usar o método run e coletar texto completo
             full_text = ""
             has_image = False
             image_data = None
             
-            # Get the stream - this returns an async generator
-            stream_generator = self._tutor_workflow.invoke_streaming(
-                query=user_input,
-                student_profile=self.perfil,
-                current_plan=self.plano_execucao,
-                chat_history=safe_history
-            )
+            # Get the stream using the run method - this returns an async generator
+            stream_generator = self._tutor_workflow.run(user_input)
             
             # Track chunk statistics
             chunks_count = 0

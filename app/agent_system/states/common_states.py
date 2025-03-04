@@ -1,5 +1,3 @@
-
-
 from pydantic import BaseModel
 from typing import Any, TypedDict, List, Dict, Optional
 from langchain_core.messages import BaseMessage
@@ -8,7 +6,6 @@ from dataclasses import dataclass
 from typing import Dict, Any
 
 
-@dataclass
 class UserProfile(BaseModel):
     Nome: str
     Email: str
@@ -16,7 +13,6 @@ class UserProfile(BaseModel):
     Feedback: Optional[Dict[str, Any]] = None
     PreferenciaAprendizado: Optional[Dict[str, Any]] = None
 
-@dataclass
 class ExecutionStep(BaseModel):
     titulo: str
     duracao: str
@@ -38,19 +34,22 @@ class ExecutionPlan(BaseModel):
 class AgentState(TypedDict):
     messages: List[BaseMessage]
     current_plan: str
-    user_profile: UserProfile
+    user_profile: Dict[str, Any]
     extracted_context: Dict[str, Any]
-    next_step: str | None
+    next_step: Optional[str]
     iteration_count: int
     chat_history: List[BaseMessage]
-    needs_retrieval: bool | None
-    evaluation_reason: str | None
+    needs_retrieval: Optional[bool]
+    evaluation_reason: Optional[str]
     web_search_results: Dict[str, str]
-    answer_type: str | None
+    answer_type: Optional[str]
     current_progress: Dict[str, Any]
     session_id: str
     actions_history: List[Dict[str, Any]]
     thoughts_history: List[Dict[str, Any]]
     memories: List[Dict[str, Any]]
+    thoughts: str
+    final_answer: Optional[str]
+    observations: Optional[str]
 
 

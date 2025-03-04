@@ -61,3 +61,4 @@ google-auth
 google-auth-oauthlib
 itsdangerous
 langmem
+google-api-python-client

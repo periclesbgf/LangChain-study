@@ -225,7 +225,7 @@ class CalendarTools:
                 location=location,
                 current_user=user_email
             )
-            
+
             return {
                 "status": "success" if success else "error",
                 "message": "Evento atualizado com sucesso" if success else "Falha ao atualizar evento"

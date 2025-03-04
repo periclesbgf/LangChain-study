@@ -27,6 +27,7 @@ from agent.image_handler import ImageHandler
 from database.mongo_database_manager import MongoDatabaseManager, MongoPDFHandler
 from agent.agent_test import TutorWorkflow
 from agent.react_educational_agent import ReactTutorWorkflow
+from agent_system.agents.teach_agent import TutorReActAgent
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -195,8 +196,8 @@ class ChatEndpointManager:
         user_email: str,
         discipline_id: str,
         session_id: str
-    ) -> ReactTutorWorkflow:
-        """Get or create ReactTutorWorkflow with caching"""
+    ) -> TutorReActAgent:
+        """Get or create TutorReActAgent with caching"""
         cache_key = f"workflow:{user_email}:{discipline_id}:{session_id}"
 
         try:
@@ -213,32 +214,32 @@ class ChatEndpointManager:
         # Get Qdrant handler
         qdrant_handler = self.get_qdrant_handler()
 
-        # Create workflow using ReactTutorWorkflow instead of TutorWorkflow
-        print(f"ENDPOINT: Creating ReactTutorWorkflow for session {session_id}")
+        # Create TutorReActAgent instead of ReactTutorWorkflow
+        print(f"ENDPOINT: Creating TutorReActAgent for session {session_id}")
         try:
-            workflow = ReactTutorWorkflow(
+            agent = TutorReActAgent(
                 qdrant_handler=qdrant_handler,
                 student_email=user_email,
                 disciplina=discipline_id,
                 session_id=session_id,
                 image_collection=self.mongo_manager.db.image_collection
             )
-            print(f"ENDPOINT: Successfully created ReactTutorWorkflow: {type(workflow)}")
-            # Verificar se o método invoke_streaming existe
-            if hasattr(workflow, 'invoke_streaming'):
-                print(f"ENDPOINT: invoke_streaming method exists in workflow")
+            print(f"ENDPOINT: Successfully created TutorReActAgent: {type(agent)}")
+            # Verificar se o método run existe
+            if hasattr(agent, 'run'):
+                print(f"ENDPOINT: run method exists in agent")
             else:
-                print(f"ENDPOINT ERROR: invoke_streaming method NOT FOUND in workflow")
-                print(f"ENDPOINT: Available methods: {dir(workflow)}")
+                print(f"ENDPOINT ERROR: run method NOT FOUND in agent")
+                print(f"ENDPOINT: Available methods: {dir(agent)}")
         except Exception as e:
-            print(f"ENDPOINT ERROR: Failed to create ReactTutorWorkflow: {str(e)}")
+            print(f"ENDPOINT ERROR: Failed to create TutorReActAgent: {str(e)}")
             import traceback
             traceback.print_exc()
             raise
 
         # Store in cache
-        self._workflow_cache[cache_key] = workflow
-        return workflow
+        self._workflow_cache[cache_key] = agent
+        return agent
 
     async def get_or_create_controller(
         self,
@@ -246,7 +247,7 @@ class ChatEndpointManager:
         user_email: str,
         student_profile: Dict[str, Any],
         study_plan: str,
-        workflow: ReactTutorWorkflow,
+        workflow: TutorReActAgent,
     ) -> ChatController:
         """Get or create ChatController with caching"""
         session_id = str(request_data.get("session_id", ""))
