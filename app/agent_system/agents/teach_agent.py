@@ -74,7 +74,7 @@ class TutorReActAgent():
         self.student_email = student_email
         self.disciplina = disciplina
         self.progress_manager = StudyProgressManager()
-        self.state = AgentState(
+        self.state = AgentState( #trocar para ser preenchida antes
             messages=[],
             current_plan="",
             user_profile={},
@@ -115,7 +115,7 @@ class TutorReActAgent():
         graph.add_node("tools", self.tools_node)
         graph.add_node("retrieve_context", self.create_retrieval_node(self.retrieval_tools))
         graph.add_node("direct_answer", self.react_node)
-        
+
         # Define edges
         graph.add_conditional_edges(
             "think",
@@ -137,10 +137,16 @@ class TutorReActAgent():
         This node uses the predefined ReAct prompt to analyze the question and determine
         if tools are needed or if a direct answer can be provided.
         """
-        model = ChatOpenAI(model="gpt-4o", temperature=0.1)
+        model = ChatOpenAI(model="gpt-4o", temperature=0.1, streaming=True)
         prompt = create_react_prompt()
 
         async def think(state: AgentState) -> AgentState:
+            state["iteration_count"] += 1
+            print(f"[NODE:THINK] Iteration count: {state['iteration_count']}")
+            # Make sure streaming_results exists
+            if "streaming_results" not in state:
+                state["streaming_results"] = []
+
             latest_message = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1]
             print(f"[NODE:THINK] Processing message: {latest_message.content}")
             question = latest_message.content
@@ -159,7 +165,7 @@ class TutorReActAgent():
                         "entendimento": "Sequencial"
                     }
                 }
-            
+
             # Prepare execution step context if available
             current_step = state.get("current_progress", {})
             print(f"[NODE:THINK] Current step: {current_step}")
@@ -197,44 +203,92 @@ class TutorReActAgent():
             print(f"[NODE:THINK] Título: {prompt_variables['titulo']}")
             print(f"[NODE:THINK] Descrição: {prompt_variables['descricao']}")
             print(f"[NODE:THINK] Progresso: {prompt_variables['progresso']}")
-            print(f"[NODE:THINK] Última mensagem: {prompt_variables['last_message']}")
             print(f"[NODE:THINK] Pergunta: {prompt_variables['question']}")
             print(f"[NODE:THINK] Ferramentas: {prompt_variables['tools']}")
             print(f"[NODE:THINK] Pensamentos: {prompt_variables['thoughts']}")
             print(f"[NODE:THINK] Observações: {prompt_variables['observations']}")
-            # Invoke model with the ReAct prompt
-            response = await model.ainvoke(prompt.format(**prompt_variables))
-            print(f"[NODE:THINK] Response: {response.content}")
-            # Parse the response to determine if tools are needed
-            print(f"[NODE:THINK] Parsing response")
-            response_content = self._process_model_response(response.content)
-            
-            # Check if we need to use tools based on response
-            needs_tools = False
-            try:
-                # Try to parse as JSON to check if there's an action
-                print(f"[NODE:THINK] response_content: {response_content}")
-                response_type = response_content.get("type")
-                print(f"[NODE:THINK] Response type: {response_type}")
-                if response_type == "call_tool":
-                    needs_tools = True
-            except Exception as e:
-                print(f"[NODE:THINK] Error parsing response: {e}")
+            # Start timing the response
+            start_time = time.time()
 
-            # Update state with thinking and decision
+            # Add initial processing message to state
+            state["streaming_results"].append(
+                {"type": "processing", "content": "Analisando sua pergunta..."}
+            )
+
+            # Variables to track response type and accumulated content
+            is_final_answer = False
+            accumulated_response = ""
+            response_content = {}
+            needs_tools = False
+
+            try:
+                # Use non-streaming model first to avoid async generator issues
+                response = await model.ainvoke(prompt.format(**prompt_variables))
+                content = response.content if hasattr(response, "content") else str(response)
+
+                # Check raw content for the final_answer pattern first
+                is_final_answer = '"type": "final_answer"' in content
+
+                # Process the response to get structured content
+                response_content = self._process_model_response(content)
+                print(f"[NODE:THINK] Processed response: {response_content}")
+
+                # If the pattern wasn't found but the type is final_answer, still mark it
+                if not is_final_answer and response_content.get("type") == "final_answer":
+                    is_final_answer = True
+
+                # Check if we need tools
+                needs_tools = response_content.get("type") == "call_tool"
+
+                # If this is a final answer, add chunks to streaming_results
+                if is_final_answer:
+                    print("[NODE:THINK] Detected final_answer type")
+
+                    # Get the final answer text
+                    answer_text = response_content.get("answer", "")
+
+                    # Split into chunks and add to streaming_results
+                    for i in range(0, len(answer_text), 15):
+                        chunk = answer_text[i:i+15]
+                        state["streaming_results"].append(
+                            {"type": "chunk", "content": chunk}
+                        )
+                    
+                    # Add completion message
+                    state["streaming_results"].append(
+                        {"type": "complete", "content": f"Resposta completa em {time.time() - start_time:.2f}s."}
+                    )
+            
+            except Exception as e:
+                print(f"[NODE:THINK] Error in processing response: {e}")
+                state["streaming_results"].append(
+                    {"type": "error", "content": f"Desculpe, encontrei um erro ao processar sua pergunta: {str(e)}"}
+                )
+            
+            # Create new state with updated information
             new_state = state.copy()
+            
+            # Update state with thinking results
             new_state["thoughts"] = response_content
             new_state["thoughts_history"].append({
                 "timestamp": datetime.now(timezone.utc).isoformat(), 
                 "thought": response_content
             })
+            print(f"[NODE:THINK] Updated thoughts: {response_content}")
+            print(f"[NODE:THINK] Updated thoughts history: {new_state['thoughts_history']}")
+            
             print(f"[NODE:THINK] Needs tools: {needs_tools}")
+            
             # Set next step based on whether tools are needed
             if needs_tools:
                 new_state["next_step"] = "tools"
             else:
                 new_state["next_step"] = "direct_answer"
-                new_state["final_answer"] = response_content
+                # If it was a final answer, store it in state
+                if is_final_answer and "answer" in response_content:
+                    new_state["final_answer"] = response_content.get("answer", "")
+                else:
+                    new_state["final_answer"] = response_content
 
             return new_state
 
@@ -286,6 +340,7 @@ class TutorReActAgent():
                         # Execute the retrieval tool
                         self.retrieval_tools.state = state
                         tool_result = await self.retrieval_tools.parallel_context_retrieval(tool_input)
+                        print(f"[NODE:TOOLS] Retrieval tool result: {tool_result}")
                     else:
                         tool_result = {"error": f"Tool '{tool_name}' not implemented"}
                 else:
@@ -321,9 +376,21 @@ class TutorReActAgent():
         model = ChatOpenAI(model="gpt-4o", temperature=0.1, streaming=True)
         prompt = create_react_prompt()
         
-        async def react_node(state: AgentState):
+        async def react_node(state: AgentState) -> AgentState:
+            print("[NODE:REACT] Starting react node execution")
             # Check if we already have a final answer from thinking node
             final_answer = state.get("final_answer")
+            
+            # Create a list to store streaming results for pickup in run()
+            if "streaming_results" not in state:
+                state["streaming_results"] = []
+                
+            start_time = time.time()
+            
+            # Record that we're processing
+            state["streaming_results"].append(
+                {"type": "processing", "content": "Processando resposta final..."}
+            )
             
             # If we have a tool execution result, we need to generate a new response
             if state.get("next_step") == "tools" or not final_answer:
@@ -356,7 +423,7 @@ class TutorReActAgent():
                     "progresso": current_step.get("progresso", 0),
                     "last_message": chat_history,
                     "question": question,
-                    "tools": str(self.retrieval_tools.parallel_context_retrieval.__doc__),
+                    "tools": list[self.retrieval_tools.parallel_context_retrieval],
                     "thoughts": state.get("thoughts", ""),
                     "observations": state.get("observations", "")
                 }
@@ -370,41 +437,76 @@ class TutorReActAgent():
                     state["observations"] = f"Resultado da ferramenta: {json.dumps(tool_result, ensure_ascii=False)}"
                 
                 try:
-                    # Stream the response
-                    stream = model.astream(prompt.format(**prompt_variables))
-                    async for chunk in stream:
-                        # Handle image content if present
-                        if hasattr(chunk, "image") and chunk.image is not None:
-                            yield {
-                                "type": "image",
-                                "content": chunk.content,
-                                "image": chunk.image
-                            }
-                        else:
-                            yield {"type": "chunk", "content": chunk.content}
+                    # Get the full response first (non-streaming) to avoid async iterator issues
+                    response = await model.ainvoke(prompt.format(**prompt_variables))
+                    content = response.content if hasattr(response, "content") else str(response)
+                    
+                    # Check if this is a final answer by looking for the pattern
+                    is_final_answer = '"type": "final_answer"' in content
+                    
+                    # Parse the response if possible
+                    try:
+                        parsed_response = self._process_model_response(content)
+                        if not is_final_answer and parsed_response.get("type") == "final_answer":
+                            is_final_answer = True
+                    except Exception:
+                        # If parsing fails, just proceed with the raw content
+                        pass
                         
-                        # Update state with the response chunks
-                        state["messages"].append(chunk)
+                    # Add final content to messages
+                    state["messages"].append(AIMessage(content=content))
+                    
+                    # Manually split into chunks to simulate streaming
+                    for i in range(0, len(content), 15):
+                        chunk = content[i:i+15]
+                        # Add to state for pickup in run()
+                        state["streaming_results"].append(
+                            {"type": "chunk", "content": chunk}
+                        )
+                    
+                    # Send completion message
+                    state["streaming_results"].append(
+                        {"type": "complete", "content": f"Resposta completa em {time.time() - start_time:.2f}s."}
+                    )
                         
                 except Exception as e:
                     print(f"[NODE:REACT] Error generating response after tools: {e}")
-                    yield {"type": "error", "content": f"Desculpe, encontrei um erro ao processar sua pergunta: {str(e)}"}
+                    state["streaming_results"].append(
+                        {"type": "error", "content": f"Desculpe, encontrei um erro ao processar sua pergunta: {str(e)}"}
+                    )
             else:
                 # We already have a final answer from the thinking node, so stream it directly
                 try:
-                    # Split the final answer into chunks to simulate streaming
-                    chunks = [final_answer[i:i+15] for i in range(0, len(final_answer), 15)]
-                    
-                    for chunk in chunks:
-                        yield {"type": "chunk", "content": chunk}
-                        await asyncio.sleep(0.01)  # Small delay to simulate streaming
+                    # Get the final answer
+                    if isinstance(final_answer, dict) and "answer" in final_answer:
+                        content = final_answer["answer"]
+                    else:
+                        content = str(final_answer)
                         
+                    # Split into chunks to simulate streaming
+                    for i in range(0, len(content), 15):
+                        chunk = content[i:i+15]
+                        # Add to state for pickup in run()
+                        state["streaming_results"].append(
+                            {"type": "chunk", "content": chunk}
+                        )
+                    
                     # Record the streamed response in messages
-                    state["messages"].append(AIMessage(content=final_answer))
+                    state["messages"].append(AIMessage(content=content))
+                    
+                    # Send completion message
+                    state["streaming_results"].append(
+                        {"type": "complete", "content": f"Resposta completa em {time.time() - start_time:.2f}s."}
+                    )
                     
                 except Exception as e:
                     print(f"[NODE:REACT] Error streaming direct answer: {e}")
-                    yield {"type": "error", "content": f"Desculpe, encontrei um erro ao processar sua resposta: {str(e)}"}
+                    state["streaming_results"].append(
+                        {"type": "error", "content": f"Desculpe, encontrei um erro ao processar sua resposta: {str(e)}"}
+                    )
+            
+            # Return the updated state
+            return state
                 
         return react_node
     
@@ -443,22 +545,104 @@ class TutorReActAgent():
         Run the ReAct agent with the given question.
         Returns a streaming response.
         """
+        # Record start time to measure overall execution
+        start_time = time.time()
+        
+        # Initialize streaming results storage in the state
+        self.state["streaming_results"] = []
+        
         # Prepare the initial state with the new question
         self.state["messages"].append(HumanMessage(content=question))
         self.state["chat_history"].append(HumanMessage(content=question))
         
+        # Send initial processing message
+        yield {"type": "processing", "content": "Iniciando processamento..."}
+        
+        # Keep track of whether we've streamed results
+        has_streamed_result = False
+        
+        # Keep track of which streaming results we've already processed
+        processed_results = set()
+        last_results_count = 0
+        
         # Run the workflow
-        async for event in self.workflow.astream(self.state):
-            # Stream node output if it's the react_node (direct_answer)
-            node_name = event.get("node")
-            if node_name == "direct_answer":
-                # Pass through the streaming chunks from the react node
-                async for chunk in event["result"]:
-                    yield chunk
+        try:
+            print(f"[AGENT:RUN] Starting workflow execution for question: {question[:50]}...")
+            execution_count = 0
+            
+            async for event in self.workflow.astream(self.state):
+                execution_count += 1
+                # Get the node name that just finished execution
+                node_name = event.get("node")
+                print(f"[AGENT:RUN] Node {execution_count} completed: {node_name}")
+                
+                # Print any available keys in the event for debugging
+                event_keys = list(event.keys())
+                print(f"[AGENT:RUN] Event keys: {event_keys}")
+                
+                # Log state streaming results count
+                if "streaming_results" in self.state:
+                    print(f"[AGENT:RUN] Current streaming results count: {len(self.state['streaming_results'])}")
+                
+                # Process any new streaming results in the state
+                # This will catch results from ALL nodes since they all update the same state
+                if "streaming_results" in self.state:
+                    current_count = len(self.state["streaming_results"])
                     
-            # For other nodes, we can log their execution but don't need to yield their results
-            elif node_name in ["think", "tools", "retrieve_context"]:
-                print(f"[AGENT] Executed node: {node_name}")
+                    # Check if we have new results
+                    if current_count > last_results_count:
+                        print(f"[AGENT:RUN] New streaming results detected: {current_count - last_results_count} new items")
+                        
+                        # Process only new results
+                        for i in range(last_results_count, current_count):
+                            result = self.state["streaming_results"][i]
+                            
+                            # Generate a unique identifier for this result
+                            result_id = f"{i}:{result.get('type', 'unknown')}:{result.get('content', '')[:20]}"
+                            
+                            # Only yield results we haven't processed before
+                            if result_id not in processed_results:
+                                processed_results.add(result_id)
+                                has_streamed_result = True
+                                yield result
+                                print(f"[AGENT:RUN] Yielded result from {node_name}: {result.get('type')}")
+                        
+                        # Update our counter
+                        last_results_count = current_count
+                
+                # For direct answer node, we need special handling for backward compatibility
+                if node_name == "direct_answer" and "result" in event and hasattr(event["result"], "__aiter__"):
+                    try:
+                        # This is likely a direct generator, so we need to stream results directly
+                        async for chunk in event["result"]:
+                            if isinstance(chunk, dict) and "type" in chunk:
+                                has_streamed_result = True
+                                yield chunk
+                                print(f"[AGENT:RUN] Yielded direct result: {chunk.get('type')}")
+                    except Exception as e:
+                        print(f"[AGENT:RUN] Error streaming direct output: {e}")
+                        yield {"type": "error", "content": f"Erro ao processar resposta: {str(e)}"}
+        except Exception as e:
+            print(f"[AGENT:RUN] ERROR IN WORKFLOW EXECUTION: {str(e)}")
+            yield {"type": "error", "content": f"Erro na execução do workflow: {str(e)}"}
+            return  # Exit if workflow fails
+        
+        # Process any final streaming results that might have been added after the last event
+        if "streaming_results" in self.state:
+            current_count = len(self.state["streaming_results"])
+            if current_count > last_results_count:
+                for i in range(last_results_count, current_count):
+                    result = self.state["streaming_results"][i]
+                    result_id = f"{i}:{result.get('type', 'unknown')}:{result.get('content', '')[:20]}"
+                    if result_id not in processed_results:
+                        processed_results.add(result_id)
+                        has_streamed_result = True
+                        yield result
+                        print(f"[AGENT:RUN] Yielded final result: {result.get('type')}")
+        
+        # If no streaming results were yielded, send a complete message
+        if not has_streamed_result:
+            yield {"type": "complete", "content": f"Processamento concluído em {time.time() - start_time:.2f}s."}
         
         # Update progress after workflow completes
         #await self.progress_manager.update_step_progress(self.state.get("session_id", ""), 5)
@@ -471,6 +655,8 @@ class TutorReActAgent():
             next_step = state["next_step"]
             print(f"[ROUTING] Next step after thinking: {next_step}")
             if next_step in ["retrieve_context", "tools", "direct_answer"]:
+                print("[ROUTING] Valid decision made after thinking")
+                print(f"[ROUTING] Next step: {next_step}")
                 return next_step
             else:
                 # Default to direct_answer if no valid decision was made

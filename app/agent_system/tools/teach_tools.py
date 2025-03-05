@@ -51,7 +51,7 @@ class RetrievalTools:
         Args: Query do Agente educacional buscando conteudo educacional.
         Return: Um dicionário com os contextos de texto, imagem e tabela, e a análise de relevância contendo a pontuação e a razão.
         """
-
+        return {"context": "there are no files in database"}
         text_context, image_context, table_context = await asyncio.gather(
             self._retrieve_text_context(question),
             self._retrieve_image_context(question),
@@ -257,3 +257,55 @@ class RetrievalTools:
             "recommended_context": "combined"
         }
 
+
+# class HistoryTools:
+#     def __init__(self, qdrant_handler: QdrantHandler, student_email: str, disciplina: str, session_id: str):
+#         self.qdrant_handler = qdrant_handler
+#         self.student_email = student_email
+#         self.disciplina = disciplina
+#         self.session_id = session_id
+
+#     @tool
+#     async def retrieve_coversation_history(self, number_of_messages: int = 5) -> Dict[str, Any]:
+#         """
+#         Recupera o histórico de conversas do aluno.
+#         """
+#         try:
+#             results = self.qdrant_handler.similarity_search_with_filter(
+#                 query="",
+#                 student_email=self.student_email,
+#                 session_id=self.session_id,
+#                 disciplina_id=self.disciplina,
+#                 k=number_of_messages,
+#                 use_global=False,
+#                 use_discipline=False,
+#                 use_session=True,
+#                 specific_metadata={"type": "message"}
+#             )
+
+#             if not results:
+#                 return {"messages": []}
+
+#             messages = [{"content": doc.page_content, "timestamp": doc.created_at} for doc in results]
+#             return {"messages": messages}
+#         except Exception as e:
+#             #print(f"[HISTORY] Error in retrieve_coversation_history: {e}")
+#             return {"messages": []}
+
+# class TavilySearchTools:
+#     def __init__(self, api_key: str):
+#         self.tavily_search = TavilySearchResults(
+#             max_results=5,
+#             include_answer=True,
+#             include_raw_content=True,
+#             include_images=False,
+#             api_key=api_key
+#         )
+
+#     @tool
+#     async def search_tavily(self, question: str) -> Dict[str, Any]:
+#         """
+#         Realiza uma busca no Tavily para recuperar resultados relevantes.
+#         """
+#         try:
+#             results = await self.tavily_search.run(query=question)

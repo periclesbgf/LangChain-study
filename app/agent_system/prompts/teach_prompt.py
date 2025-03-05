@@ -27,6 +27,7 @@ def create_react_prompt():
     {question}
 
     ## Pensamentos e Observações vazio se for a primeira interação
+    Você deve baseado sua atitude nos pensamentos e observações anteriores. Cada interação deve ser uma continuação da anterior.:
     ## PENSAMENTOS ANTERIORES:
     {thoughts}
     ## OBSERVAÇÕES ANTERIORES:

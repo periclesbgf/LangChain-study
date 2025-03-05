@@ -13,6 +13,7 @@ class UserProfile(BaseModel):
     Feedback: Optional[Dict[str, Any]] = None
     PreferenciaAprendizado: Optional[Dict[str, Any]] = None
 
+
 class ExecutionStep(BaseModel):
     titulo: str
     duracao: str
@@ -22,6 +23,7 @@ class ExecutionStep(BaseModel):
     atividade: Dict
     progresso: int
 
+
 class ExecutionPlan(BaseModel):
     id_sessao: str
     disciplina: str
@@ -30,7 +32,6 @@ class ExecutionPlan(BaseModel):
     progresso_total: int
     created_at: str
     updated_at: str
-
 
 
 class AgentState(TypedDict):
