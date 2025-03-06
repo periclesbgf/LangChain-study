@@ -724,82 +724,6 @@ def create_retrieval_node(tools: RetrievalTools):
 
     return retrieve_context
 
-def route_after_plan_generation():
-    ROUTE_PROMPT = """
-    Você é um assistente educacional que avalia o plano de resposta gerado e decide o próximo passo baseado na pergunta do aluno.
-
-    Pergunta do Aluno:
-    {question}
-
-    Histórico da Conversa:
-    {chat_history}
-
-    Plano de Resposta Gerado:
-    {plan}
-
-    No Banco de dados (retrieval), ha varios materiais de estudo, como textos, imagens e tabelas, que podem ser relevantes para a pergunta do aluno.
-
-    Analise a pergunta e determine o próximo passo:
-    1. Se a pergunta pede explicitamente por informações da web (Wikipedia, YouTube, etc), use "websearch"
-    2. Se a pergunta requer contexto do material de estudo ou exemplos, use "retrieval"
-    3. Se a pergunta pode ser respondida diretamente, use "direct_answer"
-
-    Retorne apenas um JSON com o seguinte formato, mantendo as aspas duplas:
-        "analysis": "string explicando a análise",
-        "next_step": "websearch|retrieval|direct_answer"
-    """
-
-    prompt = ChatPromptTemplate.from_template(ROUTE_PROMPT)
-    model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-
-    def route_after_plan(state: AgentState) -> AgentState:
-        #print("\n[ROUTING] Starting route after plan generation")
-        latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
-        #print(f"[ROUTING] Processing question: {latest_question}")
-
-        chat_history = format_chat_history(state["chat_history"])
-        current_plan = state.get("current_plan", "{}")
-
-        try:
-            response = model.invoke(prompt.format(
-                question=latest_question,
-                chat_history=chat_history,
-                plan=current_plan
-            ))
-
-            # Processar a resposta
-            cleaned_content = response.content.strip()
-            if cleaned_content.startswith("```json"):
-                cleaned_content = cleaned_content[7:]
-            if cleaned_content.endswith("```"):
-                cleaned_content = cleaned_content[:-3]
-            cleaned_content = cleaned_content.strip()
-
-            route = json.loads(cleaned_content)
-            #print(f"[ROUTING] Route analysis: {route}")
-
-            if route.get("next_step") not in ["websearch", "retrieval", "direct_answer"]:
-                raise ValueError(f"Invalid next_step value: {route.get('next_step')}")
-
-            new_state = state.copy()
-            new_state["next_step"] = route["next_step"]
-            return new_state
-
-        except Exception as e:
-            #print(f"[ROUTING] Error in routing: {str(e)}")
-            # Em caso de erro, usamos uma lógica simples baseada em palavras-chave
-            question_lower = latest_question.lower()
-            if any(keyword in question_lower for keyword in ["youtube", "video", "wikipedia", "web"]):
-                next_step = "websearch"
-            else:
-                next_step = "retrieval"
-
-            #print(f"[ROUTING] Fallback routing decision: {next_step}")
-            new_state = state.copy()
-            new_state["next_step"] = next_step
-            return new_state
-
-    return route_after_plan
 
 def create_answer_plan_node():
     PLANNING_PROMPT = """ROLE: Assistente Educacional Especializado em Personalização de Aprendizagem e Avaliação de Atividades
@@ -938,6 +862,7 @@ Retornar JSON com estrutura exata:
         "necessario": boolean,
         "motivo": "string",
         "sugestao": "string"
+    "next_step": "websearch|retrieval|direct_answer"
 
 
 MÉTRICAS DE QUALIDADE:
@@ -956,7 +881,7 @@ REGRAS DE OURO:
 5. MANTENHA o foco no objetivo de aprendizagem"""
 
     prompt = ChatPromptTemplate.from_template(PLANNING_PROMPT)
-    model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    model = ChatOpenAI(model="gpt-4o", temperature=0)
 
     def generate_plan(state: AgentState) -> AgentState:
         #print("\n[NODE:PLANNING] Starting plan generation")
@@ -1133,9 +1058,14 @@ REGRAS DE OURO:
 
     def determine_next_step(plan: Dict[str, Any]) -> str:
         """Determina o próximo passo baseado no plano."""
+        # Verifica se há um valor explícito em next_step
+        if "next_step" in plan and plan["next_step"] in ["websearch", "retrieval", "direct_answer"]:
+            return plan["next_step"]
+        
+        # Caso não tenha ou seja inválido, usa a lógica anterior como fallback
         if plan.get("tipo_entrada") == "resposta_atividade":
             return "direct_answer"
-        return plan.get("proxima_acao", "retrieval")
+        return "retrieval"
 
     def handle_plan_generation_error(state: AgentState, error_msg: str) -> AgentState:
         """Manipula erros na geração do plano."""
@@ -1658,7 +1588,7 @@ class WebSearchTools:
 
 def route_after_planning(state: AgentState) -> str:
     """
-    Determina o próximo nó após o planejamento com base no plano gerado.
+    Determina o próximo nó após o planejamento com base no next_step definido no plano gerado.
     """
     next_step = state.get("next_step", "retrieval")
     #print(f"[ROUTING] Routing after planning: {next_step}")
@@ -1829,16 +1759,14 @@ class TutorWorkflow:
 
         # Adiciona nós sem gerenciamento de progresso redundante
         workflow.add_node("generate_plan", create_answer_plan_node())
-        workflow.add_node("route_after_plan", route_after_plan_generation())
         workflow.add_node("retrieve_context", create_retrieval_node(self.tools))
         workflow.add_node("web_search", create_websearch_node(self.web_tools))
         workflow.add_node("teach", create_teaching_node())
         workflow.add_node("progress_analyst", create_progress_analyst_node(self.progress_manager))
 
-        # Adiciona edges
-        workflow.add_edge("generate_plan", "route_after_plan")
+        # Adiciona edges diretamente do generate_plan para os próximos nós
         workflow.add_conditional_edges(
-            "route_after_plan",
+            "generate_plan",
             route_after_planning,
             {
                 "retrieve_context": "retrieve_context",
