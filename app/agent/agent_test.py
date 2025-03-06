@@ -494,26 +494,52 @@ class RetrievalTools:
         return transformed_question
 
     async def parallel_context_retrieval(self, question: str) -> Dict[str, Any]:
-        #print(f"\n[RETRIEVAL] Starting parallel context retrieval for: {question}")
+        print(f"\n[RETRIEVAL] Starting parallel context retrieval for: {question}")
 
+        # Let's add better debugging for transformed questions
+        print("[RETRIEVAL] Transforming questions for each content type...")
         text_question, image_question, table_question = await asyncio.gather(
             self.transform_question(question),
             self.transform_question(question),
             self.transform_question(question)
         )
+        
+        print(f"[RETRIEVAL] Transformed questions:")
+        print(f"  - Text: {text_question}")
+        print(f"  - Image: {image_question}")
+        print(f"  - Table: {table_question}")
 
+        # Now retrieve contexts in parallel
+        print("[RETRIEVAL] Retrieving contexts in parallel...")
         text_context, image_context, table_context = await asyncio.gather(
             self.retrieve_text_context(text_question),
             self.retrieve_image_context(image_question),
             self.retrieve_table_context(table_question)
         )
-
+        
+        print("[RETRIEVAL] All contexts retrieved, analyzing relevance...")
         relevance_analysis = await self.analyze_context_relevance(
             original_question=question,
             text_context=text_context,
             image_context=image_context,
             table_context=table_context
         )
+
+        print(f"[RETRIEVAL] Relevance analysis: {relevance_analysis}")
+        
+        # Check if we have any valid contexts
+        context_types = []
+        if text_context:
+            context_types.append("text")
+        if image_context and image_context.get("description"):
+            context_types.append("image")
+        if table_context and table_context.get("content"):
+            context_types.append("table")
+            
+        if context_types:
+            print(f"[RETRIEVAL] Successfully retrieved contexts: {', '.join(context_types)}")
+        else:
+            print("[RETRIEVAL] Warning: No contexts were successfully retrieved")
 
         return {
             "text": text_context,
@@ -524,6 +550,12 @@ class RetrievalTools:
 
     async def retrieve_text_context(self, query: str) -> str:
         try:
+            print(f"[RETRIEVAL] Retrieving text context for query: {query}")
+            print(f"[RETRIEVAL] Student: {self.student_email}")
+            print(f"[RETRIEVAL] Session: {self.session_id}")
+            print(f"[RETRIEVAL] Disciplina: {self.disciplina}")
+            
+            # Usar apenas os filtros específicos conforme parâmetros originais
             results = self.qdrant_handler.similarity_search_with_filter(
                 query=query,
                 student_email=self.student_email,
@@ -531,13 +563,34 @@ class RetrievalTools:
                 disciplina_id=self.disciplina,
                 specific_metadata={"type": "text"}
             )
-            return "\n".join([doc.page_content for doc in results]) if results else ""
+            
+            if results:
+                print(f"[RETRIEVAL] Found {len(results)} text results")
+                # Log mais detalhes sobre os resultados para diagnóstico
+                for i, doc in enumerate(results):
+                    print(f"[RETRIEVAL] Result {i+1} metadata: {doc.metadata}")
+                
+                content = "\n".join([doc.page_content for doc in results])
+                print(f"[RETRIEVAL] Text context preview: {content[:100]}...")
+                return content
+            else:
+                print("[RETRIEVAL] No text context found")
+                # Retornar string vazia em vez de fallback - deixamos o sistema lidar com isso
+                return ""
         except Exception as e:
-            #print(f"[RETRIEVAL] Error in text retrieval: {e}")
+            print(f"[RETRIEVAL] Error in text retrieval: {e}")
+            import traceback
+            traceback.print_exc()
             return ""
 
     async def retrieve_image_context(self, query: str) -> Dict[str, Any]:
         try:
+            print(f"[RETRIEVAL] Retrieving image context for query: {query}")
+            print(f"[RETRIEVAL] Student: {self.student_email}")
+            print(f"[RETRIEVAL] Session: {self.session_id}")
+            print(f"[RETRIEVAL] Disciplina: {self.disciplina}")
+            
+            # Usar apenas os filtros específicos conforme os parâmetros originais
             results = self.qdrant_handler.similarity_search_with_filter(
                 query=query,
                 student_email=self.student_email,
@@ -545,25 +598,49 @@ class RetrievalTools:
                 disciplina_id=self.disciplina,
                 specific_metadata={"type": "image"}
             )
-            #print("")
-            #print("--------------------------------------------------")
-            #print(f"[RETRIEVAL] Image search results: {results}")
-            #print("--------------------------------------------------")
-            #print("")
+            
+            print(f"[RETRIEVAL] Image search results count: {len(results) if results else 0}")
+            
             if not results:
+                print("[RETRIEVAL] No image results found")
                 return {"type": "image", "content": None, "description": ""}
 
-            image_uuid = results[0].metadata.get("image_uuid")
+            # Exibir informações sobre a imagem encontrada
+            image_result = results[0]
+            print(f"[RETRIEVAL] Found image with metadata: {image_result.metadata}")
+            
+            image_uuid = image_result.metadata.get("image_uuid")
             if not image_uuid:
+                print("[RETRIEVAL] Image found but missing UUID in metadata")
                 return {"type": "image", "content": None, "description": ""}
 
-            return await self.retrieve_image_and_description(image_uuid)
+            print(f"[RETRIEVAL] Retrieving image with UUID: {image_uuid}")
+            result = await self.retrieve_image_and_description(image_uuid)
+            
+            # Verificar se a recuperação foi bem-sucedida
+            if result.get("type") == "error":
+                print(f"[RETRIEVAL] Error retrieving image: {result.get('message')}")
+                return {"type": "image", "content": None, "description": ""}
+                
+            # Logar sucesso
+            desc_length = len(result.get("description", ""))
+            print(f"[RETRIEVAL] Successfully retrieved image, description length: {desc_length}")
+            return result
+            
         except Exception as e:
-            #print(f"[RETRIEVAL] Error in image retrieval: {e}")
+            print(f"[RETRIEVAL] Error in image retrieval: {e}")
+            import traceback
+            traceback.print_exc()
             return {"type": "image", "content": None, "description": ""}
 
     async def retrieve_table_context(self, query: str) -> Dict[str, Any]:
         try:
+            print(f"[RETRIEVAL] Retrieving table context for query: {query}")
+            print(f"[RETRIEVAL] Student: {self.student_email}")
+            print(f"[RETRIEVAL] Session: {self.session_id}")
+            print(f"[RETRIEVAL] Disciplina: {self.disciplina}")
+            
+            # Usar apenas os filtros específicos conforme os parâmetros originais
             results = self.qdrant_handler.similarity_search_with_filter(
                 query=query,
                 student_email=self.student_email,
@@ -571,17 +648,27 @@ class RetrievalTools:
                 disciplina_id=self.disciplina,
                 specific_metadata={"type": "table"}
             )
+            
+            print(f"[RETRIEVAL] Table search results count: {len(results) if results else 0}")
 
             if not results:
+                print("[RETRIEVAL] No table results found")
                 return {"type": "table", "content": None}
+
+            # Exibir informações sobre a tabela encontrada
+            table_result = results[0]
+            print(f"[RETRIEVAL] Found table with metadata: {table_result.metadata}")
+            print(f"[RETRIEVAL] Table content preview: {table_result.page_content[:100]}...")
 
             return {
                 "type": "table",
-                "content": results[0].page_content,
-                "metadata": results[0].metadata
+                "content": table_result.page_content,
+                "metadata": table_result.metadata
             }
         except Exception as e:
-            #print(f"[RETRIEVAL] Error in table retrieval: {e}")
+            print(f"[RETRIEVAL] Error in table retrieval: {e}")
+            import traceback
+            traceback.print_exc()
             return {"type": "table", "content": None}
 
     async def retrieve_image_and_description(self, image_uuid: str) -> Dict[str, Any]:
@@ -589,25 +676,35 @@ class RetrievalTools:
         Recupera a imagem e sua descrição de forma assíncrona.
         """
         try:
-            #print(f"[RETRIEVAL] Recuperando imagem com UUID: {image_uuid}")
+            print(f"[RETRIEVAL] Recuperando imagem com UUID: {image_uuid}")
             image_data = await self.image_collection.find_one({"_id": image_uuid})
+            
             if not image_data:
-                #print(f"[RETRIEVAL] Imagem não encontrada: {image_uuid}")
+                print(f"[RETRIEVAL] Imagem não encontrada na coleção. UUID: {image_uuid}")
                 return {"type": "error", "message": "Imagem não encontrada"}
 
+            # Verificar os campos presentes no documento
+            print(f"[RETRIEVAL] Image document keys: {list(image_data.keys())}")
             image_bytes = image_data.get("image_data")
+            
             if not image_bytes:
-                #print("[RETRIEVAL] Dados da imagem ausentes")
+                print("[RETRIEVAL] Dados da imagem ausentes no documento")
                 return {"type": "error", "message": "Dados da imagem ausentes"}
 
+            # Verificar tipo de dados da imagem
+            print(f"[RETRIEVAL] Image data type: {type(image_bytes)}")
             if isinstance(image_bytes, bytes):
                 processed_bytes = image_bytes
+                print(f"[RETRIEVAL] Bytes image data, size: {len(processed_bytes)}")
             elif isinstance(image_bytes, str):
                 processed_bytes = image_bytes.encode('utf-8')
+                print(f"[RETRIEVAL] String image data converted to bytes, size: {len(processed_bytes)}")
             else:
-                #print(f"[RETRIEVAL] Formato de imagem não suportado: {type(image_bytes)}")
+                print(f"[RETRIEVAL] Formato de imagem não suportado: {type(image_bytes)}")
                 return {"type": "error", "message": "Formato de imagem não suportado"}
 
+            # Buscar a descrição da imagem
+            print(f"[RETRIEVAL] Buscando descrição para imagem: {image_uuid}")
             results = self.qdrant_handler.similarity_search_with_filter(
                 query="",
                 student_email=self.student_email,
@@ -619,18 +716,24 @@ class RetrievalTools:
                 use_session=True,
                 specific_metadata={"image_uuid": image_uuid, "type": "image"}
             )
-            #print(f"[RETRIEVAL] Resultados da busca de descrição: {results}")
+            
+            print(f"[RETRIEVAL] Descrição da imagem - resultados encontrados: {len(results) if results else 0}")
+            
             if not results:
+                print(f"[RETRIEVAL] Descrição da imagem não encontrada para UUID: {image_uuid}")
                 return {"type": "error", "message": "Descrição da imagem não encontrada"}
-            #print("[RETRIEVAL] Imagem e descrição recuperadas com sucesso")
-            #print(f"[RETRIEVAL] Descrição da imagem: {results[0].page_content}")
+                
+            description = results[0].page_content
+            print(f"[RETRIEVAL] Imagem e descrição recuperadas com sucesso. Tamanho da descrição: {len(description)}")
+            print(f"[RETRIEVAL] Descrição da imagem: {description[:100]}...")
+            
             return {
                 "type": "image",
                 "image_bytes": processed_bytes,
-                "description": results[0].page_content
+                "description": description
             }
         except Exception as e:
-            #print(f"[RETRIEVAL] Erro ao recuperar imagem: {e}")
+            print(f"[RETRIEVAL] Erro ao recuperar imagem: {e}")
             import traceback
             traceback.print_exc()
             return {"type": "error", "message": str(e)}
@@ -821,6 +924,9 @@ ATENÇÃO ESPECIAL:
 3. Mantenha feedback construtivo e motivador
 4. Adapte próximos passos baseado no desempenho
 5. Use linguagem apropriada ao nível do aluno
+6. Você deve rotear para o próximo passo após a geração do plano. Se você achar necessidade de fornecer um material como contexto,
+ usar imagens ou tabelas, você deve fazer usar o campo "next_step": "retrieval"
+
 
 RESPOSTA OBRIGATÓRIA:
 Retornar JSON com estrutura exata:
@@ -1634,7 +1740,11 @@ def route_after_planning(state: AgentState) -> str:
     """
     next_step = state.get("next_step", "retrieval")
     #print(f"[ROUTING] Routing after planning: {next_step}")
-
+    print()
+    print("---------------------------------------------")
+    print("next_step: ", next_step)
+    print("---------------------------------------------")
+    print()
     if next_step == "websearch":
         return "web_search"
     elif next_step == "retrieval":

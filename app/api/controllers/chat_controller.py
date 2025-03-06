@@ -394,7 +394,7 @@ class ChatController:
                 if chunk_type == "chunk":
                     chunk_content = chunk.get("content", "")
                     full_text += chunk_content
-                    print(f"CHAT_CONTROLLER: Received text chunk #{chunks_count}: {chunk_content[:20]}...")
+                    #print(f"CHAT_CONTROLLER: Received text chunk #{chunks_count}: {chunk_content[:20]}...")
                 elif chunk_type == "image":
                     has_image = True
                     full_text = chunk.get("content", "")  # Texto associado à imagem
@@ -404,9 +404,10 @@ class ChatController:
                     content = chunk.get('content', '')
                     if isinstance(content, str) and content:
                         preview = content[:30]
-                        print(f"CHAT_CONTROLLER: Received {chunk_type} chunk: {preview}...")
+                        #print(f"CHAT_CONTROLLER: Received {chunk_type} chunk: {preview}...")
                     else:
-                        print(f"CHAT_CONTROLLER: Received non-text chunk type: {chunk_type}")
+                        #print(f"CHAT_CONTROLLER: Received non-text chunk type: {chunk_type}")
+                        pass
                 
                 # Forward the chunk immediately to the client
                 yield chunk
