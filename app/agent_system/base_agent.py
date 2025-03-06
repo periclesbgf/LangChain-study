@@ -506,64 +506,6 @@ def create_retrieval_node(tools: RetrievalTools):
         return new_state
     return retrieve_context
 
-# 4. Node: Roteamento após Geração do Plano
-def route_after_plan_generation():
-    ROUTE_PROMPT = """
-Você é um assistente educacional que avalia o plano de resposta gerado e decide o próximo passo baseado na pergunta do aluno.
-
-Pergunta do Aluno:
-{question}
-
-Histórico da Conversa:
-{chat_history}
-
-Plano de Resposta Gerado:
-{plan}
-
-No Banco de dados (retrieval), há vários materiais de estudo, como textos, imagens e tabelas, que podem ser relevantes para a pergunta do aluno.
-
-Analise a pergunta e determine o próximo passo:
-1. Se a pergunta pede explicitamente por informações da web (Wikipedia, YouTube, etc), use "websearch"
-2. Se a pergunta requer contexto do material de estudo ou exemplos, use "retrieval"
-3. Se a pergunta pode ser respondida diretamente, use "direct_answer"
-
-Retorne apenas um JSON com o seguinte formato, mantendo as aspas duplas:
-"analysis": "string explicando a análise",
-"next_step": "websearch|retrieval|direct_answer"
-"""
-    prompt = ChatPromptTemplate.from_template(ROUTE_PROMPT)
-    model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-
-    async def route_after_plan(state: AgentState) -> AgentState:
-        latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
-        chat_history = format_chat_history(state["chat_history"])
-        current_plan = state.get("current_plan", "{}")
-        try:
-            response = await model.ainvoke(prompt.format(
-                question=latest_question,
-                chat_history=chat_history,
-                plan=current_plan
-            ))
-            cleaned_content = response.content.strip()
-            if cleaned_content.startswith("```json"):
-                cleaned_content = cleaned_content[7:]
-            if cleaned_content.endswith("```"):
-                cleaned_content = cleaned_content[:-3]
-            cleaned_content = cleaned_content.strip()
-            route = json.loads(cleaned_content)
-            if route.get("next_step") not in ["websearch", "retrieval", "direct_answer"]:
-                raise ValueError(f"Invalid next_step value: {route.get('next_step')}")
-            new_state = state.copy()
-            new_state["next_step"] = route["next_step"]
-            return new_state
-        except Exception as e:
-            question_lower = latest_question.lower()
-            next_step = "websearch" if any(keyword in question_lower for keyword in ["youtube", "video", "wikipedia", "web"]) else "retrieval"
-            new_state = state.copy()
-            new_state["next_step"] = next_step
-            return new_state
-
-    return route_after_plan
 
 # 5. Node: Geração do Plano de Resposta
 def create_answer_plan_node():
@@ -614,7 +556,8 @@ RETORNE JSON COM A ESTRUTURA:
 "nivel_resposta": "basico|intermediario|avancado",
 "proxima_acao": "string",
 "revisao_necessaria": boolean,
-"ajuste_plano": "necessario: boolean, motivo: string, sugestao: string"
+"ajuste_plano": "necessario: boolean, motivo: string, sugestao: string",
+"next_step": "websearch|retrieval|direct_answer"
 """
     prompt = ChatPromptTemplate.from_template(PLANNING_PROMPT)
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
@@ -725,9 +668,14 @@ RETORNE JSON COM A ESTRUTURA:
             raise ValueError(f"Missing required fields in plan: {missing_fields}")
 
     def determine_next_step(plan: Dict[str, Any]) -> str:
+        # Verifica se há um valor explícito em next_step
+        if "next_step" in plan and plan["next_step"] in ["websearch", "retrieval", "direct_answer"]:
+            return plan["next_step"]
+        
+        # Caso não tenha ou seja inválido, usa a lógica anterior como fallback
         if plan.get("tipo_entrada") == "resposta_atividade":
             return "direct_answer"
-        return plan.get("proxima_acao", "retrieval")
+        return "retrieval"
 
     def handle_plan_generation_error(state: AgentState, error_msg: str) -> AgentState:
         default_plan = {
@@ -749,7 +697,8 @@ RETORNE JSON COM A ESTRUTURA:
             "indicadores_compreensao": ["Compreensão básica do conceito"],
             "nivel_resposta": "básico",
             "proxima_acao": "retrieval",
-            "revisao_necessaria": False
+            "revisao_necessaria": False,
+            "next_step": "retrieval"
         }
         new_state = state.copy()
         new_state["current_plan"] = json.dumps(default_plan)
@@ -1254,14 +1203,14 @@ class TutorWorkflow:
     def create_workflow(self) -> Graph:
         workflow = Graph()
         workflow.add_node("generate_plan", create_answer_plan_node())
-        workflow.add_node("route_after_plan", route_after_plan_generation())
         workflow.add_node("retrieve_context", create_retrieval_node(self.tools))
         workflow.add_node("web_search", create_websearch_node(self.web_tools))
         workflow.add_node("teach", create_teaching_node())
         workflow.add_node("progress_analyst", create_progress_analyst_node(self.progress_manager))
-        workflow.add_edge("generate_plan", "route_after_plan")
+        
+        # Adiciona edges diretamente do generate_plan para os próximos nós
         workflow.add_conditional_edges(
-            "route_after_plan",
+            "generate_plan",
             route_after_planning,
             {
                 "retrieve_context": "retrieve_context",

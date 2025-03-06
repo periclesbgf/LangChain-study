@@ -893,7 +893,15 @@ REGRAS DE OURO:
 
             # Processar o plano de execução atual
             try:
-                plano_execucao = json.loads(state["current_plan"])
+                # Check if current_plan is already a dict or a JSON string
+                if state["current_plan"] and isinstance(state["current_plan"], str):
+                    plano_execucao = json.loads(state["current_plan"])
+                elif state["current_plan"] and isinstance(state["current_plan"], dict):
+                    plano_execucao = state["current_plan"]
+                else:
+                    # Handle the case when current_plan is empty or invalid
+                    raise ValueError("Empty or invalid execution plan")
+                
                 current_step = identify_current_step(plano_execucao["plano_execucao"])
                 #print(f"[PLANNING] Current step: {current_step.titulo} ({current_step.progresso}%)")
             except (json.JSONDecodeError, KeyError) as e:
@@ -1183,29 +1191,38 @@ def create_teaching_node():
 
     context_prompt = ChatPromptTemplate.from_template(CONTEXT_BASED_PROMPT)
     direct_prompt = ChatPromptTemplate.from_template(DIRECT_RESPONSE_PROMPT)
-    model = ChatOpenAI(model="gpt-4o", temperature=0.2)
+    # Configuração do modelo com streaming ativado
+    model = ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True)
 
-    def generate_teaching_response(state: AgentState) -> AgentState:
-        #print("\n[NODE:TEACHING] Starting teaching response generation")
+    async def generate_teaching_response(state: AgentState):
+        """Gera resposta em formato de streaming usando chunks"""
+        import time
+        start_time = time.time()
+        
+        #print("\n[NODE:TEACHING] Starting teaching response generation with streaming")
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
         chat_history = format_chat_history(state["chat_history"])
 
+        # Primeiro chunk - indicando processamento
+        yield {"type": "processing", "content": "Analisando sua pergunta..."}
+        
         try:
+            full_response = ""
+            image_content = None
+            
             # Determinar se é resposta baseada em contexto ou direta
             if state.get("next_step") == "direct_answer":
-                #print("[NODE:TEACHING] Using direct response prompt")
-                #print(f"[NODE:TEACHING] Current plan: {state["current_plan"]}")
-                explanation = model.invoke(direct_prompt.format(
-                    learning_plan=state["current_plan"],
-                    user_profile=state["user_profile"],
-                    question=latest_question,
-                    chat_history=chat_history
-                ))
-                image_content = None
-                #print(f"[NODE:TEACHING] Direct response: {explanation.content}")
-
+                #print("[NODE:TEACHING] Using direct response prompt with streaming")
+                prompt_params = {
+                    "learning_plan": state["current_plan"],
+                    "user_profile": state["user_profile"],
+                    "question": latest_question,
+                    "chat_history": chat_history
+                }
+                stream = model.astream(direct_prompt.format(**prompt_params))
+                
             else:
-                #print("[NODE:TEACHING] Using context-based prompt")
+                #print("[NODE:TEACHING] Using context-based prompt with streaming")
                 # Processar contextos para resposta baseada em contexto
                 if state.get("web_search_results"):
                     source_type = "Resultados de busca web"
@@ -1229,7 +1246,7 @@ def create_teaching_node():
                     )
 
                     source_type = "Material de estudo"
-                    primary_type = sorted_contexts[0][0]
+                    primary_type = sorted_contexts[0][0] if sorted_contexts else "text"
 
                     if primary_type == "text":
                         primary_context = f"Texto: {contexts.get('text', '')}"
@@ -1249,40 +1266,54 @@ def create_teaching_node():
                                 secondary_contexts_list.append(f"Dados da Tabela: {contexts.get('table', {}).get('content', '')}")
                     
                     secondary_contexts = "\n\n".join(secondary_contexts_list)
-                #print(f"[NODE:TEACHING] Current CONTEXT plan: {state["current_plan"]}")
-                explanation = model.invoke(context_prompt.format(
-                    learning_plan=state["current_plan"],
-                    user_profile=state["user_profile"],
-                    source_type=source_type,
-                    primary_context=primary_context,
-                    secondary_contexts=secondary_contexts,
-                    question=latest_question,
-                    chat_history=chat_history
-                ))
-                #print(f"[NODE:TEACHING] Context-based response: {explanation.content}")
-
-                # Processar imagem se disponível e relevante
-                image_content = None
+                
+                # Verificar se há imagem relevante antes de iniciar o streaming
                 if (state.get("extracted_context") and 
                     state["extracted_context"].get("image", {}).get("type") == "image" and
                     state["extracted_context"].get("image", {}).get("image_bytes") and
                     context_scores.get("image", 0) > 0.3):
                     image_content = state["extracted_context"]["image"]["image_bytes"]
+                
+                prompt_params = {
+                    "learning_plan": state["current_plan"],
+                    "user_profile": state["user_profile"],
+                    "source_type": source_type,
+                    "primary_context": primary_context,
+                    "secondary_contexts": secondary_contexts,
+                    "question": latest_question,
+                    "chat_history": chat_history
+                }
+                stream = model.astream(context_prompt.format(**prompt_params))
 
-            # Format response
+            # Se tiver imagem, enviar um chunk com a imagem primeiro
+            if image_content:
+                base64_image = base64.b64encode(image_content).decode('utf-8')
+                yield {
+                    "type": "image", 
+                    "content": "", 
+                    "image": f"data:image/jpeg;base64,{base64_image}"
+                }
+
+            # Processar os chunks do streaming
+            async for chunk in stream:
+                if chunk.content:
+                    full_response += chunk.content
+                    yield {"type": "chunk", "content": chunk.content}
+            
+            # Atualizar estado após o streaming completo
             if image_content:
                 base64_image = base64.b64encode(image_content).decode('utf-8')
                 response_content = {
                     "type": "multimodal",
-                    "content": explanation.content,
+                    "content": full_response,
                     "image": f"data:image/jpeg;base64,{base64_image}"
                 }
                 response = AIMessage(content=json.dumps(response_content))
-                history_message = AIMessage(content=explanation.content)
             else:
-                response = explanation
-                history_message = explanation
-
+                response = AIMessage(content=full_response)
+            
+            history_message = AIMessage(content=full_response)
+            
             # Update state
             new_state = state.copy()
             new_state["messages"] = list(state["messages"]) + [response]
@@ -1290,12 +1321,23 @@ def create_teaching_node():
                 HumanMessage(content=latest_question),
                 history_message
             ]
-            return new_state
+            
+            # Enviar mensagem de conclusão com o tempo de processamento
+            processing_time = time.time() - start_time
+            yield {"type": "complete", "content": f"Resposta completa em {processing_time:.2f}s"}
+            
+            # Atualizar estado após conclusão
+            state.update(new_state)
 
         except Exception as e:
-            #print(f"[NODE:TEACHING] Error generating response: {str(e)}")
+            #print(f"[NODE:TEACHING] Error generating streaming response: {str(e)}")
             import traceback
             traceback.print_exc()
+            
+            # Retornar erro como chunk
+            yield {"type": "error", "content": f"Ocorreu um erro ao processar sua mensagem: {str(e)}"}
+            
+            # Atualizar estado mesmo em caso de erro
             error_message = "Desculpe, encontrei um erro ao processar sua pergunta. Por favor, tente novamente."
             response = AIMessage(content=error_message)
             history_message = response
@@ -1306,7 +1348,7 @@ def create_teaching_node():
                 HumanMessage(content=latest_question),
                 history_message
             ]
-            return new_state
+            state.update(new_state)
 
     return generate_teaching_response
 
@@ -1761,7 +1803,9 @@ class TutorWorkflow:
         workflow.add_node("generate_plan", create_answer_plan_node())
         workflow.add_node("retrieve_context", create_retrieval_node(self.tools))
         workflow.add_node("web_search", create_websearch_node(self.web_tools))
-        workflow.add_node("teach", create_teaching_node())
+        # O nó de teaching agora retorna um gerador de chunks
+        self.teaching_node = create_teaching_node()
+        workflow.add_node("teach", self.teaching_node)
         workflow.add_node("progress_analyst", create_progress_analyst_node(self.progress_manager))
 
         # Adiciona edges diretamente do generate_plan para os próximos nós
@@ -1855,12 +1899,87 @@ class TutorWorkflow:
         query: str, 
         student_profile: dict, 
         current_plan=None, 
-        chat_history=None
-    ) -> dict:
+        chat_history=None,
+        stream=False
+    ):
+        """
+        Invoca o workflow de tutoria.
+        
+        Parâmetros:
+            query: Pergunta do usuário
+            student_profile: Perfil do estudante
+            current_plan: Plano atual (opcional)
+            chat_history: Histórico da conversa (opcional)
+            stream: Quando True, retorna chunks de resposta via streaming
+            
+        Retorno:
+            Se stream=False: retorna o resultado completo como dict
+            Se stream=True: retorna um gerador que produz chunks de resposta
+        """
         start_time = time.time()
         print(f"\n[WORKFLOW] Starting workflow invocation")
         #print(f"[WORKFLOW] Query: {query}")
 
+        # Função interna para processamento de streaming
+        async def stream_response(state):
+            # Executa o fluxo até o nó de ensino
+            try:
+                # Vai do nó inicial até o nó de teaching
+                interim_result = None
+                
+                # Em vez de tentar acessar os nós diretamente, precisamos usar os nós desacoplados
+                # Nós extraímos e usamos as funções originais em vez de tentar acessar os nós compilados
+                
+                # O nó de planejamento não é async, então não podemos usar await
+                plan_node = create_answer_plan_node()
+                plan_state = plan_node(state)  # Chamada não-async
+                next_step = route_after_planning(plan_state)
+                
+                # Executa o nó intermediário conforme roteamento
+                if next_step == "retrieve_context":
+                    retrieve_node = create_retrieval_node(self.tools)
+                    interim_result = await retrieve_node(plan_state)  # Este é async
+                elif next_step == "web_search":
+                    web_search_node = create_websearch_node(self.web_tools)
+                    interim_result = await web_search_node(plan_state)  # Este é async
+                else:  # direct_answer
+                    interim_result = plan_state
+                
+                # Agora podemos gerar a resposta em chunks
+                teaching_generator = self.teaching_node(interim_result)
+                
+                # Retorna os chunks conforme são gerados
+                async for chunk in teaching_generator:
+                    yield chunk
+                
+                # Após todos os chunks serem enviados, atualiza o progresso
+                try:
+                    progress_node = create_progress_analyst_node(self.progress_manager)
+                    # O nó de análise de progresso é async
+                    progress_state = await progress_node(interim_result)
+                    # Recupera o resumo atualizado do estudo
+                    study_summary = await self.progress_manager.get_study_summary(self.session_id)
+                    
+                    # Converter campos datetime para string para evitar problemas de serialização
+                    serializable_summary = {}
+                    for key, value in study_summary.items():
+                        if isinstance(value, datetime):
+                            serializable_summary[key] = value.isoformat()
+                        else:
+                            serializable_summary[key] = value
+                    
+                    # Convertemos o resumo para string para evitar problemas com a serialização
+                    summary_content = f"Progresso atualizado: {serializable_summary.get('progress_percentage', 0):.1f}%"
+                    yield {"type": "progress_update", "content": summary_content, "data": serializable_summary}
+                except Exception as e:
+                    print(f"[WORKFLOW] Error updating progress: {e}")
+                    
+            except Exception as e:
+                print(f"[WORKFLOW] Streaming error: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                yield {"type": "error", "content": f"Erro na execução do workflow: {str(e)}"}
+        
         try:
             # Validar perfil do usuário
             validated_profile = student_profile
@@ -1891,7 +2010,12 @@ class TutorWorkflow:
                 current_progress=current_progress,
                 session_id=self.session_id
             )
-
+            
+            # Se streaming estiver ativado, retorna o gerador de chunks
+            if stream:
+                return stream_response(initial_state)
+            
+            # Comportamento tradicional sem streaming
             #print("[WORKFLOW] Executing workflow")
             result = await self.workflow.ainvoke(initial_state)
             #print("[WORKFLOW] Workflow execution completed successfully")
@@ -1917,6 +2041,14 @@ class TutorWorkflow:
             #print(f"[WORKFLOW] Error during workflow execution: {str(e)}")
             import traceback
             traceback.print_exc()
+            
+            if stream:
+                # Se for streaming, convertemos a exceção em um gerador que retorna apenas um erro
+                async def error_generator():
+                    yield {"type": "error", "content": f"Erro na execução do workflow: {str(e)}"}
+                return error_generator()
+            
+            # Sem streaming, retornamos um objeto de erro
             error_response = {
                 "error": f"Erro na execução do workflow: {str(e)}",
                 "messages": [AIMessage(content="Desculpe, encontrei um erro ao processar sua pergunta. Por favor, tente novamente.")],
@@ -1931,6 +2063,7 @@ class TutorWorkflow:
 
             return error_response
         finally:
-            end_time = time.time()  # Marca o fim do tempo
-            elapsed_time = end_time - start_time
-            print(f"[WORKFLOW] Workflow execution completed in {elapsed_time:.2f} seconds")
+            if not stream:  # Apenas registramos o tempo para execuções não-streaming
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                print(f"[WORKFLOW] Workflow execution completed in {elapsed_time:.2f} seconds")
