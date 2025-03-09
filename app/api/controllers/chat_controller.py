@@ -210,7 +210,7 @@ class ChatController:
                 session_id_key="session_id",
                 history_key="history",
             )
-            print("Chat history:", self._chat_history)
+            #print("Chat history:", self._chat_history)
         return self._chat_history
     
     @property
@@ -248,25 +248,46 @@ class ChatController:
         This method is already async and must be awaited.
         """
         start_time = time.time()
-        interaction_key = f"{self.session_id}:{hash(user_input)}"
-
+        
         try:
-            # Handle empty input
+            if files and not user_input:
+                file_results = await self.process_files(files)
+
+                if any(result["status"] == "error" for result in file_results):
+                    error_messages = [result["message"] for result in file_results if result["status"] == "error"]
+                    message = "Erro ao processar arquivos: " + "; ".join(error_messages)
+
+                    if stream:
+                        return self._create_simple_generator({"type": "error", "content": message})
+                    return message
+
+                elif any(result["status"] == "rejected" for result in file_results):
+                    reject_messages = [result["message"] for result in file_results if result["status"] == "rejected"]
+                    message = "; ".join(reject_messages)
+
+                    if stream:
+                        return self._create_simple_generator({"type": "warning", "content": message})
+                    return message
+
+                else:
+                    if stream:
+                        return self._create_simple_generator({"type": "success", "content": "Arquivos processados com sucesso. Você pode fazer perguntas sobre eles agora."})
+                    return "Arquivos processados com sucesso. Você pode fazer perguntas sobre eles agora."
+
             if not user_input and not files:
                 if stream:
                     return self._create_simple_generator({"type": "error", "content": "Nenhuma entrada fornecida."})
                 return "Nenhuma entrada fornecida."
 
-            # Check cache for identical recent requests (skip if streaming)
+            interaction_key = f"{self.session_id}:{hash(user_input)}"
+
             if not stream and user_input and interaction_key in self._response_cache:
                 logger.info(f"Cache hit for message: {interaction_key}")
                 return self._response_cache[interaction_key]
 
-            # Get current chat history efficiently with better error handling
             try:
                 current_history = self.chat_history.messages[-MAX_HISTORY_MESSAGES:] if self.chat_history.messages else []
                 print(f"[CHAT_CONTROLLER] Retrieved chat history: {len(current_history)} messages")
-                # Log the message types to debug
                 for i, msg in enumerate(current_history):
                     print(f"[CHAT_CONTROLLER] Message {i}: type={type(msg).__name__}, content preview: {str(msg.content)[:50]}...")
             except Exception as hist_error:
@@ -275,19 +296,15 @@ class ChatController:
                 traceback.print_exc()
                 current_history = []
 
-            # Process workflow with optimized parameters
+            if files and user_input:
+                print(f"[CHAT_CONTROLLER] Processing {len(files)} file(s) before handling text message")
+                await self.process_files(files)
+
             if user_input:
-                # If streaming is requested, handle differently
                 if stream:
-                    print(f"CONTROLLER: Stream=True, using streaming response for: {user_input[:30]}...")
-                    print(f"CONTROLLER: Tutor workflow type: {type(self._tutor_workflow)}")
-                    print(f"CONTROLLER: Tutor workflow has invoke_streaming: {hasattr(self._tutor_workflow, 'invoke_streaming')}")
-                    # Important: We need to return the generator directly, not awaiting it
                     generator = self._create_streaming_response(user_input, current_history)
-                    print(f"CONTROLLER: Created streaming generator of type: {type(generator)}")
                     return generator
 
-                # Non-streaming path - invoke workflow with current context
                 workflow_response = await self._tutor_workflow.invoke(
                     query=user_input,
                     student_profile=self.perfil,
@@ -295,7 +312,6 @@ class ChatController:
                     chat_history=current_history
                 )
 
-                # Process response
                 if isinstance(workflow_response, dict):
                     messages = workflow_response.get("messages", [])
                     if messages:
@@ -303,26 +319,17 @@ class ChatController:
                         if ai_messages:
                             final_message = ai_messages[-1]
 
-                            # Process multimodal content
                             response = await self._process_response_content(
                                 final_message, user_input
                             )
 
-                            # Cache the response
                             self._response_cache[interaction_key] = response
 
-                            # Track performance
                             self._analytics["interaction_count"] += 1
                             self._analytics["last_response_time"] = time.time() - start_time
 
                             logger.info(f"Processed message in {self._analytics['last_response_time']:.2f}s")
                             return response
-
-            # Handle file upload with background processing
-            if files:
-                if stream:
-                    return self._create_simple_generator({"type": "processing", "content": "Arquivo em processamento. Os resultados estarão disponíveis em breve."})
-                return "Arquivo em processamento. Os resultados estarão disponíveis em breve."
 
             if stream:
                 return self._create_simple_generator({"type": "complete", "content": "Processamento concluído."})
@@ -348,32 +355,12 @@ class ChatController:
         start_time = time.time()
 
         try:
-            print(f"CHAT_CONTROLLER: Starting streaming response for: {user_input[:30]}...")
-            # Initial progress message
-            yield {"type": "processing", "content": "Iniciando processamento da pergunta..."}
+            yield {"type": "processing", "content": "Entendendo a pergunta..."}
 
-            # Log detailed information about the history being passed
-            print(f"CHAT_CONTROLLER: Passing {len(current_history)} history messages to workflow")
-            for i, msg in enumerate(current_history):
-                msg_type = type(msg).__name__
-                content_preview = str(msg.content)[:30] + "..." if len(str(msg.content)) > 30 else str(msg.content)
-                print(f"CHAT_CONTROLLER: History[{i}]: {msg_type} - {content_preview}")
-
-            # Debug information about current plan
-            plan_type = type(self.plano_execucao).__name__
-            plan_preview = str(self.plano_execucao)[:100] + "..." if len(str(self.plano_execucao)) > 100 else str(self.plano_execucao)
-            print(f"CHAT_CONTROLLER: Current plan type: {plan_type}")
-            print(f"CHAT_CONTROLLER: Current plan preview: {plan_preview}")
-            
-            # Usar o TutorWorkflow com streaming ativado
-            print(f"CHAT_CONTROLLER: Invoking TutorWorkflow with stream=True")
-            
-            # Usar o método invoke com stream=True
             full_text = ""
             has_image = False
             image_data = None
-            
-            # Obter o gerador de streaming usando invoke com stream=True
+
             stream_generator = await self._tutor_workflow.invoke(
                 query=user_input,
                 student_profile=self.perfil,
@@ -381,48 +368,33 @@ class ChatController:
                 chat_history=current_history,
                 stream=True
             )
-            
-            # Track chunk statistics
+
             chunks_count = 0
-                
-            # Processar os chunks enviados pelo gerador
+
             async for chunk in stream_generator:
                 chunks_count += 1
                 chunk_type = chunk.get("type", "unknown")
-                
-                # Track content for complete message saving
+
                 if chunk_type == "chunk":
                     chunk_content = chunk.get("content", "")
                     full_text += chunk_content
-                    #print(f"CHAT_CONTROLLER: Received text chunk #{chunks_count}: {chunk_content[:20]}...")
                 elif chunk_type == "image":
                     has_image = True
                     full_text = chunk.get("content", "")  # Texto associado à imagem
                     image_data = chunk.get("image")
                     print(f"CHAT_CONTROLLER: Received image chunk")
-                else:
-                    content = chunk.get('content', '')
-                    if isinstance(content, str) and content:
-                        preview = content[:30]
-                        #print(f"CHAT_CONTROLLER: Received {chunk_type} chunk: {preview}...")
-                    else:
-                        #print(f"CHAT_CONTROLLER: Received non-text chunk type: {chunk_type}")
-                        pass
-                
-                # Forward the chunk immediately to the client
+                elif chunk_type == "error":
+                    yield chunk
+                    break
                 yield chunk
-                
-            print(f"CHAT_CONTROLLER: Streaming completed, processed {chunks_count} chunks")
 
-            # Add final completion message if needed
+
             processing_time = time.time() - start_time
             logger.info(f"Streaming response completed in {processing_time:.2f}s")
-            
-            # Após finalizar o streaming, salvar mensagem completa no histórico
+
             if full_text:
                 print(f"CHAT_CONTROLLER: Salvando mensagem completa no histórico (tamanho: {len(full_text)})")
                 if has_image and image_data:
-                    # Criar conteúdo multimodal
                     multimodal_content = {
                         "type": "multimodal",
                         "content": full_text,
@@ -432,14 +404,11 @@ class ChatController:
                         HumanMessage(content=user_input),
                         AIMessage(content=json.dumps(multimodal_content))
                     )
-                    print(f"CHAT_CONTROLLER: Salvo conteúdo multimodal no histórico")
                 else:
-                    # Texto simples
                     await self._save_chat_history(
                         HumanMessage(content=user_input),
                         AIMessage(content=full_text)
                     )
-                    print(f"CHAT_CONTROLLER: Salvo texto simples no histórico")
 
         except Exception as e:
             logger.error(f"Error in streaming generator: {e}")
@@ -454,32 +423,26 @@ class ChatController:
     ) -> Union[str, Dict[str, Any]]:
         """Process message content handling multimodal responses"""
         try:
-            # Try to parse JSON for multimodal content
             content = json.loads(message.content) if isinstance(message.content, str) else message.content
-            
-            # Handle image content
+
             if isinstance(content, dict) and content.get("type") == "image":
                 image_bytes = content.get("image_bytes")
                 if image_bytes:
-                    # Convert image bytes to base64
                     image_base64 = base64.b64encode(image_bytes).decode('utf-8')
                     response_data = {
                         "type": "image",
                         "content": content.get("description", ""),
                         "image": f"data:image/jpeg;base64,{image_base64}"
                     }
-                    
-                    # Save interaction to history
+
                     await self._save_chat_history(
                         HumanMessage(content=user_input),
                         AIMessage(content=json.dumps(response_data))
                     )
                     return response_data
         except (json.JSONDecodeError, AttributeError):
-            # Not JSON or multimodal content, handle as plain text
-            pass
-            
-        # For plain text responses
+            raise ValueError("Invalid response content format")
+
         await self._save_chat_history(
             HumanMessage(content=user_input),
             message
@@ -489,43 +452,26 @@ class ChatController:
     async def _save_chat_history(self, user_message: HumanMessage, ai_message: AIMessage):
         """Save chat history with optimized batching and proper format validation"""
         try:
-            # Log the message details for debugging
-            print(f"[CHAT_CONTROLLER] Saving messages to history:")
-            print(f"[CHAT_CONTROLLER]   User message type: {type(user_message).__name__}")
-            if hasattr(user_message, 'content'):
-                print(f"[CHAT_CONTROLLER]   User content preview: {str(user_message.content)[:50]}...")
-            
-            print(f"[CHAT_CONTROLLER]   AI message type: {type(ai_message).__name__}")
-            if hasattr(ai_message, 'content'):
-                if isinstance(ai_message.content, str) and ai_message.content.startswith('{"type":"multimodal"'):
-                    print(f"[CHAT_CONTROLLER]   AI content is multimodal JSON string")
-                else:
-                    print(f"[CHAT_CONTROLLER]   AI content preview: {str(ai_message.content)[:50]}...")
-            
-            # Normalize multimodal content if needed
+
             if hasattr(ai_message, 'content') and isinstance(ai_message.content, str):
                 try:
                     if ai_message.content.startswith('{"type":"multimodal"'):
-                        # Parse the JSON to extract just the text content
                         multimodal_data = json.loads(ai_message.content)
                         if multimodal_data.get("type") == "multimodal":
-                            # Create a new message with just the text content
                             text_content = multimodal_data.get("content", "")
                             ai_message = AIMessage(
                                 content=text_content,
                                 additional_kwargs={"image_data": multimodal_data.get("image")}
                             )
-                            print(f"[CHAT_CONTROLLER]   Normalized multimodal message to text + metadata")
+                            raise ValueError("Multimodal content detected, splitting into separate messages")
                 except json.JSONDecodeError:
-                    print(f"[CHAT_CONTROLLER]   Failed to parse multimodal content as JSON")
+                    raise ValueError("Invalid multimodal content format")
                 except Exception as norm_error:
-                    print(f"[CHAT_CONTROLLER]   Error normalizing multimodal content: {norm_error}")
-            
-            # Add messages using async-compatible method
+                    raise ValueError(f"Error normalizing multimodal content: {norm_error}")
             self.chat_history.add_message(user_message)
             self.chat_history.add_message(ai_message)
             print(f"[CHAT_CONTROLLER]   Messages successfully added to history")
-            
+
         except Exception as e:
             logger.error(f"Error saving chat history: {e}")
             import traceback
@@ -617,24 +563,86 @@ class ChatController:
             "progress_data": progress_data
         }
 
-    async def _process_files(self, files):
+    async def process_files(self, files):
         """Process uploaded files with chunking and parallel processing"""
         # Process files concurrently in smaller chunks
         processing_tasks = []
+        result_messages = []
         
         for file in files:
+            print(f"Processing file: {file.filename}")
             task = asyncio.create_task(self._process_single_file(file))
             processing_tasks.append(task)
         
-        # Wait for all files to be processed
-        await asyncio.gather(*processing_tasks)
+        # Wait for all files to be processed and collect results
+        results = await asyncio.gather(*processing_tasks, return_exceptions=True)
+        
+        # Process results and collect any error messages
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                # Handle exception
+                error_msg = f"Erro ao processar o arquivo '{files[i].filename}': {str(result)}"
+                logger.error(error_msg)
+                result_messages.append({"status": "error", "message": error_msg})
+            elif isinstance(result, dict) and "error" in result:
+                # Handle error response from _process_single_file
+                logger.warning(f"Arquivo rejeitado: {result['message']}")
+                result_messages.append({"status": "rejected", "message": result["message"]})
+            else:
+                # Success
+                result_messages.append({"status": "success", "message": f"Arquivo '{files[i].filename}' processado com sucesso."})
+        
+        return result_messages
         
     async def _process_single_file(self, file):
-        """Process a single file with optimized handling"""
+        """Process a single file with optimized handling using pdfplumber for PDFs"""
         try:
+            # Apenas leia os atributos básicos de arquivo primeiro
             filename = file.filename
-            # Read file content
-            content = await file.read()
+            content_type = file.content_type
+            is_pdf = content_type == "application/pdf" or filename.lower().endswith(".pdf")
+            
+            # Ler o conteúdo do arquivo
+            try:
+                # Leitura única do arquivo para memória
+                content = await file.read()
+                
+                if not content:
+                    logger.error(f"Arquivo {filename} vazio")
+                    return {
+                        "error": "FILE_EMPTY",
+                        "message": f"O arquivo {filename} está vazio."
+                    }
+                
+                # Obter tamanho do arquivo
+                file_size = len(content)
+                logger.info(f"Arquivo {filename} lido com sucesso, tamanho: {file_size} bytes")
+                
+                # Para PDFs, verificar o tamanho
+                if is_pdf:
+                    # Usar tamanho como proxy para número de páginas
+                    # Aproximação: cada página tem cerca de 100KB em média
+                    ESTIMATED_PAGE_SIZE = 100 * 1024  # 100KB por página
+                    MAX_PAGES = 50
+                    MAX_PDF_SIZE = ESTIMATED_PAGE_SIZE * MAX_PAGES  # ~5MB para 50 páginas
+                    
+                    estimated_pages = file_size / ESTIMATED_PAGE_SIZE
+                    logger.info(f"PDF {filename} tem tamanho de {file_size} bytes, estimativa de {estimated_pages:.1f} páginas")
+                    
+                    if file_size > MAX_PDF_SIZE:
+                        logger.warning(f"PDF {filename} provavelmente excede o limite de páginas: {estimated_pages:.1f} > {MAX_PAGES}")
+                        return {
+                            "error": "PDF_TOO_LARGE",
+                            "message": f"O arquivo PDF é muito grande. Por favor, envie um PDF com no máximo {MAX_PAGES} páginas."
+                        }
+                        
+                    logger.info(f"PDF {filename} aceito, estimativa de {estimated_pages:.1f} páginas")
+            except Exception as e:
+                logger.error(f"Erro ao ler o arquivo {filename}: {str(e)}", exc_info=True)
+                return {
+                    "error": "FILE_READ_ERROR",
+                    "message": f"Erro ao processar o arquivo {filename}. O arquivo pode estar corrompido ou inacessível."
+                }
             
             # Create file metadata
             pdf_uuid = str(uuid.uuid4())
@@ -643,25 +651,27 @@ class ChatController:
                 "filename": filename,
                 "uuid": pdf_uuid,
                 "hash": content_hash,
+                "filesize": file_size,
+                "content_type": content_type,
                 "student_email": self.student_email,
                 "disciplina": self.disciplina,
                 "session_id": self.session_id,
                 "timestamp": datetime.now().isoformat(),
                 "access_level": "session"
             }
-            print("File metadata:", metadata)
-            # Process based on file type
-            is_pdf = file.content_type == "application/pdf" or filename.lower().endswith(".pdf")
+            print(f"File metadata: {filename}, size: {file_size} bytes, type: {content_type}")
             
-            # Run MongoDB and Qdrant storage concurrently
+            # Run MongoDB and Qdrant storage concurrently - usando o conteúdo já lido
             storage_tasks = []
             
             if is_pdf:
-                # Store in MongoDB
+                # Store in MongoDB usando bytes que já foram lidos
+                import io
+                # Não precisamos reabrir o arquivo, já temos o conteúdo em memória
                 pdf_task = asyncio.create_task(
                     self._pdf_handler.store_pdf(
                         pdf_uuid=pdf_uuid,
-                        pdf_bytes=content,
+                        pdf_bytes=content,  # Usar o conteúdo que já foi lido
                         student_email=self.student_email,
                         disciplina=self.disciplina,
                         session_id=self.session_id,
@@ -675,7 +685,7 @@ class ChatController:
             # Store in vector DB for embeddings
             vector_task = asyncio.create_task(
                 self._qdrant_handler.process_file(
-                    content=content,
+                    content=content,  # Usar o conteúdo que já foi lido
                     filename=filename,
                     student_email=self.student_email,
                     session_id=self.session_id,

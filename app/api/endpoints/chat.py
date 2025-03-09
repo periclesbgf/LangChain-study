@@ -328,20 +328,25 @@ chat_manager = ChatEndpointManager()
 async def chat_endpoint(
     request: MessageRequest = Depends(MessageRequest.as_form),
     current_user=Depends(get_current_user),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
+    #background_tasks: BackgroundTasks = BackgroundTasks(),
     stream: bool = False
 ):
     """High-performance chat endpoint with resource pooling and background processing"""
     start_time = time.time()
 
     try:
-        # Convert request to dict for caching
+        # Get uploaded files if present
+        files = [request.file] if request.file else []
+        has_files = bool(files)
+        has_message = bool(request.message and request.message.strip())
+
+        print(f"ENDPOINT: Request contains files: {has_files}, contains message: {has_message}")
+
         request_dict = {
             "session_id": request.session_id,
             "discipline_id": request.discipline_id
         }
 
-        # Process all setup tasks concurrently
         student_data_task = asyncio.create_task(
             chat_manager.get_cached_student_data(
                 current_user["sub"],
@@ -357,19 +362,13 @@ async def chat_endpoint(
             )
         )
 
-        # Wait for student data and workflow concurrently
         (student_profile, study_plan_raw), workflow = await asyncio.gather(
             student_data_task,
             workflow_task
         )
-        
-        print(f"ENDPOINT: After gather, workflow type: {type(workflow)}")
-        print(f"ENDPOINT: Workflow has invoke method: {hasattr(workflow, 'invoke')}")
 
-        # Convert study plan to JSON
         study_plan = json.dumps(study_plan_raw, cls=DateTimeEncoder)
 
-        # Create or get controller
         controller = await chat_manager.get_or_create_controller(
             request_dict,
             current_user["sub"],
@@ -378,66 +377,36 @@ async def chat_endpoint(
             workflow
         )
 
-        # Process files in background if present
-        files = [request.file] if request.file else []
-        if files:
-            background_tasks.add_task(controller._process_files, files)
-
-        print("Stream: ", stream)
-
-        # Handle streaming response if requested
         if stream:
-            print(f"ENDPOINT: Setting up streaming response")
-            print(f"ENDPOINT: Controller type: {type(controller)}")
-            print(f"ENDPOINT: Controller's workflow type: {type(controller._tutor_workflow)}")
-            print(f"ENDPOINT: Workflow supports streaming: {hasattr(controller._tutor_workflow, 'invoke')}")
-            
-            # Use a separate async generator function to properly handle the streaming
             async def response_stream():
-                print(f"ENDPOINT: Starting response stream")
-                # The controller.handle_user_message returns a coroutine that resolves to an async generator
-                # We need to await it first to get the actual generator
-                print(f"ENDPOINT: Starting handle_user_message with stream=True")
-                
                 try:
-                    # IMPORTANT: We need to await here because handle_user_message returns a coroutine 
-                    # that resolves to an async generator, not the generator directly
                     async_generator = await controller.handle_user_message(
-                        request.message,
-                        files,
+                        user_input=request.message if has_message else None,
+                        files=files if has_files else None,
                         stream=True
                     )
-                    
-                    print(f"ENDPOINT: Got response generator of type: {type(async_generator)}")
-                    
-                    message_content = []  # Acumular o conteúdo completo da mensagem
+
+                    message_content = []
                     chunks_received = 0
-                    
-                    # Now we can iterate over the async generator
+
                     async for chunk in async_generator:
                         chunks_received += 1
-                        # Track content for text chunks
+
                         if chunk.get("type") == "chunk":
                             message_content.append(chunk.get("content", ""))
-                            print(f"ENDPOINT: Received and forwarding chunk {chunks_received} with content: {chunk.get('content')[:20]}...")
                         else:
                             print(f"ENDPOINT: Received and forwarding non-text chunk type: {chunk.get('type')}")
 
-                        # Convert dict to JSON string with newline for proper streaming
-                        # Use a custom encoder to handle datetime objects
                         try:
                             yield json_serialize(chunk) + "\n"
                         except TypeError as e:
-                            # If serialization fails, try to make a safe copy with string conversion
                             safe_chunk = make_json_serializable(chunk)
                             yield json.dumps(safe_chunk) + "\n"
                 except Exception as stream_error:
-                    print(f"ENDPOINT ERROR in streaming: {str(stream_error)}")
                     import traceback
                     traceback.print_exc()
                     yield json.dumps({"type": "error", "content": f"Streaming error: {str(stream_error)}"}) + "\n"
-                
-                # Após streaming completo, registrar o conteúdo acumulado para debug
+
                 if message_content:
                     full_content = "".join(message_content)
                     print(f"ENDPOINT: Streaming complete, received {chunks_received} chunks, total content length: {len(full_content)}")
@@ -448,10 +417,11 @@ async def chat_endpoint(
                 media_type="application/x-ndjson"
             )
 
-        # Process message normally (non-streaming)
-        response = await controller.handle_user_message(request.message, files)
+        response = await controller.handle_user_message(
+            user_input=request.message if has_message else None,
+            files=files if has_files else None
+        )
 
-        # Log performance metrics
         total_time = time.time() - start_time
         logger.info(f"Chat request processed in {total_time:.2f}s")
 
