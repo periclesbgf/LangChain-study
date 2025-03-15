@@ -961,7 +961,7 @@ REGRAS DE OURO:
 
             # Preparar histórico do chat com contexto relevante
             chat_history = format_chat_history(state["chat_history"])
-            
+
             # Analisar histórico para identificar atividades anteriores
             activity_context = analyze_activity_history(state["chat_history"])
             #print(f"[PLANNING] Activity context: {activity_context}")
@@ -984,11 +984,12 @@ REGRAS DE OURO:
             #print("[PLANNING] Generating response plan")
             response = model.invoke(prompt.format(**params))
 
-            #print(f"[PLANNING] Model response: {response.content}")
+            print(f"[PLANNING] Model response: {response.content}")
 
             # Processar e validar a resposta
             plan = process_model_response(response.content)
-            #print(f"[PLANNING] Generated valid plan")
+            print(f"[PLANNING] Generated valid plan")
+
 
             # Ajustar o plano baseado no contexto de atividades
             if activity_context["is_activity_response"]:
@@ -1107,7 +1108,7 @@ REGRAS DE OURO:
         # Verifica se há um valor explícito em next_step
         if "next_step" in plan and plan["next_step"] in ["websearch", "retrieval", "direct_answer"]:
             return plan["next_step"]
-        
+
         # Caso não tenha ou seja inválido, usa a lógica anterior como fallback
         if plan.get("tipo_entrada") == "resposta_atividade":
             return "direct_answer"
@@ -1673,13 +1674,14 @@ def route_after_planning(state: AgentState):
     """
     Determina o próximo nó após o planejamento com base no next_step definido no plano gerado.
     """
+    print("\n[ROUTING] Determining next node after planning")
     next_step = state.get("next_step", "retrieval")
-    #print(f"[ROUTING] Routing after planning: {next_step}")
-    #print()
-    #print("---------------------------------------------")
-    #print("next_step: ", next_step)
-    #print("---------------------------------------------")
-    #print()
+    print(f"[ROUTING] Routing after planning: {next_step}")
+    print()
+    print("---------------------------------------------")
+    print("next_step: ", next_step)
+    print("---------------------------------------------")
+    print()
     if next_step == "websearch":
         return "web_search"
     elif next_step == "retrieval":
@@ -1971,14 +1973,18 @@ class TutorWorkflow:
         async def stream_response(state):
             # Executa o fluxo até o nó de ensino
             try:
+                print(f"\n[WORKFLOW] Streaming response generation")
                 # Vai do nó inicial até o nó de teaching
                 interim_result = None
 
                 plan_node = create_answer_plan_node()
+                print(f"\n[WORKFLOW] Generating plan")
                 plan_state = plan_node(state)  # Chamada não-async
+                print(f"\n[WORKFLOW] Plan generated")
                 next_step = route_after_planning(plan_state)
-
-                if next_step == "retrieve_context":
+                print(f"\n[WORKFLOW] Next step after planning: {next_step}")
+                if next_step == "retrieval":
+                    print(f"\n[WORKFLOW] Retrieval context")
                     retrieve_node = create_retrieval_node(self.tools)
                     interim_result = await retrieve_node(plan_state)  # Este é async
                 elif next_step == "web_search":
