@@ -84,42 +84,29 @@ class ChatController:
         student_email: str,
         disciplina: str,
         qdrant_handler: QdrantHandler,
-        image_handler: ImageHandler,
-        retrieval_agent: TutorWorkflow,  # Using TutorWorkflow from agent_test.py
+        tutor_workflow: TutorWorkflow,
         student_profile: dict,
-        mongo_db_name: str,
-        mongo_uri: str,
         plano_execucao: dict,
-        pdf_handler: MongoPDFHandler
     ):
         """Initialize the controller with optimized resource management"""
         self.session_id = session_id
         self.student_email = student_email
         self.disciplina = disciplina
         self.perfil = student_profile
-        
-        # Normalize plan format for consistency
+
         if isinstance(plano_execucao, str):
             try:
                 self.plano_execucao = json.loads(plano_execucao)
-                logger.info("Successfully parsed plano_execucao as JSON")
             except json.JSONDecodeError:
-                logger.warning("Failed to parse plano_execucao as JSON, using as string")
                 self.plano_execucao = plano_execucao
         else:
-            # Already a dictionary or other object, keep as is
             self.plano_execucao = plano_execucao
-            
-        # Log the type for debugging
+
         logger.info(f"Final plano_execucao type: {type(self.plano_execucao)}")
 
-        # Initialize resources with lazy loading
         self._qdrant_handler = qdrant_handler
-        self._image_handler = image_handler
-        self._pdf_handler = pdf_handler
-        self._tutor_workflow = retrieval_agent
-        
-        # Initialize lazy-loaded resources
+        self._tutor_workflow = tutor_workflow
+
         self._llm = None
         self._embeddings = None
         self._text_splitter = None
@@ -129,17 +116,16 @@ class ChatController:
         self._chain = None
         self._chain_with_history = None
         self._chat_history = None
-        
-        # Configure caching for responses
+
         self._response_cache = TTLCache(maxsize=RESPONSE_CACHE_SIZE, ttl=RESPONSE_CACHE_TTL)
-        
+
         # Analytics with lightweight tracking
         self._analytics = {
             "session_start": datetime.now(),
             "interaction_count": 0,
             "last_response_time": 0
         }
-        
+
         # Background loading
         asyncio.create_task(self._preload_resources())
 
@@ -250,31 +236,7 @@ class ChatController:
         start_time = time.time()
         
         try:
-            if files and not user_input:
-                file_results = await self.process_files(files)
-
-                if any(result["status"] == "error" for result in file_results):
-                    error_messages = [result["message"] for result in file_results if result["status"] == "error"]
-                    message = "Erro ao processar arquivos: " + "; ".join(error_messages)
-
-                    if stream:
-                        return self._create_simple_generator({"type": "error", "content": message})
-                    return message
-
-                elif any(result["status"] == "rejected" for result in file_results):
-                    reject_messages = [result["message"] for result in file_results if result["status"] == "rejected"]
-                    message = "; ".join(reject_messages)
-
-                    if stream:
-                        return self._create_simple_generator({"type": "warning", "content": message})
-                    return message
-
-                else:
-                    if stream:
-                        return self._create_simple_generator({"type": "success", "content": "Arquivos processados com sucesso. Você pode fazer perguntas sobre eles agora."})
-                    return "Arquivos processados com sucesso. Você pode fazer perguntas sobre eles agora."
-
-            if not user_input and not files:
+            if not user_input:
                 if stream:
                     return self._create_simple_generator({"type": "error", "content": "Nenhuma entrada fornecida."})
                 return "Nenhuma entrada fornecida."
@@ -295,10 +257,6 @@ class ChatController:
                 import traceback
                 traceback.print_exc()
                 current_history = []
-
-            if files and user_input:
-                print(f"[CHAT_CONTROLLER] Processing {len(files)} file(s) before handling text message")
-                await self.process_files(files)
 
             if user_input:
                 if stream:
@@ -562,143 +520,3 @@ class ChatController:
             "average_response_time": self._analytics["last_response_time"],
             "progress_data": progress_data
         }
-
-    async def process_files(self, files):
-        """Process uploaded files with chunking and parallel processing"""
-        # Process files concurrently in smaller chunks
-        processing_tasks = []
-        result_messages = []
-        
-        for file in files:
-            print(f"Processing file: {file.filename}")
-            task = asyncio.create_task(self._process_single_file(file))
-            processing_tasks.append(task)
-        
-        # Wait for all files to be processed and collect results
-        results = await asyncio.gather(*processing_tasks, return_exceptions=True)
-        
-        # Process results and collect any error messages
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                # Handle exception
-                error_msg = f"Erro ao processar o arquivo '{files[i].filename}': {str(result)}"
-                logger.error(error_msg)
-                result_messages.append({"status": "error", "message": error_msg})
-            elif isinstance(result, dict) and "error" in result:
-                # Handle error response from _process_single_file
-                logger.warning(f"Arquivo rejeitado: {result['message']}")
-                result_messages.append({"status": "rejected", "message": result["message"]})
-            else:
-                # Success
-                result_messages.append({"status": "success", "message": f"Arquivo '{files[i].filename}' processado com sucesso."})
-        
-        return result_messages
-        
-    async def _process_single_file(self, file):
-        """Process a single file with optimized handling using pdfplumber for PDFs"""
-        try:
-            # Apenas leia os atributos básicos de arquivo primeiro
-            filename = file.filename
-            content_type = file.content_type
-            is_pdf = content_type == "application/pdf" or filename.lower().endswith(".pdf")
-            
-            # Ler o conteúdo do arquivo
-            try:
-                # Leitura única do arquivo para memória
-                content = await file.read()
-                
-                if not content:
-                    logger.error(f"Arquivo {filename} vazio")
-                    return {
-                        "error": "FILE_EMPTY",
-                        "message": f"O arquivo {filename} está vazio."
-                    }
-                
-                # Obter tamanho do arquivo
-                file_size = len(content)
-                logger.info(f"Arquivo {filename} lido com sucesso, tamanho: {file_size} bytes")
-                
-                # Para PDFs, verificar o tamanho
-                if is_pdf:
-                    # Usar tamanho como proxy para número de páginas
-                    # Aproximação: cada página tem cerca de 100KB em média
-                    ESTIMATED_PAGE_SIZE = 100 * 1024  # 100KB por página
-                    MAX_PAGES = 50
-                    MAX_PDF_SIZE = ESTIMATED_PAGE_SIZE * MAX_PAGES  # ~5MB para 50 páginas
-                    
-                    estimated_pages = file_size / ESTIMATED_PAGE_SIZE
-                    logger.info(f"PDF {filename} tem tamanho de {file_size} bytes, estimativa de {estimated_pages:.1f} páginas")
-                    
-                    if file_size > MAX_PDF_SIZE:
-                        logger.warning(f"PDF {filename} provavelmente excede o limite de páginas: {estimated_pages:.1f} > {MAX_PAGES}")
-                        return {
-                            "error": "PDF_TOO_LARGE",
-                            "message": f"O arquivo PDF é muito grande. Por favor, envie um PDF com no máximo {MAX_PAGES} páginas."
-                        }
-                        
-                    logger.info(f"PDF {filename} aceito, estimativa de {estimated_pages:.1f} páginas")
-            except Exception as e:
-                logger.error(f"Erro ao ler o arquivo {filename}: {str(e)}", exc_info=True)
-                return {
-                    "error": "FILE_READ_ERROR",
-                    "message": f"Erro ao processar o arquivo {filename}. O arquivo pode estar corrompido ou inacessível."
-                }
-            
-            # Create file metadata
-            pdf_uuid = str(uuid.uuid4())
-            content_hash = hashlib.md5(content).hexdigest()
-            metadata = {
-                "filename": filename,
-                "uuid": pdf_uuid,
-                "hash": content_hash,
-                "filesize": file_size,
-                "content_type": content_type,
-                "student_email": self.student_email,
-                "disciplina": self.disciplina,
-                "session_id": self.session_id,
-                "timestamp": datetime.now().isoformat(),
-                "access_level": "session"
-            }
-            print(f"File metadata: {filename}, size: {file_size} bytes, type: {content_type}")
-            
-            # Run MongoDB and Qdrant storage concurrently - usando o conteúdo já lido
-            storage_tasks = []
-            
-            if is_pdf:
-                # Store in MongoDB usando bytes que já foram lidos
-                import io
-                # Não precisamos reabrir o arquivo, já temos o conteúdo em memória
-                pdf_task = asyncio.create_task(
-                    self._pdf_handler.store_pdf(
-                        pdf_uuid=pdf_uuid,
-                        pdf_bytes=content,  # Usar o conteúdo que já foi lido
-                        student_email=self.student_email,
-                        disciplina=self.disciplina,
-                        session_id=self.session_id,
-                        filename=filename,
-                        content_hash=content_hash,
-                        access_level="session"
-                    )
-                )
-                storage_tasks.append(pdf_task)
-                
-            # Store in vector DB for embeddings
-            vector_task = asyncio.create_task(
-                self._qdrant_handler.process_file(
-                    content=content,  # Usar o conteúdo que já foi lido
-                    filename=filename,
-                    student_email=self.student_email,
-                    session_id=self.session_id,
-                    disciplina=self.disciplina,
-                    access_level="session"
-                )
-            )
-            storage_tasks.append(vector_task)
-            
-            # Wait for all storage tasks to complete
-            await asyncio.gather(*storage_tasks)
-            logger.info(f"File '{filename}' processed successfully")
-            
-        except Exception as e:
-            logger.error(f"Error processing file {file.filename}: {e}", exc_info=True)
-            # Continue with other files even if one fails

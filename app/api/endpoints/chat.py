@@ -4,8 +4,9 @@ import traceback
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from api.controllers.chat_controller import ChatController
+from api.controllers.file_controller import FileController
 from api.controllers.auth import get_current_user
-from api.endpoints.models import MessageRequest
+from api.endpoints.models import MessageRequest, AccessLevel
 from typing import Optional, Dict, Any, Tuple, AsyncGenerator
 from datetime import datetime
 import json
@@ -16,7 +17,6 @@ import asyncio
 from contextlib import asynccontextmanager
 import time
 from cachetools import TTLCache
-
 
 # Custom JSON serialization for datetime objects
 class DateTimeEncoder(json.JSONEncoder):
@@ -308,13 +308,9 @@ class ChatEndpointManager:
             student_email=user_email,
             disciplina=discipline_id,
             qdrant_handler=qdrant_handler,
-            image_handler=self.image_handler,
-            retrieval_agent=workflow,
+            tutor_workflow=workflow,
             student_profile=student_profile,
-            mongo_db_name=MONGO_DB_NAME,
-            mongo_uri=MONGO_URI,
-            plano_execucao=study_plan,
-            pdf_handler=pdf_handler
+            plano_execucao=study_plan
         )
 
         # Store in cache
@@ -327,18 +323,13 @@ chat_manager = ChatEndpointManager()
 @router_chat.post("/chat")
 async def chat_endpoint(
     request: MessageRequest = Depends(MessageRequest.as_form),
-    current_user=Depends(get_current_user),
-    #background_tasks: BackgroundTasks = BackgroundTasks(),
-    stream: bool = False
+    current_user=Depends(get_current_user)
 ):
-    """High-performance chat endpoint with resource pooling and background processing"""
-    start_time = time.time()
-
     try:
-        # Get uploaded files if present
-        files = [request.file] if request.file else []
-        has_files = bool(files)
+        # Verifica se há arquivos e/ou mensagem de texto
+        has_files = bool(request.file)
         has_message = bool(request.message and request.message.strip())
+        files = None
 
         print(f"ENDPOINT: Request contains files: {has_files}, contains message: {has_message}")
 
@@ -346,6 +337,63 @@ async def chat_endpoint(
             "session_id": request.session_id,
             "discipline_id": request.discipline_id
         }
+        
+        # Se tiver arquivo, processa com o FileController antes de continuar
+        if has_files:
+            # Inicializa recursos necessários para o FileController
+            mongo_manager = MongoDatabaseManager()
+            pdf_handler = MongoPDFHandler(mongo_manager)
+            qdrant_handler = chat_manager.get_qdrant_handler()
+            
+            # Cria instância do FileController
+            file_controller = FileController(
+                mongo_db=mongo_manager,
+                pdf_handler=pdf_handler,
+                qdrant_handler=qdrant_handler,
+                student_email=current_user["sub"],
+                disciplina=request.discipline_id,
+                session_id=str(request.session_id),
+                access_level=AccessLevel.SESSION.value
+            )
+            
+            # Processa o arquivo e obtém seu conteúdo antes de ser consumido pelo controller
+            file = request.file
+            file_content = await file.read()
+            await file.seek(0)
+            # Processa o arquivo com o FileController
+            file_results = await file_controller.process_files([file])
+            files = [file]
+            
+            # Se não tiver mensagem, cria uma resposta streaming informando sobre o processamento do arquivo
+            if not has_message:
+                async def file_response_stream():
+                    if any(result["status"] == "error" for result in file_results):
+                        error_messages = [result["message"] for result in file_results if result["status"] == "error"]
+                        message = "Erro ao processar arquivos: " + "; ".join(error_messages)
+                        yield json.dumps({"type": "error", "content": message}) + "\n"
+                    elif any(result["status"] == "rejected" for result in file_results):
+                        reject_messages = [result["message"] for result in file_results if result["status"] == "rejected"]
+                        message = "; ".join(reject_messages)
+                        yield json.dumps({"type": "warning", "content": message}) + "\n"
+                    else:
+                        yield json.dumps({"type": "success", "content": "Arquivo processado com sucesso. Você pode fazer perguntas sobre ele agora."}) + "\n"
+                        yield json.dumps({"type": "success", "content": "Você pode ver o PDF clicando no botão de mídia (ele fica localizado encima a direita)"}) + "\n"
+
+                
+                return StreamingResponse(
+                    file_response_stream(),
+                    media_type="application/x-ndjson"
+                )
+
+        # Se não tem arquivo nem mensagem, retorna erro em formato de stream
+        if not has_files and not has_message:
+            async def error_stream():
+                yield json.dumps({"type": "error", "content": "Nenhuma entrada fornecida. Envie uma mensagem ou um arquivo."}) + "\n"
+
+            return StreamingResponse(
+                error_stream(),
+                media_type="application/x-ndjson"
+            )
 
         student_data_task = asyncio.create_task(
             chat_manager.get_cached_student_data(
@@ -377,55 +425,43 @@ async def chat_endpoint(
             workflow
         )
 
-        if stream:
-            async def response_stream():
-                try:
-                    async_generator = await controller.handle_user_message(
-                        user_input=request.message if has_message else None,
-                        files=files if has_files else None,
-                        stream=True
-                    )
+        # Sempre usa streaming para resposta
+        async def response_stream():
+            try:
+                # Notifica que está processando a mensagem
+                yield json.dumps({"type": "processing", "content": "Pensando..."}) + "\n"
 
-                    message_content = []
-                    chunks_received = 0
+                async_generator = await controller.handle_user_message(
+                    user_input=request.message,
+                    files=files,
+                    stream=True
+                )
 
-                    async for chunk in async_generator:
-                        chunks_received += 1
+                message_content = []
+                chunks_received = 0
 
-                        if chunk.get("type") == "chunk":
-                            message_content.append(chunk.get("content", ""))
-                        else:
-                            print(f"ENDPOINT: Received and forwarding non-text chunk type: {chunk.get('type')}")
+                async for chunk in async_generator:
+                    chunks_received += 1
 
-                        try:
-                            yield json_serialize(chunk) + "\n"
-                        except TypeError as e:
-                            safe_chunk = make_json_serializable(chunk)
-                            yield json.dumps(safe_chunk) + "\n"
-                except Exception as stream_error:
-                    import traceback
-                    traceback.print_exc()
-                    yield json.dumps({"type": "error", "content": f"Streaming error: {str(stream_error)}"}) + "\n"
+                    if chunk.get("type") == "chunk":
+                        message_content.append(chunk.get("content", ""))
+                    else:
+                        print(f"ENDPOINT: Received and forwarding non-text chunk type: {chunk.get('type')}")
 
-                if message_content:
-                    full_content = "".join(message_content)
-                    print(f"ENDPOINT: Streaming complete, received {chunks_received} chunks, total content length: {len(full_content)}")
-                    print(f"ENDPOINT: Content preview: {full_content[:100]}...")
+                    try:
+                        yield json_serialize(chunk) + "\n"
+                    except TypeError as e:
+                        safe_chunk = make_json_serializable(chunk)
+                        yield json.dumps(safe_chunk) + "\n"
+            except Exception as stream_error:
+                import traceback
+                traceback.print_exc()
+                yield json.dumps({"type": "error", "content": f"Streaming error: {str(stream_error)}"}) + "\n"
 
-            return StreamingResponse(
-                response_stream(),
-                media_type="application/x-ndjson"
-            )
-
-        response = await controller.handle_user_message(
-            user_input=request.message if has_message else None,
-            files=files if has_files else None
+        return StreamingResponse(
+            response_stream(),
+            media_type="application/x-ndjson"
         )
-
-        total_time = time.time() - start_time
-        logger.info(f"Chat request processed in {total_time:.2f}s")
-
-        return {"response": response}
 
     except HTTPException:
         raise
