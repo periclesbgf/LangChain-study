@@ -984,7 +984,7 @@ REGRAS DE OURO:
             #print("[PLANNING] Generating response plan")
             response = model.invoke(prompt.format(**params))
 
-            print(f"[PLANNING] Model response: {response.content}")
+            #print(f"[PLANNING] Model response: {response.content}")
 
             # Processar e validar a resposta
             plan = process_model_response(response.content)
@@ -1178,21 +1178,22 @@ def create_teaching_node():
     {question}
 
     ESTRUTURA DA RESPOSTA:
-    - SE houver contexto principal, explique detalhadamente
-    - Responda como um tutor educacional sempre orientando o aluno a chegar na resposta e dando proximos passos.
+    - Escolha uma maneira explicar o contexto principal e, se relevante, os contextos secundários.
+    - Responda como um tutor educacional sempre orientando o aluno a chegar na resposta. Incentive o raciocínio e a busca ativa de soluções.
+    - Siga o plano de resposta fornecido e adapte conforme necessário.
 
     DIRETRIZES:
-    - NUNCA presuma conhecimento prévio sem explicar
-    - NUNCA pule a explicação do contexto principal
-    - Use linguagem clara e objetiva
-    - Mantenha foco educacional
-    - Forneça curiosidades e dicas adicionas para aprendizado (Se achar necessário)
+    - Use linguagem amigavel e acessível
+    - Foque em conceitos fundamentais
+    - Adapte ao estilo de aprendizagem do aluno
+    - Incentive o raciocínio do aluno
+    - Forneça curiosidades e dicas adicionais com o objetivo de conectar o assunto atual com outros assuntos (Se achar necessário)
 
-    ATENÇÃO: 
-    - Você DEVE explicar o contexto fornecido antes de qualquer outra coisa
-    - A resposta deve ser direta ao aluno
-    - Mantenha a resposta educacional
-    - Incentive a busca da informação pelo aluno
+    ATENÇÃO:
+    - Você DEVE explicar o contexto fornecido utilizando a melhor abordagem educacional
+    - Voce DEVE guiar o aluno sem dar respostas diretas
+    - A resposta deve ser muito detalhada, abordando conceitos e passos necessários
+    - Voce responde diretamente ao aluno
     """
 
     DIRECT_RESPONSE_PROMPT = """
@@ -1685,8 +1686,7 @@ def route_after_planning(state: AgentState):
     if next_step == "websearch":
         return "web_search"
     elif next_step == "retrieval":
-        yield {"type": "processing", "content": "Buscando conteúdo educacional..."}
-
+        print("retrieve_context")
         return "retrieve_context"
     else:
         return "direct_answer"
@@ -1845,7 +1845,7 @@ class TutorWorkflow:
         self.web_tools = WebSearchTools()
         self.workflow = self.create_workflow()
 
-    def create_workflow(self) -> Graph:
+    def create_workflow(self):
         workflow = Graph()
 
         # Adiciona nós sem gerenciamento de progresso redundante
@@ -1980,10 +1980,12 @@ class TutorWorkflow:
                 plan_node = create_answer_plan_node()
                 print(f"\n[WORKFLOW] Generating plan")
                 plan_state = plan_node(state)  # Chamada não-async
+                #print(f"[WORKFLOW] Plan state: {plan_state}")
                 print(f"\n[WORKFLOW] Plan generated")
                 next_step = route_after_planning(plan_state)
                 print(f"\n[WORKFLOW] Next step after planning: {next_step}")
-                if next_step == "retrieval":
+                if next_step == "retrieve_context":
+                    yield {"type": "processing", "content": "Buscando conteúdos interessantes..."}
                     print(f"\n[WORKFLOW] Retrieval context")
                     retrieve_node = create_retrieval_node(self.tools)
                     interim_result = await retrieve_node(plan_state)  # Este é async
@@ -2058,7 +2060,7 @@ class TutorWorkflow:
 
             # Comportamento tradicional sem streaming
             #print("[WORKFLOW] Executing workflow")
-            result = await self.workflow.ainvoke(initial_state)
+            result = await self.workflow.astream(initial_state)
             #print("[WORKFLOW] Workflow execution completed successfully")
 
             # Recupera o resumo atualizado do estudo
