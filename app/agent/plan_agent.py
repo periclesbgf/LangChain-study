@@ -134,7 +134,8 @@ class SessionPlanWorkflow:
         - Para aluno Reflexivo: Adicione momentos de análise e reflexão
         - Para aluno Sequencial: Organize em passos pequenos e conectados
         - Para aluno Global: Forneça visão geral e conexões com outros temas
-        - Para links use links reais
+
+        ATENÇÃO: TODOS OS LINKS DEVEM SER ACESSÍVEIS E RELEVANTES AO TEMA DA SESSÃO. NÃO USE LINKS DE EXEMPLOS GENÉRICOS.
 
         NOTA: LIMITE o TITULO e DESCRICAO a 100 caracteres.
 
@@ -215,6 +216,7 @@ class SessionPlanWorkflow:
         7. Se os exemplos e exercícios de programação são apropriados
         8. Se o horário sugerido é adequado e respeita as regras de agendamento
         9. Se o plano está profundo tecnicamente
+        10. Se não há links genéricos ou irrelevantes como example.com
 
         O feedback deve seguir EXATAMENTE esta estrutura JSON:
             "status": "approved" ou "needs_revision",

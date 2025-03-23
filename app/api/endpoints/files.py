@@ -87,7 +87,6 @@ async def upload_pdf(
             pdf_uuid=pdf_uuid,
             pdf_bytes=content,
             student_email=current_user["sub"],
-            # Se não houver disciplina ou sessão, utiliza string vazia (pode ser ajustado conforme sua lógica)
             disciplina=discipline_id if discipline_id else "",
             session_id=session_id if session_id else "",
             filename=file.filename,

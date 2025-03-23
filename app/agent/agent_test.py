@@ -352,7 +352,7 @@ def filter_chat_history(messages: List[BaseMessage]) -> List[BaseMessage]:
                 filtered_messages.append(msg)
     return filtered_messages
 
-def format_chat_history(messages: List[BaseMessage], max_messages: int = 3) -> str:
+def format_chat_history(messages: List[BaseMessage], max_messages: int = 5) -> str:
     """
     Formata o histórico do chat filtrado para uso em prompts.
     """
@@ -368,62 +368,6 @@ def format_chat_history(messages: List[BaseMessage], max_messages: int = 3) -> s
             formatted_history.append(f"{role}: {content}")
 
     return "\n".join(formatted_history)
-
-def create_question_evaluation_node():
-    EVALUATION_PROMPT = """Você é um assistente especializado em avaliar se uma pergunta precisa de contexto adicional para ser respondida adequadamente.
-
-    Histórico da Conversa:
-    {chat_history}
-
-    Pergunta Atual:
-    {question}
-
-    Analise se a pergunta:
-    1. Requer informações específicas do material de estudo
-    2. Pode ser respondida apenas com conhecimento geral
-    3. É uma continuação direta do contexto já fornecido no histórico
-    4. É uma pergunta de esclarecimento sobre algo já discutido
-
-    Retorne apenas um JSON no formato:
-
-        "needs_retrieval": boolean,
-        "reason": "string"
-
-    """
-
-    prompt = ChatPromptTemplate.from_template(EVALUATION_PROMPT)
-    model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-
-    def evaluate_question(state: AgentState) -> AgentState:
-        #print("\n[NODE:EVALUATION] Starting question evaluation")
-        latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
-        #print(f"[NODE:EVALUATION] Evaluating question: {latest_question}")
-
-        chat_history = format_chat_history(state["chat_history"])
-
-        response = model.invoke(prompt.format(
-            chat_history=chat_history,
-            question=latest_question
-        ))
-
-        try:
-            evaluation = json.loads(response.content)
-            #print(f"[NODE:EVALUATION] Evaluation result: {evaluation}")
-
-            new_state = state.copy()
-            new_state["needs_retrieval"] = evaluation["needs_retrieval"]
-            new_state["evaluation_reason"] = evaluation["reason"]
-            return new_state
-
-        except json.JSONDecodeError as e:
-            #print(f"[NODE:EVALUATION] Error parsing evaluation: {e}")
-            # Default to performing retrieval in case of error
-            new_state = state.copy()
-            new_state["needs_retrieval"] = True
-            new_state["evaluation_reason"] = "Error in evaluation, defaulting to retrieval"
-            return new_state
-
-    return evaluate_question
 
 class RetrievalTools:
     def __init__(self, qdrant_handler: QdrantHandler, student_email: str, disciplina: str, image_collection, session_id: str, state: AgentState):
@@ -461,6 +405,9 @@ class RetrievalTools:
         Imagem: {image_context}
         Tabela: {table_context}
 
+        Atenção: Foque em avaliar a relevância dos contextos para a pergunta original.
+        Se não responder a pergunta, não é relevante.
+
         Para cada contexto, avalie a relevância em uma escala de 0 a 1 e explique brevemente por quê.
         Retorne um JSON no formato:
         {{
@@ -494,26 +441,50 @@ class RetrievalTools:
         return transformed_question
 
     async def parallel_context_retrieval(self, question: str) -> Dict[str, Any]:
-        #print(f"\n[RETRIEVAL] Starting parallel context retrieval for: {question}")
 
+        print("[RETRIEVAL] Transforming questions for each content type...")
         text_question, image_question, table_question = await asyncio.gather(
             self.transform_question(question),
             self.transform_question(question),
             self.transform_question(question)
         )
 
+        print(f"[RETRIEVAL] Transformed questions:")
+        print(f"  - Text: {text_question}")
+        print(f"  - Image: {image_question}")
+        print(f"  - Table: {table_question}")
+
+        # Now retrieve contexts in parallel
+        print("[RETRIEVAL] Retrieving contexts in parallel...")
         text_context, image_context, table_context = await asyncio.gather(
             self.retrieve_text_context(text_question),
             self.retrieve_image_context(image_question),
             self.retrieve_table_context(table_question)
         )
 
+        print("[RETRIEVAL] All contexts retrieved, analyzing relevance...")
         relevance_analysis = await self.analyze_context_relevance(
             original_question=question,
             text_context=text_context,
             image_context=image_context,
             table_context=table_context
         )
+
+        print(f"[RETRIEVAL] Relevance analysis: {relevance_analysis}")
+
+        # Check if we have any valid contexts
+        context_types = []
+        if text_context:
+            context_types.append("text")
+        if image_context and image_context.get("description"):
+            context_types.append("image")
+        if table_context and table_context.get("content"):
+            context_types.append("table")
+            
+        if context_types:
+            print(f"[RETRIEVAL] Successfully retrieved contexts: {', '.join(context_types)}")
+        else:
+            print("[RETRIEVAL] Warning: No contexts were successfully retrieved")
 
         return {
             "text": text_context,
@@ -524,6 +495,12 @@ class RetrievalTools:
 
     async def retrieve_text_context(self, query: str) -> str:
         try:
+            print(f"[RETRIEVAL] Retrieving text context for query: {query}")
+            print(f"[RETRIEVAL] Student: {self.student_email}")
+            print(f"[RETRIEVAL] Session: {self.session_id}")
+            print(f"[RETRIEVAL] Disciplina: {self.disciplina}")
+            
+            # Usar apenas os filtros específicos conforme parâmetros originais
             results = self.qdrant_handler.similarity_search_with_filter(
                 query=query,
                 student_email=self.student_email,
@@ -531,13 +508,34 @@ class RetrievalTools:
                 disciplina_id=self.disciplina,
                 specific_metadata={"type": "text"}
             )
-            return "\n".join([doc.page_content for doc in results]) if results else ""
+            
+            if results:
+                print(f"[RETRIEVAL] Found {len(results)} text results")
+                # Log mais detalhes sobre os resultados para diagnóstico
+                for i, doc in enumerate(results):
+                    print(f"[RETRIEVAL] Result {i+1} metadata: {doc.metadata}")
+                
+                content = "\n".join([doc.page_content for doc in results])
+                print(f"[RETRIEVAL] Text context preview: {content[:100]}...")
+                return content
+            else:
+                print("[RETRIEVAL] No text context found")
+                # Retornar string vazia em vez de fallback - deixamos o sistema lidar com isso
+                return ""
         except Exception as e:
-            #print(f"[RETRIEVAL] Error in text retrieval: {e}")
+            print(f"[RETRIEVAL] Error in text retrieval: {e}")
+            import traceback
+            traceback.print_exc()
             return ""
 
     async def retrieve_image_context(self, query: str) -> Dict[str, Any]:
         try:
+            print(f"[RETRIEVAL] Retrieving image context for query: {query}")
+            print(f"[RETRIEVAL] Student: {self.student_email}")
+            print(f"[RETRIEVAL] Session: {self.session_id}")
+            print(f"[RETRIEVAL] Disciplina: {self.disciplina}")
+            
+            # Usar apenas os filtros específicos conforme os parâmetros originais
             results = self.qdrant_handler.similarity_search_with_filter(
                 query=query,
                 student_email=self.student_email,
@@ -545,25 +543,49 @@ class RetrievalTools:
                 disciplina_id=self.disciplina,
                 specific_metadata={"type": "image"}
             )
-            #print("")
-            #print("--------------------------------------------------")
-            #print(f"[RETRIEVAL] Image search results: {results}")
-            #print("--------------------------------------------------")
-            #print("")
+            
+            print(f"[RETRIEVAL] Image search results count: {len(results) if results else 0}")
+            
             if not results:
+                print("[RETRIEVAL] No image results found")
                 return {"type": "image", "content": None, "description": ""}
 
-            image_uuid = results[0].metadata.get("image_uuid")
+            # Exibir informações sobre a imagem encontrada
+            image_result = results[0]
+            print(f"[RETRIEVAL] Found image with metadata: {image_result.metadata}")
+            
+            image_uuid = image_result.metadata.get("image_uuid")
             if not image_uuid:
+                print("[RETRIEVAL] Image found but missing UUID in metadata")
                 return {"type": "image", "content": None, "description": ""}
 
-            return await self.retrieve_image_and_description(image_uuid)
+            print(f"[RETRIEVAL] Retrieving image with UUID: {image_uuid}")
+            result = await self.retrieve_image_and_description(image_uuid)
+            
+            # Verificar se a recuperação foi bem-sucedida
+            if result.get("type") == "error":
+                print(f"[RETRIEVAL] Error retrieving image: {result.get('message')}")
+                return {"type": "image", "content": None, "description": ""}
+                
+            # Logar sucesso
+            desc_length = len(result.get("description", ""))
+            print(f"[RETRIEVAL] Successfully retrieved image, description length: {desc_length}")
+            return result
+            
         except Exception as e:
-            #print(f"[RETRIEVAL] Error in image retrieval: {e}")
+            print(f"[RETRIEVAL] Error in image retrieval: {e}")
+            import traceback
+            traceback.print_exc()
             return {"type": "image", "content": None, "description": ""}
 
     async def retrieve_table_context(self, query: str) -> Dict[str, Any]:
         try:
+            print(f"[RETRIEVAL] Retrieving table context for query: {query}")
+            print(f"[RETRIEVAL] Student: {self.student_email}")
+            print(f"[RETRIEVAL] Session: {self.session_id}")
+            print(f"[RETRIEVAL] Disciplina: {self.disciplina}")
+            
+            # Usar apenas os filtros específicos conforme os parâmetros originais
             results = self.qdrant_handler.similarity_search_with_filter(
                 query=query,
                 student_email=self.student_email,
@@ -571,17 +593,27 @@ class RetrievalTools:
                 disciplina_id=self.disciplina,
                 specific_metadata={"type": "table"}
             )
+            
+            print(f"[RETRIEVAL] Table search results count: {len(results) if results else 0}")
 
             if not results:
+                print("[RETRIEVAL] No table results found")
                 return {"type": "table", "content": None}
+
+            # Exibir informações sobre a tabela encontrada
+            table_result = results[0]
+            print(f"[RETRIEVAL] Found table with metadata: {table_result.metadata}")
+            print(f"[RETRIEVAL] Table content preview: {table_result.page_content[:100]}...")
 
             return {
                 "type": "table",
-                "content": results[0].page_content,
-                "metadata": results[0].metadata
+                "content": table_result.page_content,
+                "metadata": table_result.metadata
             }
         except Exception as e:
-            #print(f"[RETRIEVAL] Error in table retrieval: {e}")
+            print(f"[RETRIEVAL] Error in table retrieval: {e}")
+            import traceback
+            traceback.print_exc()
             return {"type": "table", "content": None}
 
     async def retrieve_image_and_description(self, image_uuid: str) -> Dict[str, Any]:
@@ -589,25 +621,35 @@ class RetrievalTools:
         Recupera a imagem e sua descrição de forma assíncrona.
         """
         try:
-            #print(f"[RETRIEVAL] Recuperando imagem com UUID: {image_uuid}")
+            print(f"[RETRIEVAL] Recuperando imagem com UUID: {image_uuid}")
             image_data = await self.image_collection.find_one({"_id": image_uuid})
+            
             if not image_data:
-                #print(f"[RETRIEVAL] Imagem não encontrada: {image_uuid}")
+                print(f"[RETRIEVAL] Imagem não encontrada na coleção. UUID: {image_uuid}")
                 return {"type": "error", "message": "Imagem não encontrada"}
 
+            # Verificar os campos presentes no documento
+            print(f"[RETRIEVAL] Image document keys: {list(image_data.keys())}")
             image_bytes = image_data.get("image_data")
+            
             if not image_bytes:
-                #print("[RETRIEVAL] Dados da imagem ausentes")
+                print("[RETRIEVAL] Dados da imagem ausentes no documento")
                 return {"type": "error", "message": "Dados da imagem ausentes"}
 
+            # Verificar tipo de dados da imagem
+            print(f"[RETRIEVAL] Image data type: {type(image_bytes)}")
             if isinstance(image_bytes, bytes):
                 processed_bytes = image_bytes
+                print(f"[RETRIEVAL] Bytes image data, size: {len(processed_bytes)}")
             elif isinstance(image_bytes, str):
                 processed_bytes = image_bytes.encode('utf-8')
+                print(f"[RETRIEVAL] String image data converted to bytes, size: {len(processed_bytes)}")
             else:
-                #print(f"[RETRIEVAL] Formato de imagem não suportado: {type(image_bytes)}")
+                print(f"[RETRIEVAL] Formato de imagem não suportado: {type(image_bytes)}")
                 return {"type": "error", "message": "Formato de imagem não suportado"}
 
+            # Buscar a descrição da imagem
+            print(f"[RETRIEVAL] Buscando descrição para imagem: {image_uuid}")
             results = self.qdrant_handler.similarity_search_with_filter(
                 query="",
                 student_email=self.student_email,
@@ -619,18 +661,24 @@ class RetrievalTools:
                 use_session=True,
                 specific_metadata={"image_uuid": image_uuid, "type": "image"}
             )
-            #print(f"[RETRIEVAL] Resultados da busca de descrição: {results}")
+            
+            print(f"[RETRIEVAL] Descrição da imagem - resultados encontrados: {len(results) if results else 0}")
+            
             if not results:
+                print(f"[RETRIEVAL] Descrição da imagem não encontrada para UUID: {image_uuid}")
                 return {"type": "error", "message": "Descrição da imagem não encontrada"}
-            #print("[RETRIEVAL] Imagem e descrição recuperadas com sucesso")
-            #print(f"[RETRIEVAL] Descrição da imagem: {results[0].page_content}")
+                
+            description = results[0].page_content
+            print(f"[RETRIEVAL] Imagem e descrição recuperadas com sucesso. Tamanho da descrição: {len(description)}")
+            print(f"[RETRIEVAL] Descrição da imagem: {description[:100]}...")
+            
             return {
                 "type": "image",
                 "image_bytes": processed_bytes,
-                "description": results[0].page_content
+                "description": description
             }
         except Exception as e:
-            #print(f"[RETRIEVAL] Erro ao recuperar imagem: {e}")
+            print(f"[RETRIEVAL] Erro ao recuperar imagem: {e}")
             import traceback
             traceback.print_exc()
             return {"type": "error", "message": str(e)}
@@ -724,82 +772,6 @@ def create_retrieval_node(tools: RetrievalTools):
 
     return retrieve_context
 
-def route_after_plan_generation():
-    ROUTE_PROMPT = """
-    Você é um assistente educacional que avalia o plano de resposta gerado e decide o próximo passo baseado na pergunta do aluno.
-
-    Pergunta do Aluno:
-    {question}
-
-    Histórico da Conversa:
-    {chat_history}
-
-    Plano de Resposta Gerado:
-    {plan}
-
-    No Banco de dados (retrieval), ha varios materiais de estudo, como textos, imagens e tabelas, que podem ser relevantes para a pergunta do aluno.
-
-    Analise a pergunta e determine o próximo passo:
-    1. Se a pergunta pede explicitamente por informações da web (Wikipedia, YouTube, etc), use "websearch"
-    2. Se a pergunta requer contexto do material de estudo ou exemplos, use "retrieval"
-    3. Se a pergunta pode ser respondida diretamente, use "direct_answer"
-
-    Retorne apenas um JSON com o seguinte formato, mantendo as aspas duplas:
-        "analysis": "string explicando a análise",
-        "next_step": "websearch|retrieval|direct_answer"
-    """
-
-    prompt = ChatPromptTemplate.from_template(ROUTE_PROMPT)
-    model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-
-    def route_after_plan(state: AgentState) -> AgentState:
-        #print("\n[ROUTING] Starting route after plan generation")
-        latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
-        #print(f"[ROUTING] Processing question: {latest_question}")
-
-        chat_history = format_chat_history(state["chat_history"])
-        current_plan = state.get("current_plan", "{}")
-
-        try:
-            response = model.invoke(prompt.format(
-                question=latest_question,
-                chat_history=chat_history,
-                plan=current_plan
-            ))
-
-            # Processar a resposta
-            cleaned_content = response.content.strip()
-            if cleaned_content.startswith("```json"):
-                cleaned_content = cleaned_content[7:]
-            if cleaned_content.endswith("```"):
-                cleaned_content = cleaned_content[:-3]
-            cleaned_content = cleaned_content.strip()
-
-            route = json.loads(cleaned_content)
-            #print(f"[ROUTING] Route analysis: {route}")
-
-            if route.get("next_step") not in ["websearch", "retrieval", "direct_answer"]:
-                raise ValueError(f"Invalid next_step value: {route.get('next_step')}")
-
-            new_state = state.copy()
-            new_state["next_step"] = route["next_step"]
-            return new_state
-
-        except Exception as e:
-            #print(f"[ROUTING] Error in routing: {str(e)}")
-            # Em caso de erro, usamos uma lógica simples baseada em palavras-chave
-            question_lower = latest_question.lower()
-            if any(keyword in question_lower for keyword in ["youtube", "video", "wikipedia", "web"]):
-                next_step = "websearch"
-            else:
-                next_step = "retrieval"
-
-            #print(f"[ROUTING] Fallback routing decision: {next_step}")
-            new_state = state.copy()
-            new_state["next_step"] = next_step
-            return new_state
-
-    return route_after_plan
 
 def create_answer_plan_node():
     PLANNING_PROMPT = """ROLE: Assistente Educacional Especializado em Personalização de Aprendizagem e Avaliação de Atividades
@@ -877,10 +849,7 @@ ANÁLISE INICIAL OBRIGATÓRIA:
       - Aplicação de conceitos
       - Criatividade/originalidade
 
-4. PERSONALIZAÇÃO DA RESPOSTA [peso: crucial]
-   [Manter toda a seção de personalização anterior]
-
-5. FEEDBACK E PRÓXIMOS PASSOS
+4. FEEDBACK E PRÓXIMOS PASSOS
    Para Respostas de Atividades:
    - Fornecer feedback construtivo
    - Identificar pontos fortes
@@ -897,6 +866,9 @@ ATENÇÃO ESPECIAL:
 3. Mantenha feedback construtivo e motivador
 4. Adapte próximos passos baseado no desempenho
 5. Use linguagem apropriada ao nível do aluno
+6. Você deve rotear para o próximo passo após a geração do plano. Se você achar necessidade de fornecer um material como contexto,
+ usar imagens ou tabelas, você deve fazer usar o campo "next_step": "retrieval"
+
 
 RESPOSTA OBRIGATÓRIA:
 Retornar JSON com estrutura exata:
@@ -912,32 +884,23 @@ Retornar JSON com estrutura exata:
         "pontos_melhoria": ["string"],
         "feedback": "string",
     "estrutura_resposta": [
-        
             "parte": "string",
             "objetivo": "string",
             "abordagem": "string baseada no estilo de aprendizagem"
-        
     ],
     "recursos_sugeridos": [
-        
             "tipo": "string",
             "formato": "string",
             "motivo": "string"
-        
     ],
     "nova_atividade":
         "descricao": "string",
         "objetivo": "string",
         "criterios_conclusao": ["string"],
         "nivel_dificuldade": "string",
-    "indicadores_compreensao": ["string"],
-    "nivel_resposta": "basico|intermediario|avancado",
     "proxima_acao": "string",
-    "revisao_necessaria": boolean,
-    "ajuste_plano":
-        "necessario": boolean,
-        "motivo": "string",
-        "sugestao": "string"
+    "nivel_resposta": "basico|intermediario|avancado",
+    "next_step": "websearch|retrieval|direct_answer"
 
 
 MÉTRICAS DE QUALIDADE:
@@ -956,7 +919,7 @@ REGRAS DE OURO:
 5. MANTENHA o foco no objetivo de aprendizagem"""
 
     prompt = ChatPromptTemplate.from_template(PLANNING_PROMPT)
-    model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    model = ChatOpenAI(model="gpt-4o", temperature=0)
 
     def generate_plan(state: AgentState) -> AgentState:
         #print("\n[NODE:PLANNING] Starting plan generation")
@@ -968,7 +931,15 @@ REGRAS DE OURO:
 
             # Processar o plano de execução atual
             try:
-                plano_execucao = json.loads(state["current_plan"])
+                # Check if current_plan is already a dict or a JSON string
+                if state["current_plan"] and isinstance(state["current_plan"], str):
+                    plano_execucao = json.loads(state["current_plan"])
+                elif state["current_plan"] and isinstance(state["current_plan"], dict):
+                    plano_execucao = state["current_plan"]
+                else:
+                    # Handle the case when current_plan is empty or invalid
+                    raise ValueError("Empty or invalid execution plan")
+                
                 current_step = identify_current_step(plano_execucao["plano_execucao"])
                 #print(f"[PLANNING] Current step: {current_step.titulo} ({current_step.progresso}%)")
             except (json.JSONDecodeError, KeyError) as e:
@@ -990,12 +961,12 @@ REGRAS DE OURO:
 
             # Preparar histórico do chat com contexto relevante
             chat_history = format_chat_history(state["chat_history"])
-            
+
             # Analisar histórico para identificar atividades anteriores
             activity_context = analyze_activity_history(state["chat_history"])
             #print(f"[PLANNING] Activity context: {activity_context}")
 
-            # Preparar parâmetros do prompt com informações adicionais
+
             params = {
                 "nome": user_profile.get("Nome", "Estudante"),
                 "percepcao": estilos.get("Percepcao", "não especificado"),
@@ -1017,7 +988,8 @@ REGRAS DE OURO:
 
             # Processar e validar a resposta
             plan = process_model_response(response.content)
-            #print(f"[PLANNING] Generated valid plan")
+            print(f"[PLANNING] Generated valid plan")
+
 
             # Ajustar o plano baseado no contexto de atividades
             if activity_context["is_activity_response"]:
@@ -1133,9 +1105,14 @@ REGRAS DE OURO:
 
     def determine_next_step(plan: Dict[str, Any]) -> str:
         """Determina o próximo passo baseado no plano."""
+        # Verifica se há um valor explícito em next_step
+        if "next_step" in plan and plan["next_step"] in ["websearch", "retrieval", "direct_answer"]:
+            return plan["next_step"]
+
+        # Caso não tenha ou seja inválido, usa a lógica anterior como fallback
         if plan.get("tipo_entrada") == "resposta_atividade":
             return "direct_answer"
-        return plan.get("proxima_acao", "retrieval")
+        return "retrieval"
 
     def handle_plan_generation_error(state: AgentState, error_msg: str) -> AgentState:
         """Manipula erros na geração do plano."""
@@ -1201,26 +1178,28 @@ def create_teaching_node():
     {question}
 
     ESTRUTURA DA RESPOSTA:
-    - SE houver contexto principal, explique detalhadamente
-    - Responda como um tutor educacional sempre orientando o aluno a chegar na resposta e dando proximos passos.
+    - Escolha uma maneira explicar o contexto principal e, se relevante, os contextos secundários.
+    - Responda como um tutor educacional sempre orientando o aluno a chegar na resposta. Incentive o raciocínio e a busca ativa de soluções.
+    - Siga o plano de resposta fornecido e adapte conforme necessário.
 
     DIRETRIZES:
-    - NUNCA presuma conhecimento prévio sem explicar
-    - NUNCA pule a explicação do contexto principal
-    - Use linguagem clara e objetiva
-    - Mantenha foco educacional
+    - Use linguagem amigavel e acessível
+    - Foque em conceitos fundamentais
+    - Adapte ao estilo de aprendizagem do aluno
+    - Incentive o raciocínio do aluno
+    - Forneça curiosidades e dicas adicionais com o objetivo de conectar o assunto atual com outros assuntos (Se achar necessário)
 
-    ATENÇÃO: 
-    - Você DEVE explicar o contexto fornecido antes de qualquer outra coisa
-    - A resposta deve ser direta ao aluno
-    - Mantenha a resposta educacional
-    - Incentive a busca da informação pelo aluno
+    ATENÇÃO:
+    - Você DEVE explicar o contexto fornecido utilizando a melhor abordagem educacional
+    - Voce DEVE guiar o aluno sem dar respostas diretas
+    - A resposta deve ser muito detalhada, abordando conceitos e passos necessários
+    - Voce responde diretamente ao aluno
     """
 
     DIRECT_RESPONSE_PROMPT = """
     ROLE: Tutor educacional
 
-    TASK: Guiar o aluno na compreensão e resolução de questões sem dar respostas diretas.
+    TASK: Guiar o aluno na compreensão e resolução de questões sem dar respostas diretas. As respostas devem ser detalhadas e educacionais.
 
     INSTRUCTIONS: 
     Leita atentamente o plano de resposta e a mensagem do aluno. Forneça orientações e dicas para ajudar o aluno a alcancar o objetivo do plano de resposta
@@ -1245,37 +1224,48 @@ def create_teaching_node():
     - Foque em conceitos fundamentais
     - Adapte ao estilo de aprendizagem do aluno
     - Incentive o raciocínio do aluno
+    - Forneça curiosidades e dicas adicionais com o objetivo de conectar o assunto atual com outros assuntos (Se achar necessário)
 
     ATENÇÃO:
     - Voce DEVE guiar o aluno sem dar respostas diretas
+    - A resposta deve ser muito detalhada, abordando conceitos e passos necessários
     - Voce responde diretamente ao aluno
     """
 
     context_prompt = ChatPromptTemplate.from_template(CONTEXT_BASED_PROMPT)
     direct_prompt = ChatPromptTemplate.from_template(DIRECT_RESPONSE_PROMPT)
-    model = ChatOpenAI(model="gpt-4o", temperature=0.2)
+    # Configuração do modelo com streaming ativado
+    model = ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True)
 
-    def generate_teaching_response(state: AgentState) -> AgentState:
-        #print("\n[NODE:TEACHING] Starting teaching response generation")
+    async def generate_teaching_response(state: AgentState):
+        """Gera resposta em formato de streaming usando chunks"""
+        import time
+        start_time = time.time()
+        
+        #print("\n[NODE:TEACHING] Starting teaching response generation with streaming")
         latest_question = [m for m in state["messages"] if isinstance(m, HumanMessage)][-1].content
         chat_history = format_chat_history(state["chat_history"])
 
+        # Primeiro chunk - indicando processamento
+        yield {"type": "processing", "content": "Tudo pronto para responder..."}
+        
         try:
+            full_response = ""
+            image_content = None
+            
             # Determinar se é resposta baseada em contexto ou direta
             if state.get("next_step") == "direct_answer":
-                #print("[NODE:TEACHING] Using direct response prompt")
-                #print(f"[NODE:TEACHING] Current plan: {state["current_plan"]}")
-                explanation = model.invoke(direct_prompt.format(
-                    learning_plan=state["current_plan"],
-                    user_profile=state["user_profile"],
-                    question=latest_question,
-                    chat_history=chat_history
-                ))
-                image_content = None
-                #print(f"[NODE:TEACHING] Direct response: {explanation.content}")
-
+                #print("[NODE:TEACHING] Using direct response prompt with streaming")
+                prompt_params = {
+                    "learning_plan": state["current_plan"],
+                    "user_profile": state["user_profile"],
+                    "question": latest_question,
+                    "chat_history": chat_history
+                }
+                stream = model.astream(direct_prompt.format(**prompt_params))
+                
             else:
-                #print("[NODE:TEACHING] Using context-based prompt")
+                #print("[NODE:TEACHING] Using context-based prompt with streaming")
                 # Processar contextos para resposta baseada em contexto
                 if state.get("web_search_results"):
                     source_type = "Resultados de busca web"
@@ -1299,7 +1289,7 @@ def create_teaching_node():
                     )
 
                     source_type = "Material de estudo"
-                    primary_type = sorted_contexts[0][0]
+                    primary_type = sorted_contexts[0][0] if sorted_contexts else "text"
 
                     if primary_type == "text":
                         primary_context = f"Texto: {contexts.get('text', '')}"
@@ -1319,40 +1309,54 @@ def create_teaching_node():
                                 secondary_contexts_list.append(f"Dados da Tabela: {contexts.get('table', {}).get('content', '')}")
                     
                     secondary_contexts = "\n\n".join(secondary_contexts_list)
-                #print(f"[NODE:TEACHING] Current CONTEXT plan: {state["current_plan"]}")
-                explanation = model.invoke(context_prompt.format(
-                    learning_plan=state["current_plan"],
-                    user_profile=state["user_profile"],
-                    source_type=source_type,
-                    primary_context=primary_context,
-                    secondary_contexts=secondary_contexts,
-                    question=latest_question,
-                    chat_history=chat_history
-                ))
-                #print(f"[NODE:TEACHING] Context-based response: {explanation.content}")
-
-                # Processar imagem se disponível e relevante
-                image_content = None
+                
+                # Verificar se há imagem relevante antes de iniciar o streaming
                 if (state.get("extracted_context") and 
                     state["extracted_context"].get("image", {}).get("type") == "image" and
                     state["extracted_context"].get("image", {}).get("image_bytes") and
                     context_scores.get("image", 0) > 0.3):
                     image_content = state["extracted_context"]["image"]["image_bytes"]
+                
+                prompt_params = {
+                    "learning_plan": state["current_plan"],
+                    "user_profile": state["user_profile"],
+                    "source_type": source_type,
+                    "primary_context": primary_context,
+                    "secondary_contexts": secondary_contexts,
+                    "question": latest_question,
+                    "chat_history": chat_history
+                }
+                stream = model.astream(context_prompt.format(**prompt_params))
 
-            # Format response
+            # Se tiver imagem, enviar um chunk com a imagem primeiro
+            if image_content:
+                base64_image = base64.b64encode(image_content).decode('utf-8')
+                yield {
+                    "type": "image", 
+                    "content": "", 
+                    "image": f"data:image/jpeg;base64,{base64_image}"
+                }
+
+            # Processar os chunks do streaming
+            async for chunk in stream:
+                if chunk.content:
+                    full_response += chunk.content
+                    yield {"type": "chunk", "content": chunk.content}
+            
+            # Atualizar estado após o streaming completo
             if image_content:
                 base64_image = base64.b64encode(image_content).decode('utf-8')
                 response_content = {
                     "type": "multimodal",
-                    "content": explanation.content,
+                    "content": full_response,
                     "image": f"data:image/jpeg;base64,{base64_image}"
                 }
                 response = AIMessage(content=json.dumps(response_content))
-                history_message = AIMessage(content=explanation.content)
             else:
-                response = explanation
-                history_message = explanation
-
+                response = AIMessage(content=full_response)
+            
+            history_message = AIMessage(content=full_response)
+            
             # Update state
             new_state = state.copy()
             new_state["messages"] = list(state["messages"]) + [response]
@@ -1360,12 +1364,23 @@ def create_teaching_node():
                 HumanMessage(content=latest_question),
                 history_message
             ]
-            return new_state
+            
+            # Enviar mensagem de conclusão com o tempo de processamento
+            processing_time = time.time() - start_time
+            yield {"type": "complete", "content": f"Resposta completa em {processing_time:.2f}s"}
+            
+            # Atualizar estado após conclusão
+            state.update(new_state)
 
         except Exception as e:
-            #print(f"[NODE:TEACHING] Error generating response: {str(e)}")
+            #print(f"[NODE:TEACHING] Error generating streaming response: {str(e)}")
             import traceback
             traceback.print_exc()
+            
+            # Retornar erro como chunk
+            yield {"type": "error", "content": f"Ocorreu um erro ao processar sua mensagem: {str(e)}"}
+            
+            # Atualizar estado mesmo em caso de erro
             error_message = "Desculpe, encontrei um erro ao processar sua pergunta. Por favor, tente novamente."
             response = AIMessage(content=error_message)
             history_message = response
@@ -1376,7 +1391,7 @@ def create_teaching_node():
                 HumanMessage(content=latest_question),
                 history_message
             ]
-            return new_state
+            state.update(new_state)
 
     return generate_teaching_response
 
@@ -1656,16 +1671,22 @@ class WebSearchTools:
             #print(f"[WEBSEARCH] Error searching Wikipedia: {str(e)}")
             return "Ocorreu um erro ao buscar na Wikipedia."
 
-def route_after_planning(state: AgentState) -> str:
+def route_after_planning(state: AgentState):
     """
-    Determina o próximo nó após o planejamento com base no plano gerado.
+    Determina o próximo nó após o planejamento com base no next_step definido no plano gerado.
     """
+    print("\n[ROUTING] Determining next node after planning")
     next_step = state.get("next_step", "retrieval")
-    #print(f"[ROUTING] Routing after planning: {next_step}")
-
+    print(f"[ROUTING] Routing after planning: {next_step}")
+    print()
+    print("---------------------------------------------")
+    print("next_step: ", next_step)
+    print("---------------------------------------------")
+    print()
     if next_step == "websearch":
         return "web_search"
     elif next_step == "retrieval":
+        print("retrieve_context")
         return "retrieve_context"
     else:
         return "direct_answer"
@@ -1824,21 +1845,21 @@ class TutorWorkflow:
         self.web_tools = WebSearchTools()
         self.workflow = self.create_workflow()
 
-    def create_workflow(self) -> Graph:
+    def create_workflow(self):
         workflow = Graph()
 
         # Adiciona nós sem gerenciamento de progresso redundante
         workflow.add_node("generate_plan", create_answer_plan_node())
-        workflow.add_node("route_after_plan", route_after_plan_generation())
         workflow.add_node("retrieve_context", create_retrieval_node(self.tools))
         workflow.add_node("web_search", create_websearch_node(self.web_tools))
-        workflow.add_node("teach", create_teaching_node())
+        # O nó de teaching agora retorna um gerador de chunks
+        self.teaching_node = create_teaching_node()
+        workflow.add_node("teach", self.teaching_node)
         workflow.add_node("progress_analyst", create_progress_analyst_node(self.progress_manager))
 
-        # Adiciona edges
-        workflow.add_edge("generate_plan", "route_after_plan")
+        # Adiciona edges diretamente do generate_plan para os próximos nós
         workflow.add_conditional_edges(
-            "route_after_plan",
+            "generate_plan",
             route_after_planning,
             {
                 "retrieve_context": "retrieve_context",
@@ -1927,11 +1948,80 @@ class TutorWorkflow:
         query: str, 
         student_profile: dict, 
         current_plan=None, 
-        chat_history=None
-    ) -> dict:
+        chat_history=None,
+        stream=False
+    ):
+        """
+        Invoca o workflow de tutoria.
+        
+        Parâmetros:
+            query: Pergunta do usuário
+            student_profile: Perfil do estudante
+            current_plan: Plano atual (opcional)
+            chat_history: Histórico da conversa (opcional)
+            stream: Quando True, retorna chunks de resposta via streaming
+            
+        Retorno:
+            Se stream=False: retorna o resultado completo como dict
+            Se stream=True: retorna um gerador que produz chunks de resposta
+        """
         start_time = time.time()
         print(f"\n[WORKFLOW] Starting workflow invocation")
         #print(f"[WORKFLOW] Query: {query}")
+
+        # Função interna para processamento de streaming
+        async def stream_response(state):
+            # Executa o fluxo até o nó de ensino
+            try:
+                print(f"\n[WORKFLOW] Streaming response generation")
+                # Vai do nó inicial até o nó de teaching
+                interim_result = None
+
+                plan_node = create_answer_plan_node()
+                print(f"\n[WORKFLOW] Generating plan")
+                plan_state = plan_node(state)  # Chamada não-async
+                #print(f"[WORKFLOW] Plan state: {plan_state}")
+                print(f"\n[WORKFLOW] Plan generated")
+                next_step = route_after_planning(plan_state)
+                print(f"\n[WORKFLOW] Next step after planning: {next_step}")
+                if next_step == "retrieve_context":
+                    yield {"type": "processing", "content": "Buscando conteúdos interessantes..."}
+                    print(f"\n[WORKFLOW] Retrieval context")
+                    retrieve_node = create_retrieval_node(self.tools)
+                    interim_result = await retrieve_node(plan_state)  # Este é async
+                elif next_step == "web_search":
+                    web_search_node = create_websearch_node(self.web_tools)
+                    interim_result = await web_search_node(plan_state)  # Este é async
+                else:
+                    interim_result = plan_state
+
+                teaching_generator = self.teaching_node(interim_result)
+
+                async for chunk in teaching_generator:
+                    yield chunk
+
+                try:
+                    progress_node = create_progress_analyst_node(self.progress_manager)
+                    progress_state = await progress_node(interim_result)
+                    study_summary = await self.progress_manager.get_study_summary(self.session_id)
+
+                    serializable_summary = {}
+                    for key, value in study_summary.items():
+                        if isinstance(value, datetime):
+                            serializable_summary[key] = value.isoformat()
+                        else:
+                            serializable_summary[key] = value
+
+                    summary_content = f"Progresso atualizado: {serializable_summary.get('progress_percentage', 0):.1f}%"
+                    yield {"type": "progress_update", "content": summary_content, "data": serializable_summary}
+                except Exception as e:
+                    raise e
+
+            except Exception as e:
+                #print(f"[WORKFLOW] Streaming error: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                yield {"type": "error", "content": f"Erro na execução do workflow: {str(e)}"}
 
         try:
             # Validar perfil do usuário
@@ -1964,8 +2054,13 @@ class TutorWorkflow:
                 session_id=self.session_id
             )
 
+            # Se streaming estiver ativado, retorna o gerador de chunks
+            if stream:
+                return stream_response(initial_state)
+
+            # Comportamento tradicional sem streaming
             #print("[WORKFLOW] Executing workflow")
-            result = await self.workflow.ainvoke(initial_state)
+            result = await self.workflow.astream(initial_state)
             #print("[WORKFLOW] Workflow execution completed successfully")
 
             # Recupera o resumo atualizado do estudo
@@ -1989,6 +2084,14 @@ class TutorWorkflow:
             #print(f"[WORKFLOW] Error during workflow execution: {str(e)}")
             import traceback
             traceback.print_exc()
+            
+            if stream:
+                # Se for streaming, convertemos a exceção em um gerador que retorna apenas um erro
+                async def error_generator():
+                    yield {"type": "error", "content": f"Erro na execução do workflow: {str(e)}"}
+                return error_generator()
+            
+            # Sem streaming, retornamos um objeto de erro
             error_response = {
                 "error": f"Erro na execução do workflow: {str(e)}",
                 "messages": [AIMessage(content="Desculpe, encontrei um erro ao processar sua pergunta. Por favor, tente novamente.")],
@@ -1999,10 +2102,12 @@ class TutorWorkflow:
             try:
                 error_response["study_progress"] = await self.progress_manager.get_study_summary(self.session_id)
             except Exception as progress_error:
-                print(f"[WORKFLOW] Error getting progress summary: {progress_error}")
+                #print(f"[WORKFLOW] Error getting progress summary: {progress_error}")
+                raise e
 
             return error_response
         finally:
-            end_time = time.time()  # Marca o fim do tempo
-            elapsed_time = end_time - start_time
-            print(f"[WORKFLOW] Workflow execution completed in {elapsed_time:.2f} seconds")
+            if not stream:  # Apenas registramos o tempo para execuções não-streaming
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                print(f"[WORKFLOW] Workflow execution completed in {elapsed_time:.2f} seconds")

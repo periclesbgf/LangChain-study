@@ -8,7 +8,7 @@ from api.controllers.auth import get_current_user
 from api.controllers.discipline_controller import DisciplineController
 from api.dispatchers.discipline_dispatcher import DisciplineDispatcher
 from api.endpoints.models import DisciplineCreate, DisciplinePDFCreate, DisciplineUpdate
-from utils import OPENAI_API_KEY, CODE
+from utils import OPENAI_API_KEY
 from chains.chain_setup import DisciplinChain
 import pdfplumber
 import re

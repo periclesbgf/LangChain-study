@@ -55,8 +55,8 @@ tabela_cursos = Table('Cursos', metadata,
     Column('NomeCurso', String(100), nullable=False),
     Column('Ementa', Text),
     Column('Objetivos', Text),
-    Column('HorarioInicio', TIME, nullable=False),      # Horário de início da aula
-    Column('HorarioFim', TIME, nullable=False),         # Horário de fim da aula
+    Column('HorarioInicio', TIME, nullable=False),
+    Column('HorarioFim', TIME, nullable=False),
     Column('CriadoEm', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'))
 )
 

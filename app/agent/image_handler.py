@@ -106,7 +106,7 @@ class ImageHandler:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "Descreva a imagem com detalhes para facilitar a recuperação futura em um sitema RAG. Essa descricao ira ser guardada em um banco de dados Vetorial"},
+                        {"type": "text", "text": "Descreva a imagem com detalhes para facilitar a recuperação futura em um sitema RAG. Essa descrição ira ser guardada em um banco de dados Vetorial."},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}}
                     ]
                 }
