@@ -81,8 +81,10 @@ class DisciplineDispatcher:
                     "NomeCurso": course.NomeCurso,
                     "Ementa": course.Ementa,
                     "Objetivos": course.Objetivos,
-                    "CriadoEm": course.CriadoEm.isoformat()  # Converter datetime para string
-                }
+                    "CriadoEm": course.CriadoEm.isoformat(),
+                    "HorarioInicio": course.HorarioInicio.isoformat(),
+                    "HorarioFim": course.HorarioFim.isoformat(),
+                    }
                 courses_list.append(course_dict)
 
             return courses_list

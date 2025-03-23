@@ -3,17 +3,18 @@
 from api.dispatchers.discipline_dispatcher import DisciplineDispatcher
 import json
 from api.controllers.plan_controller import PlanController
+from api.dispatchers.calendar_dispatcher import CalendarDispatcher
 from chains.chain_setup import DisciplinChain
 from datetime import datetime, timezone
 
 
 
 class DisciplineController:
-    def __init__(self, dispatcher: DisciplineDispatcher, disciplin_chain: DisciplinChain = None):
+    def __init__(self, dispatcher: DisciplineDispatcher, disciplin_chain: DisciplinChain = None, calendar_dispatcher: CalendarDispatcher = None):
         self.dispatcher = dispatcher
         self.disciplin_chain = disciplin_chain
-        self.plan_controller = PlanController()  # Instanciar PlanController
-
+        self.plan_controller = PlanController()
+        self.calendar_dispatcher = calendar_dispatcher
 
     def get_all_user_disciplines(self, current_user: str):
         return self.dispatcher.get_all_disciplines_for_student(current_user)
@@ -23,6 +24,9 @@ class DisciplineController:
 
     def get_discipline_by_session_id(self, session_id: str):
         return self.dispatcher.get_discipline_by_session_id(session_id)
+    
+    def get_course_hours(self, discipline_id: int):
+        return self.calendar_dispatcher
 
     def create_discipline(self, nome_curso: str, ementa: str, objetivos: str, 
                          turno_estudo: str, horario_inicio: str, horario_fim: str, 
@@ -99,13 +103,11 @@ class DisciplineController:
                     "feedback_geral": {}
                 }
 
-                plan_result = await self.plan_controller.create_study_plan(empty_plan)
-                if not plan_result:
-                    print(f"Falha ao criar plano de estudo para a sessão {session_id}")
+                await self.plan_controller.create_study_plan(empty_plan)
 
-            print("Disciplina e planos de estudo criados com sucesso.")
+            #print("Disciplina e planos de estudo criados com sucesso.")
             return course_id, session_ids
 
         except Exception as e:
-            print(f"Erro ao criar disciplina a partir do PDF: {e}")
+            #print(f"Erro ao criar disciplina a partir do PDF: {e}")
             raise e
