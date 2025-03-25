@@ -1,8 +1,7 @@
 # api/endpoints/discipline.py
 
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile, Depends, HTTPException
-from fastapi.logger import logger
-from sqlalchemy.orm import Session
+from logg import logger
 from database.sql_database_manager import DatabaseManager, session, metadata
 from api.controllers.auth import get_current_user
 from api.controllers.discipline_controller import DisciplineController

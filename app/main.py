@@ -17,6 +17,7 @@ from api.endpoints.workspace import router_workspace
 from api.endpoints.websocket_manager import router_websocket
 from api.endpoints.files import router_pdf
 from utils import SECRET_KEY
+from logg import logger
 
 load_dotenv()
 
@@ -27,8 +28,8 @@ app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:8080", 
-        "https://localhost:8080", 
+        "http://localhost:8080",
+        "https://localhost:8080",
         "http://localhost:8000",
     ],
     allow_credentials=True,
@@ -48,6 +49,8 @@ app.include_router(router_study_plan)
 app.include_router(router_workspace)
 app.include_router(router_websocket)
 app.include_router(router_pdf)
+
+logger.info("Aplicação FastAPI iniciada com logging para Loki.")
 
 if __name__ == '__main__':
     uvicorn.run(app, host="0.0.0.0", port=8000)
