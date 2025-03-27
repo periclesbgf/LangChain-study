@@ -1,24 +1,32 @@
 # app/api/endpoints/chat.py
 
-import traceback
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from api.controllers.chat_controller import ChatController
 from api.controllers.file_controller import FileController
 from api.controllers.auth import get_current_user
 from api.endpoints.models import MessageRequest, AccessLevel
-from typing import Optional, Dict, Any, Tuple, AsyncGenerator
+from typing import Optional, Dict, Any, Tuple
 from datetime import datetime
 import json
 import os
-import logging
+from logg import logger
 from functools import lru_cache
 import asyncio
 from contextlib import asynccontextmanager
 import time
 from cachetools import TTLCache
+from utils import QDRANT_URL, OPENAI_API_KEY
+from database.vector_db import (
+    QdrantHandler,
+    Embeddings,
+    TextSplitter
+)
+from agent.image_handler import ImageHandler
+from database.mongo_database_manager import MongoDatabaseManager, MongoPDFHandler
+from agent.agent_test import TutorWorkflow
 
-# Custom JSON serialization for datetime objects
+
 class DateTimeEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, datetime):
@@ -40,29 +48,14 @@ def make_json_serializable(obj):
     elif isinstance(obj, datetime):
         return obj.isoformat()
     elif hasattr(obj, '__dict__'):
-        # Handle custom objects by converting to dict
         return make_json_serializable(obj.__dict__)
     else:
-        # Try to convert to string as last resort
         try:
             json.dumps(obj)
             return obj
         except TypeError:
             return str(obj)
 
-from utils import MONGO_URI, MONGO_DB_NAME, QDRANT_URL, OPENAI_API_KEY
-from database.vector_db import (
-    QdrantHandler,
-    Embeddings,
-    TextSplitter
-)
-from agent.image_handler import ImageHandler
-from database.mongo_database_manager import MongoDatabaseManager, MongoPDFHandler
-from agent.agent_test import TutorWorkflow
-
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
 router_chat = APIRouter()
 
@@ -90,11 +83,11 @@ class ChatEndpointManager:
         self.qdrant_handler = None
         self.image_handler = None
         self.embeddings = None
-        # TTL cache with 15-minute expiration
+
         self._cache = TTLCache(maxsize=500, ttl=900)
-        # Cache for workflow instances
+
         self._workflow_cache = TTLCache(maxsize=100, ttl=1800)
-        # Cache for controller instances
+
         self._controller_cache = TTLCache(maxsize=100, ttl=900)
         self._initialized = True
 
@@ -108,17 +101,13 @@ class ChatEndpointManager:
     async def _async_preload(self):
         """Asynchronously initialize core components"""
         try:
-            # Initialize MongoDB connection
             self.mongo_manager = MongoDatabaseManager()
 
-            # Initialize image handler and embeddings
             self.image_handler = ImageHandler(OPENAI_API_KEY)
             self.embeddings = Embeddings()
 
-            # Initialize Qdrant handler
             self._init_qdrant_handler()
 
-            logger.info("Preloaded all dependencies")
         except Exception as e:
             logger.error(f"Error preloading dependencies: {e}")
 
@@ -164,7 +153,6 @@ class ChatEndpointManager:
         """Get student profile and study plan concurrently"""
         start_time = time.time()
         async with self.get_mongo_manager() as mongo_manager:
-            # Execute requests concurrently
             profile_task = asyncio.create_task(
                 mongo_manager.get_student_profile(
                     email=user_email,
@@ -212,10 +200,8 @@ class ChatEndpointManager:
 
         try:
             if cache_key in self._cache:
-                logger.info(f"Cache hit for {cache_key}")
                 return self._cache[cache_key]
         except Exception:
-            # Safely handle cache errors and continue
             logger.warning("Cache error, continuing with database query")
 
         data = await self.get_student_data(user_email, session_id)
@@ -233,7 +219,6 @@ class ChatEndpointManager:
 
         try:
             if cache_key in self._workflow_cache:
-                logger.info(f"Workflow cache hit for {cache_key}")
                 return self._workflow_cache[cache_key]
         except Exception:
             logger.warning("Workflow cache error, creating new instance")
@@ -289,7 +274,6 @@ class ChatEndpointManager:
 
         try:
             if cache_key in self._controller_cache:
-                logger.info(f"Controller cache hit for {cache_key}")
                 return self._controller_cache[cache_key]
         except Exception:
             logger.warning("Controller cache error, creating new instance")
@@ -326,26 +310,20 @@ async def chat_endpoint(
     current_user=Depends(get_current_user)
 ):
     try:
-        # Verifica se há arquivos e/ou mensagem de texto
         has_files = bool(request.file)
         has_message = bool(request.message and request.message.strip())
         files = None
-
-        print(f"ENDPOINT: Request contains files: {has_files}, contains message: {has_message}")
 
         request_dict = {
             "session_id": request.session_id,
             "discipline_id": request.discipline_id
         }
-        
-        # Se tiver arquivo, processa com o FileController antes de continuar
+
         if has_files:
-            # Inicializa recursos necessários para o FileController
             mongo_manager = MongoDatabaseManager()
             pdf_handler = MongoPDFHandler(mongo_manager)
             qdrant_handler = chat_manager.get_qdrant_handler()
-            
-            # Cria instância do FileController
+
             file_controller = FileController(
                 mongo_db=mongo_manager,
                 pdf_handler=pdf_handler,
@@ -355,16 +333,13 @@ async def chat_endpoint(
                 session_id=str(request.session_id),
                 access_level=AccessLevel.SESSION.value
             )
-            
-            # Processa o arquivo e obtém seu conteúdo antes de ser consumido pelo controller
+
             file = request.file
             file_content = await file.read()
             await file.seek(0)
-            # Processa o arquivo com o FileController
             file_results = await file_controller.process_files([file])
             files = [file]
-            
-            # Se não tiver mensagem, cria uma resposta streaming informando sobre o processamento do arquivo
+
             if not has_message:
                 async def file_response_stream():
                     if any(result["status"] == "error" for result in file_results):
@@ -379,7 +354,7 @@ async def chat_endpoint(
                         yield json.dumps({"type": "success", "content": "Arquivo processado com sucesso. Você pode fazer perguntas sobre ele agora."}) + "\n"
                         yield json.dumps({"type": "success", "content": "Você pode ver o PDF clicando no botão de mídia (ele fica localizado encima a direita)"}) + "\n"
 
-                
+
                 return StreamingResponse(
                     file_response_stream(),
                     media_type="application/x-ndjson"

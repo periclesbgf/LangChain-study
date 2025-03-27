@@ -14,7 +14,7 @@ import re
 
 router_disciplines = APIRouter()
 
-# GET - List all disciplines
+
 @router_disciplines.get("/disciplines")
 async def get_all_user_disciplines(current_user: dict = Depends(get_current_user)):
     print(f"Buscando todas as disciplinas para o usuário: {current_user['sub']}")
@@ -39,7 +39,7 @@ async def get_discipline_by_id(
     discipline_id: int,
     current_user: dict = Depends(get_current_user)
 ):
-    print(f"Buscando disciplina {discipline_id} para o usuário: {current_user['sub']}")
+    logger.info(f"Buscando disciplina {discipline_id} para o usuário: {current_user['sub']}")
     try:
         sql_database_manager = DatabaseManager(session, metadata)
         dispatcher = DisciplineDispatcher(sql_database_manager)
@@ -62,7 +62,7 @@ async def get_discipline_by_id(
                 detail="Formato de resposta inválido da disciplina"
             )
 
-        print(f"Disciplina {discipline_id} encontrada para o usuário: {current_user['sub']}")
+        #print(f"Disciplina {discipline_id} encontrada para o usuário: {current_user['sub']}")
         return {"discipline_name": discipline_name}
 
     except KeyError as e:
@@ -156,7 +156,6 @@ async def update_discipline(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# DELETE - Delete a discipline
 @router_disciplines.delete("/disciplines/{discipline_id}")
 async def delete_discipline(
     discipline_id: int,
