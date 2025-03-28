@@ -309,6 +309,7 @@ async def chat_endpoint(
     request: MessageRequest = Depends(MessageRequest.as_form),
     current_user=Depends(get_current_user)
 ):
+    logger.info(f"Usuario {current_user['sub']} enviou mensagem: {request.message}")
     try:
         has_files = bool(request.file)
         has_message = bool(request.message and request.message.strip())
