@@ -15,9 +15,8 @@ import tempfile
 import os
 import logging
 
-# Configurar logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Importar logger do sistema principal
+from logg import logger
 
 router_websocket = APIRouter()
 client = AsyncOpenAI()
@@ -64,12 +63,10 @@ class ConnectionManager:
                 if session_id not in self.active_connections:
                     self.active_connections[session_id] = set()
                 self.active_connections[session_id].add(websocket)
-                logger.info(f"Session connection established: session {session_id}")
+                logger.info(f"[WEBSOCKET_CONNECT] Nova conexão para sessão {session_id}")
             else:
                 self.test_connections.add(websocket)
-                logger.info("Test connection established")
-            
-            logger.info("Connection open")
+                logger.info("[WEBSOCKET_TEST_CONNECT] Nova conexão de teste")
             
         except Exception as e:
             logger.error(f"Error in connect: {str(e)}")
@@ -82,10 +79,10 @@ class ConnectionManager:
                     self.active_connections[session_id].remove(websocket)
                     if not self.active_connections[session_id]:
                         del self.active_connections[session_id]
-                    logger.info(f"Session disconnected: {session_id}")
+                    logger.info(f"[WEBSOCKET_DISCONNECT] Conexão encerrada para sessão {session_id}")
             else:
                 self.test_connections.remove(websocket)
-                logger.info("Test connection disconnected")
+                logger.info("[WEBSOCKET_TEST_DISCONNECT] Conexão de teste encerrada")
         except Exception as e:
             logger.error(f"Error in disconnect: {str(e)}")
 
@@ -114,7 +111,7 @@ class ConnectionManager:
                         response_format="text"
                     )
 
-                logger.info(f"Transcription: {transcription}")
+                logger.info(f"[AUDIO_TRANSCRIPTION] Sessão {session_id or 'teste'} - Áudio transcrito com sucesso")
 
                 # Gera resposta via chat
                 chat_response = await client.chat.completions.create(

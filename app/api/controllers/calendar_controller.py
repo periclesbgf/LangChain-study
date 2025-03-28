@@ -26,7 +26,7 @@ class CalendarController:
     def create_event(self, title: str, description: str, start_time, end_time, location: str, current_user: str, convert_timezone: bool = True, course_id: int = None):
         """
         Create a calendar event
-        
+
         Args:
             title (str): Event title
             description (str): Event description
@@ -46,7 +46,7 @@ class CalendarController:
         #         start_time_final = start_time.strftime("%Y-%m-%d %H:%M:%S")
         #     else:
         #         start_time_final = start_time
-                
+
         #     if isinstance(end_time, datetime):
         #         end_time_final = end_time.strftime("%Y-%m-%d %H:%M:%S")
         #     else:
@@ -55,7 +55,7 @@ class CalendarController:
         # print("Start time: ", start_time_final)
         # print("End time: ", end_time_final)
         # print(f"Creating event for user: {current_user}")
-        
+
         event_data = {
             'GoogleEventId': f"event-{current_user}-{title}",
             'Titulo': title,

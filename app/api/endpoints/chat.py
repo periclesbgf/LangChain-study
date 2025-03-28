@@ -16,6 +16,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import time
 from cachetools import TTLCache
+import uuid
 from utils import QDRANT_URL, OPENAI_API_KEY
 from database.vector_db import (
     QdrantHandler,
@@ -309,7 +310,8 @@ async def chat_endpoint(
     request: MessageRequest = Depends(MessageRequest.as_form),
     current_user=Depends(get_current_user)
 ):
-    logger.info(f"Usuario {current_user['sub']} enviou mensagem: {request.message}")
+    request_id = str(uuid.uuid4())[:8]
+    logger.info(f"[CHAT_REQUEST] ID:{request_id} | User:{current_user['sub']} | Session:{request.session_id} | Discipline:{request.discipline_id}")
     try:
         has_files = bool(request.file)
         has_message = bool(request.message and request.message.strip())
@@ -421,8 +423,6 @@ async def chat_endpoint(
 
                     if chunk.get("type") == "chunk":
                         message_content.append(chunk.get("content", ""))
-                    else:
-                        print(f"ENDPOINT: Received and forwarding non-text chunk type: {chunk.get('type')}")
 
                     try:
                         yield json_serialize(chunk) + "\n"
@@ -460,7 +460,6 @@ async def get_chat_history(
         async with chat_manager.get_mongo_manager() as mongo_manager:
             collection = mongo_manager.db['chat_history']
 
-            # Build query
             query = {
                 'session_id': session_id,
                 'user_email': current_user["sub"],

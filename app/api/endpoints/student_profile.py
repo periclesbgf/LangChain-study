@@ -10,6 +10,7 @@ from api.endpoints.models import EstiloAprendizagem, Feedback, PreferenciasApren
 from database.mongo_database_manager import MongoDatabaseManager
 from datetime import datetime, timezone
 from database.sql_database_manager import DatabaseManager, session, metadata
+from logg import logger
 
 router_profiles = APIRouter()
 
@@ -48,7 +49,7 @@ async def create_profile(
         return {"message": "Perfil criado com sucesso", "IdPerfil": profile_id}
 
     except Exception as e:
-        print(f"Erro ao criar perfil: {e}")
+        logger.error(f"[PROFILE_CREATE] Erro ao criar perfil: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao criar perfil: {str(e)}")
 
 @router_profiles.get("/profiles")
@@ -62,7 +63,7 @@ async def get_profile(
         mongo_manager = MongoDatabaseManager()
 
         email = current_user["sub"]
-        print(f"Buscando perfil para o email: {email}")
+        logger.info(f"[PROFILE_VIEW] Usuário {email} acessou seu perfil")
 
         profile = await mongo_manager.get_student_profile(
             email=email,
@@ -92,7 +93,7 @@ async def get_profile(
         return profile
 
     except Exception as e:
-        print(f"Erro ao buscar perfil: {e}")
+        logger.error(f"[PROFILE_VIEW] Erro ao buscar perfil: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao buscar perfil: {str(e)}")
 
 @router_profiles.put("/profiles")
@@ -119,10 +120,12 @@ async def update_profile(
         if update_result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Perfil não encontrado.")
 
+        logger.info(f"[PROFILE_UPDATE] Usuário {current_user['sub']} atualizou seu perfil")
+
         return {"message": "Perfil atualizado com sucesso"}
 
     except Exception as e:
-        print(f"Erro ao atualizar perfil: {e}")
+        logger.error(f"[PROFILE_UPDATE] Erro ao atualizar perfil: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao atualizar perfil: {str(e)}")
 
 @router_profiles.delete("/profiles")
@@ -142,8 +145,10 @@ async def delete_profile(
         if delete_result.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Perfil não encontrado.")
 
+        logger.info(f"[PROFILE_DELETE] Usuário {current_user['sub']} excluiu seu perfil")
+
         return {"message": "Perfil excluído com sucesso"}
 
     except Exception as e:
-        print(f"Erro ao excluir perfil: {e}")
+        logger.error(f"[PROFILE_DELETE] Erro ao excluir perfil: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao excluir perfil: {str(e)}")

@@ -8,6 +8,7 @@ import asyncio
 import time
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Union, AsyncGenerator
+from logg import logger
 import uuid
 import hashlib
 from cachetools import TTLCache, LRUCache
@@ -234,6 +235,7 @@ class ChatController:
         This method is already async and must be awaited.
         """
         start_time = time.time()
+        logger.info(f"[USER_MESSAGE] {self.student_email} | disciplina={self.disciplina} | session={self.session_id}")
         
         try:
             if not user_input:
@@ -285,8 +287,8 @@ class ChatController:
 
                             self._analytics["interaction_count"] += 1
                             self._analytics["last_response_time"] = time.time() - start_time
-
-                            logger.info(f"Processed message in {self._analytics['last_response_time']:.2f}s")
+                            
+                            logger.info(f"[CHAT_RESPONSE] {self.student_email} | session={self.session_id} | time={self._analytics['last_response_time']:.2f}s")
                             return response
 
             if stream:
@@ -348,7 +350,7 @@ class ChatController:
 
 
             processing_time = time.time() - start_time
-            logger.info(f"Streaming response completed in {processing_time:.2f}s")
+            logger.info(f"[CHAT_STREAM] {self.student_email} | session={self.session_id} | time={processing_time:.2f}s")
 
             if full_text:
                 print(f"CHAT_CONTROLLER: Salvando mensagem completa no histórico (tamanho: {len(full_text)})")

@@ -15,9 +15,9 @@ from database.mongo_database_manager import MongoDatabaseManager
 from agent.tools import DatabaseUpdateTool
 from api.controllers.calendar_controller import CalendarController
 from api.dispatchers.calendar_dispatcher import CalendarDispatcher
+from logg import logger
 
 router_study_plan = APIRouter()
-
 
 
 @router_study_plan.post("/study_plan")
@@ -29,20 +29,22 @@ async def create_study_plan(
     Cria um novo plano de estudos para o estudante autenticado.
     """
     try:
-        controller = PlanController()  # Instancia o Controller
+        controller = PlanController()
 
         plan_data = plan.model_dump()
         plan_data["created_at"] = datetime.now(timezone.utc)
 
-        result = await controller.create_study_plan(plan_data)  # Usa o Controller
+        result = await controller.create_study_plan(plan_data)
 
         if not result:
             raise HTTPException(status_code=500, detail="Erro ao criar plano de estudos.")
 
+        logger.info(f"[STUDY_PLAN_CREATE] Usuário {current_user['sub']} criou um novo plano de estudos com ID {result}")
+
         return {"message": "Plano de estudos criado com sucesso", "id": result}
 
     except Exception as e:
-        print(f"Erro ao criar plano de estudos: {e}")
+        logger.error(f"Erro ao criar plano de estudos: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao criar plano de estudos: {str(e)}")
 
 @router_study_plan.get("/study_plan/{id_sessao}")
@@ -59,12 +61,12 @@ async def get_study_plan(
 
         if not plan:
             raise HTTPException(status_code=404, detail="Plano de estudos não encontrado.")
-        print("Endpoint get_study_plan")
-        print(plan)
+        logger.info(f"[STUDY_PLAN] Usuário {current_user['sub']} acessou o plano de estudos com ID {id_sessao}")
+
         return plan
 
     except Exception as e:
-        print(f"Erro ao buscar plano de estudos: {e}")
+        logger.error(f"Erro ao buscar plano de estudos: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao buscar plano de estudos: {str(e)}")
 
 @router_study_plan.put("/study_plan/{id_sessao}")
@@ -84,10 +86,12 @@ async def update_study_plan(
         if not success:
             raise HTTPException(status_code=404, detail="Plano de estudos não encontrado.")
 
+        logger.info(f"[STUDY_PLAN_UPDATE] Usuário {current_user['sub']} atualizou o plano de estudos com ID {id_sessao}")
+
         return {"message": "Plano de estudos atualizado com sucesso"}
 
     except Exception as e:
-        print(f"Erro ao atualizar plano de estudos: {e}")
+        logger.error(f"Erro ao atualizar plano de estudos: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao atualizar plano de estudos: {str(e)}")
 
 @router_study_plan.delete("/study_plan/{id_sessao}")
@@ -99,16 +103,16 @@ async def delete_study_plan(
     Exclui um plano de estudos pelo id_sessao.
     """
     try:
-        controller = PlanController()  # Instancia o Controller
-        success = await controller.delete_study_plan(id_sessao)  # Usa o Controller
+        controller = PlanController()
+        success = await controller.delete_study_plan(id_sessao) # possivel erro de segurança aqui
 
         if not success:
             raise HTTPException(status_code=404, detail="Plano de estudos não encontrado.")
-
+        logger.info(f"[STUDY_PLAN_DELETE] Usuário {current_user['sub']} excluiu o plano de estudos com ID {id_sessao}")
         return {"message": "Plano de estudos excluído com sucesso"}
 
     except Exception as e:
-        print(f"Erro ao excluir plano de estudos: {e}")
+        logger.error(f"Erro ao excluir plano de estudos: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao excluir plano de estudos: {str(e)}")
 
 @router_study_plan.get("/study_plan/sessions/without_plan")
@@ -128,11 +132,10 @@ async def get_sessions_without_plan(
 
         controller = PlanController()
         sessions = await controller.get_sessions_without_plan(current_user["sub"], study_sessions)
-        
+
         if not sessions:
             return {"sessions": []}
-        print("Endpoint get_sessions_without_plan")
-        print(sessions)
+        logger.info(f"[STUDY_PLAN] Usuário {current_user['sub']} acessou sessões sem plano")
         # Retorna as sessões sem plano
         return {
             "sessions": sessions
@@ -218,7 +221,7 @@ async def create_automatic_study_plan(
     current_user: dict = Depends(get_current_user),
 ):
     try:
-        print("session_data", planData)
+        logger.info(f"[PLAN_AUTO_GEN] Usuário {current_user['sub']} solicitou geração de plano automático para sessão {planData.session_id}")
         mongo_manager = MongoDatabaseManager()
         db_tool = DatabaseUpdateTool(mongo_manager)
 
@@ -333,7 +336,7 @@ async def create_automatic_study_plan(
             message="Plano de estudos gerado com sucesso",
             plano=result["plan"]
         )
-        print(response)
+        logger.info(f"[PLAN_AUTO_GEN_SUCCESS] Plano gerado para sessão {planData.session_id} do usuário {current_user['sub']}")
         return response
 
     except HTTPException as he:
@@ -356,6 +359,7 @@ async def update_step_progress(
     progress_data: StepProgressUpdate,
     current_user: dict = Depends(get_current_user)
 ):
+    logger.info(f"[PLAN_PROGRESS] Usuário {current_user['sub']} atualizou progresso da etapa {progress_data.step_index} para {progress_data.progress}% na sessão {id_sessao}")
     """
     Atualiza o progresso de uma etapa específica do plano de estudos.
 

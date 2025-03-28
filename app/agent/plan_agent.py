@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 import motor.motor_asyncio
 from pymongo import errors
 import json
+import time
 from agent.tools import DatabaseUpdateTool
+from logg import logger
 
 class ActivityResource(BaseModel):
     tipo: str
@@ -52,7 +54,7 @@ class SessionPlanWorkflow:
         self.workflow = self.create_workflow()
 
     def create_workflow(self) -> Graph:
-        print("[DEBUG]: Creating workflow")
+        #print("[DEBUG]: Creating workflow")
         workflow = Graph()
         workflow.add_node("generate_plan", self.create_planning_node())
         workflow.add_node("review_plan", self.create_review_node())
@@ -62,7 +64,7 @@ class SessionPlanWorkflow:
         workflow.add_edge("update_database", END)
         workflow.set_entry_point("generate_plan")
         compiled_workflow = workflow.compile()
-        print("[DEBUG]: Workflow compiled")
+        #print("[DEBUG]: Workflow compiled")
         return compiled_workflow
 
     def create_planning_node(self):
@@ -178,17 +180,16 @@ class SessionPlanWorkflow:
 
             try:
                 plan_dict = json.loads(cleaned_content)
-                print("[DEBUG]: Parsed plan", plan_dict)
+                #print("[DEBUG]: Parsed plan", plan_dict)
                 new_state = state.copy()
                 new_state["study_plan"] = plan_dict
                 new_state["scheduled_time"] = plan_dict.get("horario_sugerido")
                 return new_state
             except json.JSONDecodeError as e:
-                print(f"[DEBUG]: JSONDecodeError: {e}")
-                print("[DEBUG]: Failed content", cleaned_content)
+                logger.error(f"[PLAN_AGENT]: JSON decode error: {e}")
                 raise
             except Exception as e:
-                print(f"[DEBUG]: Error parsing plan: {e}")
+                logger.error(f"[PLAN_AGENT]: Unexpected error: {e}")
                 raise
 
         return generate_plan
@@ -238,7 +239,7 @@ class SessionPlanWorkflow:
         model = ChatOpenAI(model="gpt-4o", temperature=0.3)
 
         def review_plan(state: PlanningState) -> PlanningState:
-            print("[DEBUG]: Reviewing plan", state["study_plan"])
+            #print("[DEBUG]: Reviewing plan", state["study_plan"])
 
             encounter_time = state["user_profile"].get("horarios", {}).get("encontro", {})
             study_preference = state["user_profile"].get("horarios", {}).get("preferencia")
@@ -253,19 +254,17 @@ class SessionPlanWorkflow:
 
             cleaned_content = response.content.strip("```json\n").strip("```").strip()
 
-            print("[DEBUG]: Review response", response)
+            #print("[DEBUG]: Review response", response)
             new_state = state.copy()
 
             try:
                 feedback_dict = json.loads(cleaned_content)
-                print("[DEBUG]: Parsed feedback", feedback_dict)
                 new_state["review_feedback"] = feedback_dict
 
-                # Atualizar horário agendado apenas se validado
                 if feedback_dict.get("horario_validado", {}).get("adequado", False):
                     new_state["scheduled_time"] = state["study_plan"].get("horario_sugerido")
             except:
-                print("[DEBUG]: Error parsing review response")
+                logger.error(f"[PLAN_AGENT]: JSON decode error: {cleaned_content}")
                 new_state["review_feedback"] = {"status": "error", "feedback": cleaned_content}
 
             return new_state
@@ -274,7 +273,7 @@ class SessionPlanWorkflow:
 
     def create_database_node(self):
         async def update_database(state: PlanningState) -> PlanningState:
-            print("[DEBUG]: Updating database with state", state)
+            #print("[DEBUG]: Updating database with state", state)
             new_state = state.copy()
 
             if not state.get("study_plan"):
@@ -291,14 +290,19 @@ class SessionPlanWorkflow:
                 plan_with_schedule
             )
 
-            print("[DEBUG]: Database update success", success)
+            #print("[DEBUG]: Database update success", success)
             new_state["update_status"] = success
             return new_state
 
         return update_database
 
     async def create_session_plan(self, topic: str, student_profile: dict, id_sessao: str, objetivo_geral: list) -> dict:
+        start_time = time.time()
+        student_email = student_profile.get("Email", "unknown")
+        logger.info(f"[PLAN_START] Usuário={student_email} | sessão={id_sessao} | tópico={topic}")
+
         if not topic:
+            logger.warning(f"[PLAN_ERROR] Usuário={student_email} | sessão={id_sessao} | erro=Tópico não fornecido")
             return {
                 "error": "Tópico não fornecido",
                 "plan": None,
@@ -322,10 +326,18 @@ class SessionPlanWorkflow:
 
         try:
             result = await self.workflow.ainvoke(initial_state)
-            print("[DEBUG]: Workflow result", result)
+            # print("[DEBUG]: Workflow result", result)
 
             final_plan = result["study_plan"]
             final_plan["created_at"] = datetime.now(timezone.utc).isoformat()
+
+            # Calcular métricas para o log
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            steps_count = len(final_plan.get("plano_execucao", []))
+            
+            # Registrar sucesso no log
+            logger.info(f"[PLAN_SUCCESS] Usuário={student_email} | sessão={id_sessao} | tempo={elapsed_time:.2f}s | etapas={steps_count}")
 
             return {
                 "plan": final_plan,
@@ -336,7 +348,8 @@ class SessionPlanWorkflow:
                 "objetivo_geral": objetivo_geral
             }
         except Exception as e:
-            print(f"[DEBUG]: Error creating session plan: {e}")
+            # print(f"[DEBUG]: Error creating session plan: {e}")
+            logger.error(f"[PLAN_ERROR] Usuário={student_email} | sessão={id_sessao} | erro={str(e)}")
             return {
                 "error": f"Erro na criação do plano: {str(e)}",
                 "plan": None,

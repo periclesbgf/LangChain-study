@@ -23,7 +23,6 @@ router_study_sessions = APIRouter()
 
 @router_study_sessions.get("/study_sessions", response_model=List[StudySession])
 async def get_study_sessions(current_user: dict = Depends(get_current_user)):
-    logger.info(f"Fetching study sessions for user: {current_user['sub']}")
     try:
         sql_database_manager = DatabaseManager(session, metadata)
         dispatcher = StudySessionsDispatcher(sql_database_manager)
@@ -48,8 +47,8 @@ async def get_study_sessions(current_user: dict = Depends(get_current_user)):
             for session in study_sessions
         ]
 
-        logger.info(f"Study sessions fetched successfully for user: {current_user['sub']}")
-        print(study_sessions_data)
+        logger.info(f"[STUDY_SESSION_LIST] Usuário {current_user['sub']} acessou lista de sessões de estudo")
+
         return study_sessions_data
     except Exception as e:
         logger.error(f"Error fetching study sessions for user: {current_user['sub']} - {str(e)}")
@@ -70,7 +69,6 @@ async def create_study_session(
         discipline = discipline_controller.get_discipline_by_id(
             study_session_model.discipline_id, current_user['sub']
         )
-        print(f"Creating new study session for user: {current_user['sub']} and discipline: {discipline['NomeCurso']}")
 
         # Instanciar o controlador de sessões de estudo
         study_sessions_dispatcher = StudySessionsDispatcher(sql_database_manager)
@@ -86,44 +84,38 @@ async def create_study_session(
         )
         session_id = session_result['session_id']
 
-        logger.info(f"New study session and empty plan created successfully for user: {current_user['sub']}, discipline: {discipline['NomeCurso']}")
+        logger.info(f"[STUDY_SESSION_CREATE] Usuário {current_user['sub']} criou uma nova sessão de estudo com ID {session_id}")
         return {"new_session": session_id}
     except Exception as e:
-        logger.error(f"Error creating study session: {str(e)}")
+        logger.error(f"[STUDY_SESSION_CREATE] Erro ao criar sessão de estudo para o usuário: {current_user['sub']} - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router_study_sessions.put("/study_sessions/{session_id}")
 async def update_study_session(session_id: int, session_data: dict, current_user: dict = Depends(get_current_user)):
-    logger.info(f"Updating study session {session_id} for user: {current_user['sub']}")
     try:
-        # Instanciar o dispatcher e controlador
         sql_database_manager = DatabaseManager(session, metadata)
         dispatcher = StudySessionsDispatcher(sql_database_manager)
         controller = StudySessionsController(dispatcher)
 
-        # Chamar o controlador para atualizar a sessão de estudo
         updated_session = controller.update_study_session(session_id, session_data)
-        logger.info(f"Study session {session_id} updated successfully for user: {current_user['sub']}")
+        logger.info(f"[STUDY_SESSION_UPDATE] Usuário {current_user['sub']} atualizou a sessão de estudo com ID {session_id}")
         return {"updated_session": updated_session}
     except Exception as e:
-        logger.error(f"Error updating study session {session_id} for user: {current_user['sub']} - {str(e)}")
+        logger.error(f"[STUDY_SESSION_UPDATE] Error updating study session {session_id} for user: {current_user['sub']} - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router_study_sessions.delete("/study_sessions/{session_id}")
 async def delete_study_session(session_id: int, current_user: dict = Depends(get_current_user)):
-    logger.info(f"Deleting study session {session_id} for user: {current_user['sub']}")
     try:
-        # Instanciar o dispatcher e controlador
         sql_database_manager = DatabaseManager(session, metadata)
         dispatcher = StudySessionsDispatcher(sql_database_manager)
         controller = StudySessionsController(dispatcher)
 
-        # Chamar o controlador para deletar a sessão de estudo
         controller.delete_study_session(session_id)
-        logger.info(f"Study session {session_id} deleted successfully for user: {current_user['sub']}")
+        logger.info(f"[STUDY_SESSION_DELETE] Usuário {current_user['sub']} deletou a sessão de estudo com ID {session_id}")
         return {"message": "Study session deleted successfully"}
     except Exception as e:
-        logger.error(f"Error deleting study session {session_id} for user: {current_user['sub']} - {str(e)}")
+        logger.error(f"[STUDY_SESSION_DELETE] Error deleting study session {session_id} for user: {current_user['sub']} - {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router_study_sessions.get("/study_sessions/discipline/{discipline_id}")
@@ -131,7 +123,6 @@ async def get_study_session_from_discipline(
     discipline_id: int,
     current_user: dict = Depends(get_current_user)
 ):
-    print(f"Fetching study sessions for user: {current_user['sub']} and discipline: {discipline_id}")
     try:
         sql_database_manager = DatabaseManager(session, metadata)
         dispatcher = StudySessionsDispatcher(sql_database_manager)
@@ -145,7 +136,7 @@ async def get_study_session_from_discipline(
             "discipline_name": discipline_name,
             "study_sessions": study_sessions
         }
-        print(response)
+        logger.info(f"[STUDY_SESSION_DISCIPLINE] Usuário {current_user['sub']} acessou sessões de estudo da disciplina {discipline_name}")
         return response
     except Exception as e:
         logger.error(f"Error fetching study sessions: {str(e)}")
@@ -156,9 +147,7 @@ async def get_study_session_by_id(
     session_id: int,
     current_user: dict = Depends(get_current_user)
 ):
-    logger.info(f"Fetching study session with ID {session_id} for user: {current_user['sub']}")
     try:
-        # Instanciar o dispatcher e controlador
         sql_database_manager = DatabaseManager(session, metadata)
         dispatcher = StudySessionsDispatcher(sql_database_manager)
         controller = StudySessionsController(dispatcher)
@@ -167,8 +156,7 @@ async def get_study_session_by_id(
         study_session = controller.get_study_session_by_id(session_id, current_user['sub'])
         if not study_session:
             raise HTTPException(status_code=404, detail="Sessão de estudo não encontrada.")
-        # Retornar o resultado no formato correto
-        print(study_session)
+        logger.info(f"[STUDY_SESSION_FETCH] Usuário {current_user['sub']} acessou a sessão de estudo com ID {session_id}")
         return {"study_session": study_session}
     except Exception as e:
         logger.error(f"Error fetching study session ID '{session_id}' for user: {current_user['sub']} - {str(e)}")

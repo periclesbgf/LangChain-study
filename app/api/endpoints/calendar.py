@@ -16,15 +16,13 @@ router_calendar = APIRouter()
 
 @router_calendar.get("/calendar/events")
 async def get_calendar_events(current_user: dict = Depends(get_current_user)):
-    logger.info(f"Fetching calendar events for user: {current_user['sub']}")
+    logger.info(f"[CALENDAR_LIST] Usuário {current_user['sub']} acessou lista de eventos do calendário")
     try:
-        # Instanciar o DatabaseManager
         sql_database_manager = DatabaseManager(session, metadata)
 
         dispatcher = CalendarDispatcher(sql_database_manager)
         controller = CalendarController(dispatcher)
 
-        # Obter os eventos do usuário atual via controller, filtrando por curso se fornecido
         events = controller.get_all_events(current_user['sub'])
         print(events)
 
@@ -37,30 +35,26 @@ async def get_calendar_events(current_user: dict = Depends(get_current_user)):
 @router_calendar.post("/calendar/events")
 async def create_calendar_event(
     event: CalendarEvent,
-    course_id: int = None,  # Novo parâmetro opcional para associar o evento a um curso
+    course_id: int = None,
     current_user: dict = Depends(get_current_user)
 ):
-    logger.info(f"Creating new calendar event for user: {current_user['sub']}")
     try:
-        # Instanciar o DatabaseManager
         sql_database_manager = DatabaseManager(session, metadata)
 
-        # Instanciar o Dispatcher e Controller
         dispatcher = CalendarDispatcher(sql_database_manager)
         controller = CalendarController(dispatcher)
 
-        # Criar novo evento de calendário via controller, passando o e-mail do usuário (sub)
         controller.create_event(
-            event.title, 
-            event.description, 
-            event.start_time, 
-            event.end_time, 
-            event.location, 
-            current_user['sub'], 
-            course_id  # Associar o curso ao evento
+            event.title,
+            event.description,
+            event.start_time,
+            event.end_time,
+            event.location,
+            current_user['sub'],
+            course_id,
         )
 
-        logger.info(f"New calendar event created successfully for user: {current_user['sub']}")
+        logger.info(f"[CALENDAR_CREATE] Usuário {current_user['sub']} criou um novo evento no calendário")
         return {"message": "Event created successfully"}
     except Exception as e:
         logger.error(f"Error creating calendar event for user: {current_user['sub']} - {str(e)}")
@@ -74,8 +68,6 @@ async def update_calendar_event(
     event_data: CalendarEventUpdate,
     current_user: dict = Depends(get_current_user)
 ):
-    print(f"Updating event {event_id} for user: {current_user['sub']}")
-    logger.info(f"Updating calendar event {event_id} for user: {current_user['sub']}")
     try:
         # Instanciar o DatabaseManager
         sql_database_manager = DatabaseManager(session, metadata)
@@ -95,7 +87,7 @@ async def update_calendar_event(
             current_user=current_user['sub'],
         )
 
-        logger.info(f"Calendar event {event_id} updated successfully for user: {current_user['sub']}")
+        logger.info(f"[CALENDAR_UPDATE] Usuário {current_user['sub']} atualizou o evento {event_id} no calendário")
         return {"message": "Event updated successfully"}
     except Exception as e:
         logger.error(f"Error updating calendar event {event_id} for user: {current_user['sub']} - {str(e)}")
@@ -107,20 +99,15 @@ async def delete_calendar_event(
     event_id: int,
     current_user: dict = Depends(get_current_user)
 ):
-    print(current_user)
-    logger.info(f"Deleting calendar event {event_id} for user: {current_user['sub']}")
     try:
-        # Instanciar o DatabaseManager
         sql_database_manager = DatabaseManager(session, metadata)
 
-        # Instanciar o Dispatcher e Controller
         dispatcher = CalendarDispatcher(sql_database_manager)
         controller = CalendarController(dispatcher)
 
-        # Deletar evento via controller, passando o ID do evento e o e-mail do usuário (sub)
         controller.delete_event(event_id, current_user['sub'])
 
-        logger.info(f"Calendar event {event_id} deleted successfully for user: {current_user['sub']}")
+        logger.info(f"[CALENDAR_DELETE] Usuário {current_user['sub']} deletou o evento {event_id} do calendário")
         return {"message": "Event deleted successfully"}
     except Exception as e:
         logger.error(f"Error deleting calendar event {event_id} for user: {current_user['sub']} - {str(e)}")

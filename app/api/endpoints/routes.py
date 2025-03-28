@@ -19,6 +19,7 @@ from api.controllers.controller import (
     route_request,
     #insertDocsInVectorDatabase
     )
+from logg import logger
 from api.dispatchers.login_dispatcher import CredentialsDispatcher
 from api.dispatchers.calendar_dispatcher import CalendarDispatcher
 from api.controllers.calendar_controller import CalendarController
@@ -117,6 +118,8 @@ async def create_account(
         if register_model.senha == "" or register_model.senha == None:
             raise HTTPException(status_code=400, detail="Senha não pode ser vazia")
 
+        logger.info(f"Nova conta: {register_model.email} (tipo: {register_model.tipo_usuario})")
+
         sql_database_manager = DatabaseManager(session, metadata)
         sql_database_controller = CredentialsDispatcher(sql_database_manager)
         mongo_manager = MongoDatabaseManager()
@@ -133,7 +136,7 @@ async def create_account(
             profile_data = {
                 "Nome": register_model.nome,
                 "Email": register_model.email,
-                "EstiloAprendizagem": None,  # Inicialmente como None
+                "EstiloAprendizagem": None,
                 "Feedback": None,
                 "PreferenciaAprendizado": None,
                 "created_at": datetime.now(timezone.utc)
@@ -179,18 +182,14 @@ async def login(
 
         sql_database_manager = DatabaseManager(session, metadata)
         sql_database_controller = CredentialsDispatcher(sql_database_manager)
-        print("Tentando login")
 
         user = sql_database_controller.login(
             login_model.email,
             login_model.senha
         )
-        print("Login efetuado")
-        print(user)
 
         access_token = create_access_token(data={"sub": user.Email})
-        print("Login efetuado com sucesso")
-        print(access_token)
+        logger.info(f"[LOGIN] Usuário autenticado: {user.Email}")
         return {"access_token": access_token, "token_type": "bearer"}
 
     except HTTPException as e:
@@ -205,141 +204,6 @@ async def login(
 @router.get("/user_email")
 def read_user_email(current_user: dict = Depends(get_current_user)):
     return {"user_email": current_user["sub"]}
-
-@router.post("/question")
-async def read_question(
-    question: str,
-    user_email: str = "pbgf@1234"
-) -> Dict:
-    """
-    Processa perguntas e comandos relacionados ao calendário.
-    
-    Args:
-        question: Texto da pergunta ou comando do usuário
-        user_email: Email do usuário (idealmente vindo da autenticação)
-        
-    Returns:
-        Dict contendo a resposta processada e detalhes da operação
-    """
-    try:
-        print(f"[INFO] Processing calendar question: {question}")
-        print(f"[INFO] User email: {user_email}")
-    
-        # Inicializar todos os componentes dentro do endpoint
-        print("[INIT] Initializing calendar components...")
-        
-        # Database e Dispatcher
-        db_manager = DatabaseManager(session, metadata)
-        calendar_dispatcher = CalendarDispatcher(db_manager)
-        calendar_controller = CalendarController(calendar_dispatcher)
-        
-        # Calendar Orchestrator
-        calendar_orchestrator = CalendarOrchestrator(calendar_controller)
-        print("[INIT] Calendar components initialized successfully")
-
-        # Processar a entrada do usuário
-        result = await calendar_orchestrator.process_input(
-            text_input=question,
-            user_email=user_email
-        )
-        print(f"[DEBUG] Orchestrator result: {result}")
-
-        # Verificar se houve erro no processamento
-        if "error" in result:
-            print(f"[ERROR] Processing error: {result['error']}")
-            raise HTTPException(
-                status_code=500,
-                detail=result['text_response']
-            )
-
-        # Formatar resposta
-        response = {
-            "message": result['text_response'],
-            "status": "success",
-            "timestamp": datetime.now().isoformat(),
-            "details": {
-                "operation_result": result.get('operation_result'),
-                "plan": result.get('response_plan')
-            }
-        }
-        
-        print(f"[INFO] Calendar response: {response['message']}")
-        
-        # Limpar recursos
-        db_manager.session.close()
-        
-        return response
-        
-    except HTTPException as e:
-        # Repassar exceções HTTP
-        if 'db_manager' in locals():
-            db_manager.session.close()
-        raise e
-    except Exception as e:
-        error_msg = f"Error processing calendar question: {str(e)}"
-        print(f"[ERROR] {error_msg}")
-        # Tentar obter mais detalhes do erro
-        print(f"[ERROR] Exception type: {type(e).__name__}")
-        print(f"[ERROR] Exception args: {e.args}")
-        
-        # Limpar recursos em caso de erro
-        if 'db_manager' in locals():
-            db_manager.session.close()
-            
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "message": error_msg,
-                "error_type": type(e).__name__,
-                "timestamp": datetime.now().isoformat()
-            }
-        )
-
-@router.post("/sql")
-def read_sql(question: Question):
-    if not code_confirmation(question.code):
-        raise HTTPException(status_code=400, detail="Invalid code")
-
-    try:
-        text = question.question
-        response = build_sql_chain(text)
-        return response
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/route")
-async def read_route(
-    question: str = Form(...),
-    code: str = Form(...),
-    file: UploadFile = File(None)
-):
-    if not code_confirmation(code):
-        raise HTTPException(status_code=400, detail="Invalid code")
-
-    try:
-        if file is None:
-            response = route_request(question)
-            return response
-        file_bytes = await file.read()
-        response = route_request(question, file_bytes)
-        return response
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# @router.post("/upload_file") #incomplete
-# async def read_route(
-#     question: str = Form(...),
-#     code: str = Form(...),
-#     file: UploadFile = File()
-# ):
-#     if not code_confirmation(code):
-#         raise HTTPException(status_code=400, detail="Invalid code")
-#     try:
-#         file_bytes = await file.read()
-#         response = insertDocsInVectorDatabase(file_bytes)
-#         return response
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/auth/google/initiate")  # Endpoint para iniciar o fluxo OAuth2

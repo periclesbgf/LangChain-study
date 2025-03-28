@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status, Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer
 from google.oauth2 import credentials
 from google_auth_oauthlib.flow import Flow
@@ -26,6 +26,7 @@ from utils import(
     SENDER_PASSWORD,
     RESET_PASSWORD_URL,
 )
+from logg import logger
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -112,16 +113,14 @@ def dict_to_credentials(credentials_dict: dict) -> credentials.Credentials:
 
 def create_reset_token(email: str, expires_delta: timedelta = None):
     payload = {"sub": email}
-    print("Payload do token de reset:")
-    print(payload)
+
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRY_MINUTES)
     payload.update({"exp": expire})
     encoded_jwt = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-    print("Token de reset criado:")
-    print(encoded_jwt)
+
     return encoded_jwt
 
 def decode_reset_token(token: str):
@@ -140,7 +139,6 @@ def send_reset_email(recipient_email: str, reset_token: str):
     if not SENDER_EMAIL or not SENDER_PASSWORD:
         raise HTTPException(status_code=500, detail="Configuração de email inválida.")
 
-    # Gera o link para reset, ex.: https://sua-aplicacao.com/reset-password?token=...
     reset_link = f"{RESET_PASSWORD_URL}?token={reset_token}"
 
     subject = "Reset de Senha - Eden AI"
@@ -158,10 +156,10 @@ def send_reset_email(recipient_email: str, reset_token: str):
 
     try:
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()  # Inicia a conexão segura via TLS
+            server.starttls()
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.send_message(msg)
-            print(f"Email de reset enviado para {recipient_email}")
+            logger.info(f"[RESET_EMAIL] Email enviado para {recipient_email}")
         return True
     except Exception as e:
         print(f"Erro ao enviar email: {e}")
