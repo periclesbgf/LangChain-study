@@ -16,7 +16,7 @@ from api.endpoints.chat import router_chat
 from api.endpoints.student_profile import router_profiles
 from api.endpoints.plan import router_study_plan
 from api.endpoints.workspace import router_workspace
-from api.endpoints.websocket_manager import router_websocket
+from api.endpoints.support import router_support
 from api.endpoints.files import router_pdf
 from utils import SECRET_KEY
 from logg import logger
@@ -65,8 +65,8 @@ app.include_router(router_chat)
 app.include_router(router_profiles)
 app.include_router(router_study_plan)
 app.include_router(router_workspace)
-app.include_router(router_websocket)
 app.include_router(router_pdf)
+app.include_router(router_support)
 
 logger.info("[STARTUP] Aplicação FastAPI iniciada com logging para Loki.")
 

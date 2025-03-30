@@ -300,3 +300,11 @@ class ResetPasswordModel(BaseModel):
 
 class ForgotPasswordModel(BaseModel):
     user_email: str
+
+class SupportRequest(BaseModel):
+    message_type: str
+    subject: str
+    page: str
+    message: str
+    images: Optional[List[UploadFile]] = None
+

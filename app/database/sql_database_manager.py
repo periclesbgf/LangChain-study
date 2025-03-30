@@ -1,15 +1,29 @@
+import base64
 from typing import Any, Dict, Optional
 from sqlalchemy import and_, create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey, select, join, update
 from sqlalchemy.orm import sessionmaker
 import os
 from dotenv import load_dotenv
-from sql_interface.sql_tables import tabela_usuarios, tabela_educadores, tabela_cursos,tabela_encontros,tabela_cronograma, tabela_sessoes_estudo, tabela_estudante_curso, tabela_eventos_calendario, tabela_estudantes, tabela_perfil_aprendizado_aluno
+from sql_interface.sql_tables import (
+    tabela_usuarios,
+    tabela_educadores,
+    tabela_cursos,
+    tabela_encontros,
+    tabela_cronograma,
+    tabela_sessoes_estudo,
+    tabela_estudante_curso,
+    tabela_eventos_calendario,
+    tabela_estudantes,
+    tabela_perfil_aprendizado_aluno,
+    tabela_support_request_images,
+    tabela_support_requests
+    )
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from fastapi import HTTPException
-from sqlalchemy.sql import text
+from sqlalchemy.sql import text, select
 import json
-from sqlalchemy.sql import select
 from datetime import datetime, time, timezone
+from logg import logger
 
 # Carregar variáveis de ambiente
 load_dotenv()
@@ -47,24 +61,24 @@ class DatabaseManager:
         try:
             tabela = Table(nome_tabela, self.metadata, *colunas)
             self.metadata.create_all(engine)
-            print(f"Tabela {nome_tabela} criada com sucesso.")
+            logger.info(f"Tabela {nome_tabela} criada com sucesso.")
             return tabela
         except Exception as e:
-            print(f"Erro ao criar tabela {nome_tabela}: {e}")
+            logger.error(f"Erro ao criar tabela {nome_tabela}: {e}")
             return None
 
     def inserir_dado(self, tabela, dados):
         try:
             result = self.session.execute(tabela.insert().returning(tabela.c.IdUsuario).values(dados))
             self.session.commit()
-            print(f"Dado inserido com sucesso na tabela {tabela.name}")
+            logger.info(f"Dado inserido com sucesso na tabela {tabela.name}")
             return result.fetchone()
         except IntegrityError as e:
             self.session.rollback()
             raise HTTPException(status_code=400, detail="Duplicated entry.")
         except Exception as e:
             self.session.rollback()
-            print(f"Erro ao inserir dado na tabela {tabela.name}: {e}")
+            logger.error(f"Erro ao inserir dado na tabela {tabela.name}: {e}")
             raise HTTPException(status_code=500, detail="Internal server error.")
 
     def inserir_dado_retorna_id(self, tabela, dados, id_column_name):
@@ -81,34 +95,34 @@ class DatabaseManager:
             )
             self.session.commit()
             inserted_id = result.fetchone()[0]  # O ID recém-inserido é retornado
-            print(f"Inserted record with ID: {inserted_id}")
+            logger.info(f"Inserted record with ID: {inserted_id}")
             return inserted_id
         except IntegrityError as e:
             self.session.rollback()
-            print(f"IntegrityError during insertion: {e}")
+            logger.error(f"IntegrityError during insertion: {e}")
             raise HTTPException(status_code=409, detail="Conflict")
         except Exception as e:
             self.session.rollback()
-            print(f"Error during insertion: {e}")
+            logger.error(f"Error during insertion: {e}")
             raise HTTPException(status_code=500, detail="Internal server error.")
 
     def deletar_dado(self, tabela, condicao):
         try:
             self.session.execute(tabela.delete().where(condicao))
             self.session.commit()
-            print(f"Dado deletado com sucesso da tabela {tabela.name}")
+            logger.info(f"Dado deletado com sucesso da tabela {tabela.name}")
         except Exception as e:
             self.session.rollback()
-            print(f"Erro ao deletar dado na tabela {tabela.name}: {e}")
+            logger.error(f"Erro ao deletar dado na tabela {tabela.name}: {e}")
 
     def atualizar_dado(self, tabela, condicao, novos_dados):
         try:
             self.session.execute(tabela.update().where(condicao).values(novos_dados))
             self.session.commit()
-            print(f"Dado atualizado com sucesso na tabela {tabela.name}")
+            logger.info(f"Dado atualizado com sucesso na tabela {tabela.name}")
         except Exception as e:
             self.session.rollback()
-            print(f"Erro ao atualizar dado na tabela {tabela.name}: {e}")
+            logger.error(f"Erro ao atualizar dado na tabela {tabela.name}: {e}")
 
     def selecionar_dados(self, tabela, condicao=None):
         try:
@@ -118,17 +132,16 @@ class DatabaseManager:
                 result = self.session.execute(tabela.select()).fetchall()
             return result
         except Exception as e:
-            print(f"Erro ao selecionar dados da tabela {tabela.name}: {e}")
+            logger.error(f"Erro ao selecionar dados da tabela {tabela.name}: {e}")
             return None
 
     def get_user_by_email(self, email: str):
         try:
             user = self.session.query(tabela_usuarios).filter(tabela_usuarios.c.Email == email).first()
-            print(f"Usuário encontrado: {user}")
             return user
         except Exception as e:
             self.session.rollback()
-            print(f"Erro ao buscar usuário por email: {e}")
+            logger.error(f"Erro ao buscar usuário por email: {e}")
             return None
 
     def get_user_id_by_email(self, user_email: str):
@@ -176,7 +189,7 @@ class DatabaseManager:
             educator_names = [row[0] for row in result]
             return educator_names
         except Exception as e:
-            print(f"Erro ao buscar os nomes dos educadores: {e}")
+            logger.error(f"Erro ao buscar os nomes dos educadores: {e}")
             raise HTTPException(status_code=500, detail="Error fetching educator names.")
 
     def get_all_events_by_user(self, tabela_eventos, user_id: int):
@@ -191,7 +204,7 @@ class DatabaseManager:
             result = self.session.execute(query).fetchall()
             return result
         except Exception as e:
-            print(f"Erro ao selecionar eventos do usuário {user_id}: {e}")
+            logger.error(f"Erro ao selecionar eventos do usuário {user_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Erro ao selecionar eventos: {e}")
 
 
@@ -233,7 +246,7 @@ class DatabaseManager:
                 raise HTTPException(status_code=404, detail="Usuário não encontrado.")
             return result[0]
         except Exception as e:
-            print(f"Erro ao buscar o nome do usuário: {e}")
+            logger.error(f"Erro ao buscar o nome do usuário: {e}")
             raise HTTPException(status_code=500, detail="Erro ao buscar o nome do usuário.")
 
     def get_study_sessions_by_course_and_student(self, course_id: int, student_id: int):
@@ -247,7 +260,7 @@ class DatabaseManager:
             # Certifique-se de que as sessões sejam retornadas como dicionários
             return sessions
         except Exception as e:
-            print(f"Erro ao buscar sessões de estudo: {e}")
+            logger.error(f"Erro ao buscar sessões de estudo: {e}")
             raise HTTPException(status_code=500, detail="Erro ao buscar sessões de estudo.")
 
     def get_learning_profiles_by_user_id(self, user_id: int):
@@ -261,7 +274,7 @@ class DatabaseManager:
                 return []
             return profiles
         except Exception as e:
-            print(f"Erro ao buscar perfis de aprendizado para o usuário {user_id}: {e}")
+            logger.error(f"Erro ao buscar perfis de aprendizado para o usuário {user_id}: {e}")
             raise HTTPException(status_code=500, detail="Erro ao buscar perfis de aprendizado.")
 
     def get_course_by_id(self, course_id: int):
@@ -275,7 +288,7 @@ class DatabaseManager:
                 raise HTTPException(status_code=404, detail="Curso não encontrado.")
             return course
         except Exception as e:
-            print(f"Erro ao buscar curso {course_id}: {e}")
+            logger.error(f"Erro ao buscar curso {course_id}: {e}")
             raise HTTPException(status_code=500, detail="Erro ao buscar curso.")
 
     def get_educator_by_name(self, nome_educador: str):
@@ -286,10 +299,10 @@ class DatabaseManager:
             query = select(tabela_usuarios).where(tabela_usuarios.c.Nome == nome_educador)
             educator = self.session.execute(query).fetchone()
             if not educator:
-                print(f"Educador {nome_educador} não encontrado.")
+                logger.info(f"Educador {nome_educador} não encontrado.")
             return educator
         except Exception as e:
-            print(f"Erro ao buscar educador {nome_educador}: {e}")
+            logger.error(f"Erro ao buscar educador {nome_educador}: {e}")
             raise HTTPException(status_code=500, detail=f"Erro ao buscar educador {nome_educador}: {e}")
 
     def get_courses_by_student_id(self, student_id: int):
@@ -304,7 +317,7 @@ class DatabaseManager:
             courses = self.session.execute(query).fetchall()
             return courses
         except Exception as e:
-            print(f"Erro ao buscar cursos para o estudante {student_id}: {e}")
+            logger.error(f"Erro ao buscar cursos para o estudante {student_id}: {e}")
             raise HTTPException(status_code=500, detail="Erro ao buscar cursos.")
 
     def associar_aluno_curso(self, estudante_id: int, curso_id: int):
@@ -322,10 +335,10 @@ class DatabaseManager:
             )
             self.session.execute(nova_associacao)
             self.session.commit()
-            print(f"Aluno {estudante_id} associado ao curso {curso_id} com sucesso.")
+            logger.info(f"Aluno {estudante_id} associado ao curso {curso_id} com sucesso.")
         except Exception as e:
             self.session.rollback()
-            print(f"Erro ao associar aluno {estudante_id} ao curso {curso_id}: {e}")
+            logger.error(f"Erro ao associar aluno {estudante_id} ao curso {curso_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Erro ao associar aluno ao curso: {e}")
 
     def inserir_dado_evento(self, tabela_eventos, dados_evento: dict):
@@ -341,15 +354,15 @@ class DatabaseManager:
             )
             self.session.commit()
             inserted_id = result.fetchone()[0]  # O ID recém-inserido é retornado
-            print(f"Evento inserido com ID: {inserted_id}")
+            logger.info(f"Evento inserido com ID: {inserted_id}")
             return inserted_id
         except IntegrityError as e:
             self.session.rollback()
-            print(f"IntegrityError durante inserção de evento: {e}")
+            logger.error(f"IntegrityError durante inserção de evento: {e}")
             raise HTTPException(status_code=400, detail="Evento duplicado ou dados inválidos.")
         except Exception as e:
             self.session.rollback()
-            print(f"Erro ao inserir evento: {e}")
+            logger.error(f"Erro ao inserir evento: {e}")
             raise HTTPException(status_code=500, detail="Erro interno do servidor ao inserir evento.")
 
 
@@ -365,7 +378,7 @@ class DatabaseManager:
             events = [dict(event) for event in result]
             return events
         except Exception as e:
-            print(f"Erro ao buscar eventos para o usuário {user_id}: {e}")
+            logger.error(f"Erro ao buscar eventos para o usuário {user_id}: {e}")
             raise HTTPException(status_code=500, detail="Erro ao buscar eventos do calendário.")
 
     def create_calendar_event(self, event_data: dict):
@@ -380,15 +393,15 @@ class DatabaseManager:
             )
             self.session.commit()
             inserted_id = result.fetchone()[0]
-            print(f"Evento inserido com ID: {inserted_id}")
+            logger.info(f"Evento inserido com ID: {inserted_id}")
             return inserted_id
         except IntegrityError as e:
             self.session.rollback()
-            print(f"IntegrityError ao criar evento: {e}")
+            logger.error(f"IntegrityError ao criar evento: {e}")
             raise HTTPException(status_code=400, detail="Erro de integridade ao criar evento.")
         except Exception as e:
             self.session.rollback()
-            print(f"Erro ao criar evento de calendário: {e}")
+            logger.error(f"Erro ao criar evento de calendário: {e}")
             raise HTTPException(status_code=500, detail="Erro ao criar evento de calendário.")
 
     def update_calendar_event(self, event_id: int, updated_data: dict):
@@ -406,10 +419,10 @@ class DatabaseManager:
             self.session.commit()
             if result.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Evento não encontrado.")
-            print(f"Evento com ID {event_id} atualizado com sucesso.")
+            logger.info(f"Evento com ID {event_id} atualizado com sucesso.")
         except Exception as e:
             self.session.rollback()
-            print(f"Erro ao atualizar evento de calendário {event_id}: {e}")
+            logger.error(f"Erro ao atualizar evento de calendário {event_id}: {e}")
             raise HTTPException(status_code=500, detail="Erro ao atualizar evento de calendário.")
 
     def delete_calendar_event(self, event_id: int):
@@ -424,10 +437,10 @@ class DatabaseManager:
             self.session.commit()
             if result.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Evento não encontrado.")
-            print(f"Evento com ID {event_id} deletado com sucesso.")
+            logger.info(f"Evento com ID {event_id} deletado com sucesso.")
         except Exception as e:
             self.session.rollback()
-            print(f"Erro ao deletar evento de calendário {event_id}: {e}")
+            logger.error(f"Erro ao deletar evento de calendário {event_id}: {e}")
             raise HTTPException(status_code=500, detail="Erro ao deletar evento de calendário.")
 
     def get_study_session_by_id_and_student(self, session_id: int, student_id: int):
@@ -439,7 +452,7 @@ class DatabaseManager:
             session = self.session.execute(query).fetchone()
             return session
         except Exception as e:
-            print(f"Erro ao buscar sessão de estudo: {e}")
+            logger.error(f"Erro ao buscar sessão de estudo: {e}")
             raise HTTPException(status_code=500, detail="Erro ao buscar sessão de estudo.")
 
     def get_course_by_id(self, course_id: int):
@@ -453,7 +466,7 @@ class DatabaseManager:
                 raise HTTPException(status_code=404, detail="Curso não encontrado.")
             return course
         except Exception as e:
-            print(f"Erro ao buscar curso {course_id}: {e}")
+            logger.error(f"Erro ao buscar curso {course_id}: {e}")
             raise HTTPException(status_code=500, detail="Erro ao buscar curso.")
 
     def update_session_start_time(self, session_id: int, start_datetime: str, end_datetime: str):
@@ -468,20 +481,20 @@ class DatabaseManager:
                 .values(Inicio=start_datetime, Fim=end_datetime)
             )
             self.session.commit()
-            print(f"Horários da sessão {session_id} atualizados para Início: {start_datetime}, Fim: {end_datetime}.")
+            logger.info(f"Horários da sessão {session_id} atualizados para Início: {start_datetime}, Fim: {end_datetime}.")
         except Exception as e:
             self.session.rollback()
-            print(f"Erro ao atualizar os horários da sessão no SQL: {e}")
+            logger.error(f"Erro ao atualizar os horários da sessão no SQL: {e}")
             raise HTTPException(status_code=500, detail="Erro ao atualizar os horários da sessão.")
 
     def get_encontro_horarios(self, session_id: str) -> dict:
         """
         Busca os horários do encontro relacionado à sessão de estudo usando SQLAlchemy
         """
-        print(f"\n[DEBUG] Iniciando get_encontro_horarios para session_id: {session_id}")
+        logger.info(f"\n[DEBUG] Iniciando get_encontro_horarios para session_id: {session_id}")
         
         if not session_id:
-            print("[ERROR] Session ID não fornecido")
+            logger.info("[ERROR] Session ID não fornecido")
             raise HTTPException(
                 status_code=400,
                 detail="ID da sessão é obrigatório"
@@ -489,7 +502,7 @@ class DatabaseManager:
 
         try:
             # Verificar se a sessão existe e obter seu assunto
-            print(f"[DEBUG] Verificando existência da sessão {session_id}")
+            logger.info(f"[DEBUG] Verificando existência da sessão {session_id}")
             session_exists = select(
                 tabela_sessoes_estudo.c.IdSessao,
                 tabela_sessoes_estudo.c.Assunto,
@@ -500,17 +513,17 @@ class DatabaseManager:
             )
             session_result = self.session.execute(session_exists).first()
             
-            print(f"[DEBUG] Resultado da verificação da sessão: {session_result}")
+            logger.info(f"[DEBUG] Resultado da verificação da sessão: {session_result}")
             
             if not session_result:
-                print(f"[ERROR] Sessão {session_id} não encontrada no banco")
+                logger.info(f"[ERROR] Sessão {session_id} não encontrada no banco")
                 raise HTTPException(
                     status_code=404,
                     detail=f"Sessão {session_id} não encontrada"
                 )
 
             # Construir a query usando SQLAlchemy para encontrar o encontro específico
-            print("[DEBUG] Construindo query para buscar horários")
+            logger.info("[DEBUG] Construindo query para buscar horários")
             query = select(
                 tabela_encontros.c.HorarioInicio,
                 tabela_encontros.c.HorarioFim,
@@ -532,13 +545,13 @@ class DatabaseManager:
                 tabela_sessoes_estudo.c.IdSessao == session_id
             )
 
-            print(f"[DEBUG] Query SQL gerada: {query}")
+            logger.info(f"[DEBUG] Query SQL gerada: {query}")
             
             result = self.session.execute(query).first()
-            print(f"[DEBUG] Resultado da query: {result}")
+            logger.info(f"[DEBUG] Resultado da query: {result}")
             
             if not result:
-                print(f"[ERROR] Nenhum resultado encontrado para a sessão {session_id}")
+                logger.info(f"[ERROR] Nenhum resultado encontrado para a sessão {session_id}")
                 return None
 
             # Log dos dados retornados
@@ -549,21 +562,21 @@ class DatabaseManager:
                 "preferencia_horario": result.PreferenciaHorario
             }
             
-            print("[DEBUG] Dados formatados do encontro:")
-            print(f"  Horário Início: {horarios['horario_inicio']}")
-            print(f"  Horário Fim: {horarios['horario_fim']}")
-            print(f"  Data Encontro: {horarios['data_encontro']}")
-            print(f"  Preferência Horário: {horarios['preferencia_horario']}")
+            logger.info("[DEBUG] Dados formatados do encontro:")
+            logger.info(f"  Horário Início: {horarios['horario_inicio']}")
+            logger.info(f"  Horário Fim: {horarios['horario_fim']}")
+            logger.info(f"  Data Encontro: {horarios['data_encontro']}")
+            logger.info(f"  Preferência Horário: {horarios['preferencia_horario']}")
             
             return horarios
                 
         except HTTPException as he:
             raise he
         except Exception as e:
-            print(f"[ERROR] Erro inesperado ao buscar horários do encontro: {str(e)}")
-            print(f"[ERROR] Tipo do erro: {type(e)}")
+            logger.info(f"[ERROR] Erro inesperado ao buscar horários do encontro: {str(e)}")
+            logger.info(f"[ERROR] Tipo do erro: {type(e)}")
             import traceback
-            print(f"[ERROR] Traceback completo: {traceback.format_exc()}")
+            logger.info(f"[ERROR] Traceback completo: {traceback.format_exc()}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Erro ao buscar horários do encontro: {str(e)}"
@@ -629,10 +642,10 @@ class DatabaseManager:
             success = rows_affected > 0
 
             if success:
-                print(f"Horários da sessão {session_id} atualizados com sucesso")
+                logger.info(f"Horários da sessão {session_id} atualizados com sucesso")
                 return True
             else:
-                print(f"Nenhuma alteração realizada para a sessão {session_id}")
+                logger.info(f"Nenhuma alteração realizada para a sessão {session_id}")
                 return False
 
         except HTTPException as he:
@@ -640,7 +653,7 @@ class DatabaseManager:
             raise he
         except Exception as e:
             self.session.rollback()
-            print(f"Erro ao atualizar horários da sessão: {e}")
+            logger.error(f"Erro ao atualizar horários da sessão: {e}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Erro ao atualizar horários da sessão: {str(e)}"
@@ -662,7 +675,7 @@ class DatabaseManager:
                 )
             return result.IdEstudante
         except Exception as e:
-            print(f"Erro ao buscar estudante: {e}")
+            logger.error(f"Erro ao buscar estudante: {e}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Erro ao buscar estudante: {str(e)}"
@@ -689,10 +702,10 @@ class DatabaseManager:
             elif isinstance(objectives, list):
                 return objectives
             else:
-                print(f"AVISO: Tipo inesperado para objetivos: {type(objectives)}")
+                logger.info(f"AVISO: Tipo inesperado para objetivos: {type(objectives)}")
                 return []
         except json.JSONDecodeError as e:
-            print(f"ERRO: Falha ao interpretar JSON dos objetivos: {e}")
+            logger.error(f"Erro: Falha ao interpretar JSON dos objetivos: {e}")
             return []
 
     def safe_get(self, dict_data: Dict, key: str, default: Any = None) -> Any:
@@ -701,10 +714,10 @@ class DatabaseManager:
         """
         try:
             value = dict_data.get(key, default)
-            print(f"Acessando chave '{key}': {value}")
+            logger.info(f"Acessando chave '{key}': {value}")
             return value
         except Exception as e:
-            print(f"ERRO ao acessar chave '{key}': {e}")
+            logger.error(f"Erro ao acessar chave '{key}': {e}")
             return default
 
     def get_discipline_details(self, discipline_id: int, student_id: int) -> Dict[str, Any]:
@@ -712,7 +725,7 @@ class DatabaseManager:
         Get complete details of a discipline, verifying student access.
         """
         try:
-            print(f"Buscando detalhes da disciplina {discipline_id} para o estudante {student_id}")
+            logger.info(f"Buscando detalhes da disciplina {discipline_id} para o estudante {student_id}")
 
             # Check student enrollment
             enrollment_query = select(tabela_estudante_curso.c.Id).where(
@@ -722,11 +735,11 @@ class DatabaseManager:
                 )
             )
 
-            print(f"Query de matrícula gerada: {enrollment_query}")
+            logger.info(f"Query de matrícula gerada: {enrollment_query}")
             enrollment = self.session.execute(enrollment_query).first()
 
             if not enrollment:
-                print(f"AVISO: Estudante {student_id} não está matriculado na disciplina {discipline_id}")
+                logger.info(f"AVISO: Estudante {student_id} não está matriculado na disciplina {discipline_id}")
                 raise HTTPException(
                     status_code=404,
                     detail="Estudante não matriculado na disciplina"
@@ -745,19 +758,19 @@ class DatabaseManager:
                 tabela_cursos.c.NomeEducador
             ).where(tabela_cursos.c.IdCurso == discipline_id)
 
-            print(f"Query de disciplina gerada: {discipline_query}")
+            logger.info(f"Query de disciplina gerada: {discipline_query}")
             result = self.session.execute(discipline_query).mappings().first()
 
             if not result:
-                print(f"ERRO: Disciplina {discipline_id} não encontrada")
+                logger.error(f"Erro: Disciplina {discipline_id} não encontrada")
                 raise HTTPException(
                     status_code=404,
                     detail="Disciplina não encontrada"
                 )
 
-            print(f"Tipo do resultado: {type(result)}")
-            print(f"Chaves disponíveis: {result.keys() if hasattr(result, 'keys') else 'Sem chaves disponíveis'}")
-            print(f"Resultado da query: {result}")
+            logger.info(f"Tipo do resultado: {type(result)}")
+            logger.info(f"Chaves disponíveis: {result.keys() if hasattr(result, 'keys') else 'Sem chaves disponíveis'}")
+            logger.info(f"Resultado da query: {result}")
 
             try:
                 # Transform the result into the desired format with safe access
@@ -773,34 +786,34 @@ class DatabaseManager:
                     "NomeEducador": self.safe_get(result, "NomeEducador")
                 }
 
-                print(f"Detalhes da disciplina formatados com sucesso: {discipline_details}")
+                logger.info(f"Detalhes da disciplina formatados com sucesso: {discipline_details}")
                 return discipline_details
 
             except Exception as e:
-                print(f"ERRO durante a formatação dos detalhes: {e}")
-                print(f"Stack trace completo:", exc_info=True)
+                logger.error(f"Erro durante a formatação dos detalhes: {e}")
+                logger.info(f"Stack trace completo:", exc_info=True)
                 raise HTTPException(
                     status_code=500,
                     detail=f"Erro ao formatar detalhes da disciplina: {str(e)}"
                 )
 
         except SQLAlchemyError as e:
-            print(f"ERRO: Erro no banco de dados ao buscar detalhes da disciplina: {e}")
+            logger.error(f"Erro: Erro no banco de dados ao buscar detalhes da disciplina: {e}")
             raise HTTPException(
                 status_code=500,
                 detail="Erro no banco de dados ao buscar detalhes da disciplina"
             )
 
         except json.JSONDecodeError as e:
-            print(f"ERRO: Erro ao interpretar JSON dos dados da disciplina: {e}")
+            logger.error(f"Erro: Erro ao interpretar JSON dos dados da disciplina: {e}")
             raise HTTPException(
                 status_code=500,
                 detail="Erro ao interpretar dados da disciplina"
             )
 
         except Exception as e:
-            print(f"ERRO: Erro inesperado em get_discipline_details: {e}")
-            print("Stack trace completo:", exc_info=True)
+            logger.error(f"Erro: Erro inesperado em get_discipline_details: {e}")
+            logger.info("Stack trace completo:", exc_info=True)
             raise HTTPException(
                 status_code=500,
                 detail="Ocorreu um erro inesperado"
@@ -868,10 +881,10 @@ class DatabaseManager:
             if result.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Usuário não encontrado.")
 
-            print(f"Conta do usuário com email {email} atualizada com sucesso.")
+            logger.info(f"Conta do usuário com email {email} atualizada com sucesso.")
         except Exception as e:
             self.session.rollback()
-            print(f"Erro ao atualizar a conta do usuário: {e}")
+            logger.error(f"Erro ao atualizar a conta do usuário: {e}")
             raise HTTPException(status_code=500, detail="Erro ao atualizar a conta do usuário.")
 
     def update_user_password(self, email: str, new_password_hash: str) -> bool:
@@ -899,9 +912,170 @@ class DatabaseManager:
             self.session.commit()
             if result.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Usuário não encontrado.")
-            print(f"Senha do usuário com email {email} atualizada com sucesso.")
+            logger.info(f"Senha do usuário com email {email} atualizada com sucesso.")
             return True
         except Exception as e:
             self.session.rollback()
-            print(f"Erro ao atualizar a senha do usuário: {e}")
+            logger.error(f"Erro ao atualizar a senha do usuário: {e}")
             raise HTTPException(status_code=500, detail="Erro ao atualizar a senha do usuário.")
+
+    def insert_support_request_com_imagens(self, support_data: dict, images: list) -> dict:
+        """
+        Insere um novo registro de suporte/feedback e as imagens associadas diretamente no banco de dados SQL.
+
+        Parâmetros:
+            support_data (dict): Dicionário com os dados do suporte, por exemplo:
+                {
+                    "UserEmail": "usuario@exemplo.com",
+                    "MessageType": "duvida",  # ou "problema", "sugestao", etc.
+                    "Subject": "Assunto do chamado",
+                    "Page": "Página ou módulo",
+                    "Message": "Mensagem detalhada do usuário"
+                }
+            images (list): Lista com os dados binários (bytes) de cada imagem a ser armazenada.
+
+        Retorna:
+            dict: Dicionário com o ID do suporte inserido e os IDs das imagens associadas, ex.:
+                {
+                    "support_request_id": 123,
+                    "images_ids": [1, 2, 3]
+                }
+        """
+        try:
+            support_request_id = self.inserir_dado_retorna_id(tabela_support_requests, support_data, "IdSupportRequest")
+
+            inserted_images_ids = []
+
+            for image in images:
+                result = self.session.execute(
+                    tabela_support_request_images.insert().returning(tabela_support_request_images.c.IdImage)
+                    .values(
+                        IdSupportRequest=support_request_id,
+                        ImageData=image
+                    )
+                )
+                image_id = result.fetchone()[0]
+                inserted_images_ids.append(image_id)
+
+            self.session.commit()
+            return {"support_request_id": support_request_id, "images_ids": inserted_images_ids}
+
+        except IntegrityError as e:
+            self.session.rollback()
+            logger.error(f"[SUPPORT] IntegrityError ao inserir suporte com imagens: {e}")
+            raise HTTPException(status_code=400, detail="Erro de integridade ao inserir suporte com imagens.")
+        except Exception as e:
+            self.session.rollback()
+            logger.error(f"[SUPPORT] Erro ao inserir suporte com imagens: {e}")
+            raise HTTPException(status_code=500, detail="Erro interno ao inserir suporte com imagens.")
+
+    def list_support_requests(self, user_email: str) -> list:
+        """
+        Lista todos os registros de suporte/feedback associados ao e-mail do usuário.
+
+        Parâmetros:
+            user_email (str): O e-mail do usuário para o qual os tickets devem ser listados.
+
+        Retorna:
+            list: Uma lista de dicionários, onde cada dicionário representa um ticket de suporte.
+                Exemplo:
+                [
+                    {
+                        "IdSupportRequest": <UUID>,
+                        "UserEmail": "usuario@exemplo.com",
+                        "MessageType": "duvida",
+                        "Subject": "Assunto do chamado",
+                        "Page": "Página ou módulo",
+                        "Message": "Mensagem detalhada do usuário",
+                        "CreatedAt": "2025-03-30T15:00:00"
+                    },
+                    ...
+                ]
+        """
+        try:
+            query = tabela_support_requests.select().where(tabela_support_requests.c.UserEmail == user_email)
+            result = self.session.execute(query).fetchall()
+
+            # Use row._mapping para converter a linha para dicionário
+            tickets = [dict(row._mapping) for row in result]
+            return tickets
+
+        except Exception as e:
+            self.session.rollback()
+            logger.error(f"[SUPPORT] Erro ao listar tickets de suporte para o usuário {user_email}: {e}")
+            raise HTTPException(status_code=500, detail="Erro interno ao listar tickets de suporte.")
+
+    def get_support_request_by_id(self, support_id: str, user_email: str) -> dict:
+        """
+        Busca um registro de suporte específico, filtrando pelo ID do ticket e pelo e-mail do usuário.
+
+        Parâmetros:
+            support_id (str): O ID do ticket de suporte (UUID como string).
+            user_email (str): O e-mail do usuário para garantir que o ticket pertence a ele.
+
+        Retorna:
+            dict: Um dicionário representando o ticket de suporte.
+                Exemplo:
+                {
+                    "IdSupportRequest": <UUID>,
+                    "UserEmail": "usuario@exemplo.com",
+                    "MessageType": "duvida",
+                    "Subject": "Assunto do chamado",
+                    "Page": "Página ou módulo",
+                    "Message": "Mensagem detalhada do usuário",
+                    "CreatedAt": "2025-03-30T15:00:00"
+                }
+            Se não encontrar, retorna None.
+        """
+        try:
+            query = tabela_support_requests.select().where(
+                (tabela_support_requests.c.IdSupportRequest == support_id) &
+                (tabela_support_requests.c.UserEmail == user_email)
+            )
+            result = self.session.execute(query).fetchone()
+            if result is None:
+                return None
+            # Utilize row._mapping para converter a linha em dicionário
+            return dict(result._mapping)
+        except Exception as e:
+            self.session.rollback()
+            logger.error(f"[SUPPORT] Erro ao buscar ticket de suporte {support_id} para o usuário {user_email}: {e}")
+            raise HTTPException(status_code=500, detail="Erro interno ao buscar ticket de suporte.")
+
+    def get_support_request_images(self, support_id: str) -> list:
+        """
+        Recupera a lista de imagens associadas a um ticket de suporte.
+
+        Parâmetros:
+            support_id (str): O ID do ticket de suporte (UUID como string).
+
+        Retorna:
+            list: Uma lista de dicionários, onde cada dicionário representa uma imagem associada.
+                Exemplo:
+                [
+                    {
+                        "IdImage": 1,
+                        "IdSupportRequest": "<UUID>",
+                        "ImageData": "base64encodedstring1"
+                    },
+                    ...
+                ]
+        """
+        try:
+            query = tabela_support_request_images.select().where(
+                tabela_support_request_images.c.IdSupportRequest == support_id
+            )
+            result = self.session.execute(query).fetchall()
+            images = []
+            for row in result:
+                # Converte a linha para dicionário usando row._mapping
+                data = dict(row._mapping)
+                # Converte os dados binários da imagem para uma string base64
+                if data.get("ImageData"):
+                    data["ImageData"] = base64.b64encode(data["ImageData"]).decode("utf-8")
+                images.append(data)
+            return images
+        except Exception as e:
+            self.session.rollback()
+            logger.error(f"[SUPPORT] Erro ao recuperar imagens para o ticket {support_id}: {e}")
+            raise HTTPException(status_code=500, detail="Erro interno ao recuperar imagens do ticket de suporte.")

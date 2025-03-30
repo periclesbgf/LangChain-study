@@ -1,6 +1,6 @@
-# app/sql_test/sql_test_create.py
+# app/sql_interface/sql_tables.py
 
-from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey, Date, DateTime, Boolean, Enum, JSON, TIMESTAMP, text, Text, TIME
+from sqlalchemy import create_engine, MetaData, Table, Column, Integer, String, Float, ForeignKey, Date, DateTime, Boolean, Enum, JSON, TIMESTAMP, text, Text, TIME, LargeBinary
 from sqlalchemy.dialects.postgresql import UUID
 import os
 from dotenv import load_dotenv
@@ -82,8 +82,8 @@ tabela_encontros = Table('Encontros', metadata,
     Column('Conteudo', Text, nullable=False),
     Column('Estrategia', Text, nullable=True),
     Column('Avaliacao', String(100), nullable=True),
-    Column('HorarioInicio', TIME, nullable=False),      # Horário de início do encontro
-    Column('HorarioFim', TIME, nullable=False),         # Horário de fim do encontro
+    Column('HorarioInicio', TIME, nullable=False),
+    Column('HorarioFim', TIME, nullable=False),
 )
 
 tabela_atividades = Table('Atividades', metadata,
@@ -181,4 +181,21 @@ tabela_notificacoes = Table('Notificacoes', metadata,
     Column('DataEnvio', DateTime, server_default=text('CURRENT_TIMESTAMP')),
     Column('Lida', Boolean, default=False)
 )
+
+tabela_support_requests = Table('SupportRequests', metadata,
+    Column('IdSupportRequest', UUID(as_uuid=True), primary_key=True),
+    Column('UserEmail', String(100), ForeignKey('Usuarios.Email'), nullable=False),
+    Column('MessageType', String(50), nullable=False),
+    Column('Subject', String(200), nullable=False),
+    Column('Page', String(200), nullable=False),
+    Column('Message', Text, nullable=False),
+    Column('CreatedAt', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP'))
+)
+
+tabela_support_request_images = Table('SupportRequestImages', metadata,
+    Column('IdImage', Integer, primary_key=True),
+    Column('IdSupportRequest', UUID(as_uuid=True), ForeignKey('SupportRequests.IdSupportRequest'), nullable=False, index=True),
+    Column('ImageData', LargeBinary, nullable=False)
+)
+
 #metadata.create_all(engine)
