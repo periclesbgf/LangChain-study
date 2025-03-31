@@ -24,7 +24,6 @@ async def get_calendar_events(current_user: dict = Depends(get_current_user)):
         controller = CalendarController(dispatcher)
 
         events = controller.get_all_events(current_user['sub'])
-        print(events)
 
         logger.info(f"Calendar events fetched successfully for user: {current_user['sub']}")
         return {"events": events}

@@ -11,6 +11,7 @@ from api.endpoints.models import (
     AudioResponseModel,
     ResetPasswordModel,
     ForgotPasswordModel,
+    RefreshTokenRequest,
     )
 from api.controllers.controller import (
     code_confirmation,
@@ -28,6 +29,7 @@ from fastapi import APIRouter, HTTPException, File, Form, UploadFile, Depends, H
 
 from api.controllers.auth import (
     create_access_token,
+    create_refresh_token,
     get_current_user,
     create_google_flow,
     credentials_to_dict,
@@ -35,6 +37,8 @@ from api.controllers.auth import (
     decode_reset_token,
     send_reset_email
     )
+from jose import JWTError, jwt
+from api.controllers.constants import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 from utils import SECRET_EDUCATOR_CODE
 from database.mongo_database_manager import MongoDatabaseManager
 from datetime import datetime, timedelta, timezone
@@ -47,8 +51,7 @@ from fastapi.responses import RedirectResponse
 from api.controllers.classroom_api_client import ClassroomAPIClient
 import os
 import json
-import secrets
-import time
+from utils import APP_URL
 
 
 router = APIRouter()
@@ -188,15 +191,62 @@ async def login(
             login_model.senha
         )
 
+        # Criar access token e refresh token
         access_token = create_access_token(data={"sub": user.Email})
+        refresh_token = create_refresh_token(data={"sub": user.Email})
         logger.info(f"[LOGIN] Usuário autenticado: {user.Email}")
-        return {"access_token": access_token, "token_type": "bearer"}
+        return {
+            "access_token": access_token, 
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60  # converter para segundos
+        }
 
     except HTTPException as e:
         if e.status_code == 401:
             raise HTTPException(status_code=e.status_code, detail="Email ou senha inválidos")
         if e.status_code == 404:
             raise HTTPException(status_code=e.status_code, detail="Email ou senha inválidos")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+        
+        
+@router.post("/refresh-token", response_model=Token)
+async def refresh_token(request: RefreshTokenRequest):
+    """
+    Endpoint para renovar o token de acesso usando um refresh token.
+    Recebe o refresh token e retorna um novo access token.
+    """
+    try:
+        refresh_token = request.refresh_token
+        
+        # Decodifica o refresh token
+        payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        
+        # Verifica se é realmente um refresh token
+        if payload.get("token_type") != "refresh":
+            raise HTTPException(status_code=401, detail="Token inválido")
+        
+        # Extrai o email do usuário do token
+        email = payload.get("sub")
+        if not email:
+            raise HTTPException(status_code=401, detail="Token inválido")
+            
+        # Gera um novo access token
+        new_access_token = create_access_token(data={"sub": email})
+        
+        logger.info(f"[REFRESH_TOKEN] Token renovado para usuário: {email}")
+        
+        # Retorna o novo access token
+        return {
+            "access_token": new_access_token,
+            "refresh_token": refresh_token,  # Mantém o mesmo refresh token
+            "token_type": "bearer",
+            "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        }
+        
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token inválido ou expirado")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -222,29 +272,23 @@ async def google_login_initiate(request: Request):
 @router.get("/auth/google/callback")  # Endpoint de callback do Google
 async def google_login_callback(request: Request, code: str, session: Session = Depends(DatabaseManager.get_db)):
     try:
-        print("Callback do Google recebido com code:", code)
         flow = create_google_flow(request)
         flow.fetch_token(code=code)
-        print("Flow credentials após fetch_token:", flow.credentials)
 
         credentials_obj = flow.credentials
         id_token = credentials_obj.id_token
-        print("ID Token (raw):", id_token)
 
         from jose import jwt
         user_info = jwt.get_unverified_claims(id_token)
-        print("User info decodificado:", user_info)
 
         sql_database_manager = DatabaseManager(session, metadata)
         sql_database_controller = CredentialsDispatcher(sql_database_manager)
         user = await sql_database_controller.google_login(user_info)
-        print("Usuário retornado do google_login:", user)
 
         access_token_jwt = create_access_token(data={"sub": user.Email})
-        print("JWT de acesso criado:", access_token_jwt)
+        refresh_token_jwt = create_refresh_token(data={"sub": user.Email})
 
         request.session['google_credentials'] = credentials_to_dict(credentials_obj)
-        print("Credenciais do Google armazenadas na sessão:", request.session['google_credentials'])
 
         # *** Handler para buscar cursos e SALVAR em arquivo JSON ***
         credentials_dict = request.session.get('google_credentials') # Recupera novamente as credenciais da sessão
@@ -261,9 +305,8 @@ async def google_login_callback(request: Request, code: str, session: Session = 
             try:
                 with open(filepath, 'w', encoding='utf-8') as f: # Abre o arquivo para escrita com encoding UTF-8
                     json.dump(classroom_courses_response, f, ensure_ascii=False, indent=4) # Salva a resposta em JSON formatado
-                print(f"\n*** Resposta da API do Google Classroom (cursos) SALVA em: {filepath} ***")
             except Exception as e_save_json:
-                print(f"Erro ao salvar resposta em arquivo JSON: {e_save_json}")
+                logger.error(f"Erro ao salvar resposta em arquivo JSON: {e_save_json}")
 
             classroom_courses_materials_response = classroom_client.list_course_materials(classroom_courses_response.get("courses")[0].get("id"))
             print(classroom_courses_materials_response)
@@ -285,8 +328,8 @@ async def google_login_callback(request: Request, code: str, session: Session = 
             # Lidar com outras exceções inesperadas
 
 
-        # Redirecionar diretamente para /home-student, passando o access_token
-        frontend_redirect_url = f"http://localhost:8080/home-student?accessToken={access_token_jwt}"  # Redireciona para /home-student
+        # Redirecionar diretamente para /home-student, passando o access_token e refresh_token
+        frontend_redirect_url = f"http://{APP_URL}:8080/home-student?accessToken={access_token_jwt}&refreshToken={refresh_token_jwt}"  # Redireciona para /home-student
         return RedirectResponse(url=frontend_redirect_url, status_code=303)
 
     except Exception as e:

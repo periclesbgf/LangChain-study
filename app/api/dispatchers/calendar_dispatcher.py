@@ -37,7 +37,6 @@ class CalendarDispatcher:
             raise HTTPException(status_code=500, detail=f"Error fetching calendar events: {e}")
 
     def create_event(self, event_data: dict, current_user: str):
-        print(f"Creating event for user: {current_user}")
         try:
             # Obter o IdUsuario do current_user (email)
             user_id = self.database_manager.get_user_id_by_email(current_user)
@@ -47,7 +46,6 @@ class CalendarDispatcher:
 
             # Atualizar o 'CriadoPor' no event_data com o user_id correto
             event_data['CriadoPor'] = user_id
-            print(f"User ID for event creation: {user_id}")
 
             # Criar um novo evento no banco de dados
             evento_id = self.database_manager.inserir_dado_evento(tabela_eventos_calendario, event_data)

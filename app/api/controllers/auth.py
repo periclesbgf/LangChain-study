@@ -13,6 +13,7 @@ from api.controllers.constants import (
     SECRET_KEY,
     ALGORITHM,
     ACCESS_TOKEN_EXPIRE_MINUTES,
+    REFRESH_TOKEN_EXPIRE_DAYS,
     RESET_TOKEN_EXPIRY_MINUTES,
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
@@ -62,6 +63,14 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+def create_refresh_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire})
+    to_encode.update({"token_type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -162,5 +171,5 @@ def send_reset_email(recipient_email: str, reset_token: str):
             logger.info(f"[RESET_EMAIL] Email enviado para {recipient_email}")
         return True
     except Exception as e:
-        print(f"Erro ao enviar email: {e}")
+        logger.error(f"Erro ao enviar email: {e}")
         raise HTTPException(status_code=500, detail="Erro ao enviar email de reset.")
