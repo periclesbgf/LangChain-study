@@ -1,17 +1,13 @@
 # app/database/vector_db.py
 
 import traceback
-from typing import Optional, List, Dict
+from typing import Optional, List
 import uuid
 from datetime import datetime, timezone
 import hashlib
 import io
 import fitz
-import pdfplumber
-import pandas as pd
 from PIL import Image
-import pytesseract
-import docx
 from langchain_openai import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
@@ -24,17 +20,16 @@ from qdrant_client.http.models import (
     MatchValue,
     VectorParams,
     Distance,
-    MatchAny
 )
-from utils import OPENAI_API_KEY, QDRANT_URL
+from utils import OPENAI_API_KEY
 from langchain_qdrant import QdrantVectorStore
 from agent.image_handler import ImageHandler
 from pydantic import BaseModel
 from functools import lru_cache
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-import aiohttp
 from database.mongo_database_manager import MongoDatabaseManager, MongoImageHandler
+from logg import logger
 
 
 class Material(BaseModel):
@@ -514,12 +509,10 @@ class QdrantHandler:
                 metadata_extra=metadata
             )
 
-            print(f"[PROCESS] Image processed and stored successfully: {image_uuid}")
             return image_uuid
 
         except Exception as e:
             print(f"[ERROR] Failed to process image: {str(e)}")
-            traceback.print_exc()
             raise
 
     @lru_cache(maxsize=1000)
@@ -675,12 +668,6 @@ class QdrantHandler:
     ) -> List[Document]:
         """Executes a similarity search with filtering."""
         try:
-            print(f"\n[SEARCH] Starting search with filters:")
-            print(f"[SEARCH] Query: {query}")
-            print(f"[SEARCH] Student: {student_email}")
-            print(f"[SEARCH] Config: global={use_global}, discipline={use_discipline}, session={use_session}")
-
-            # Primeiro, construir as condições de nível de acesso (global, discipline, session)
             access_conditions = []
             
             if use_global:
@@ -759,7 +746,6 @@ class QdrantHandler:
 
         except Exception as e:
             print(f"[ERROR] Error during search: {str(e)}")
-            traceback.print_exc()
             return []
 
     def _cache_search_results(self, cache_key: str, results: List[Document]):
@@ -796,19 +782,10 @@ class QdrantHandler:
                         doc.page_content = scroll_result.payload.get("content", "")
                         break
 
-            print(f"[SEARCH] Found {len(results)} results")
-            for i, doc in enumerate(results, 1):
-                print(f"[SEARCH] Result {i}:")
-                print(f"  - Access level: {doc.metadata.get('access_level')}")
-                if doc.metadata.get('type') == 'image':
-                    print(f"  - Image UUID: {doc.metadata.get('image_uuid')}")
-                print(f"  - Content: {doc.page_content[:100]}...")
-
             return results
 
         except Exception as e:
             print(f"[ERROR] Error executing search: {str(e)}")
-            traceback.print_exc()
             raise
     async def delete_material(self, material_id: str):
         """Delete a material with optimized cleanup."""
@@ -832,10 +809,10 @@ class QdrantHandler:
                 collection_name=self.collection_name,
                 points_filter=query_filter
             )
-            print(f"[DELETE] Material deleted: {material_id}")
+            logger.info(f"[DELETE] Material deleted: {material_id}")
 
         except Exception as e:
-            print(f"[ERROR] Error deleting material {material_id}: {str(e)}")
+            logger.error(f"[ERROR] Error deleting material {material_id}: {str(e)}")
             raise
 
     async def update_material_access(
@@ -875,27 +852,24 @@ class QdrantHandler:
                 points_filter=query_filter,
                 payload=update_data
             )
-            print(f"[UPDATE] Material updated: {material_id}")
+            logger.info(f"[UPDATE] Material updated: {material_id}")
             
         except Exception as e:
-            print(f"[ERROR] Error updating material {material_id}: {str(e)}")
+            logger.error(f"[VECTOR_DB] Error updating material {material_id}: {str(e)}")
             raise
 
     @lru_cache(maxsize=100)
     def debug_metadata(self):
         """Debug metadata with caching for repeated calls."""
-        print("Debugging metadata...")
         try:
             results, _ = self.client.scroll(
                 collection_name=self.collection_name,
                 limit=10
             )
-            print(f"{len(results)} documents found.")
 
             metadata_issues = []
             for result in results:
                 metadata = result.payload.get("metadata", {})
-                print(f"\nMetadata Retrieved: {metadata}")
 
                 if not metadata:
                     metadata_issues.append(f"Empty metadata for document {result.id}")
@@ -913,8 +887,7 @@ class QdrantHandler:
             return metadata_issues
 
         except Exception as e:
-            print(f"Error listing documents: {e}")
-            traceback.print_exc()
+            logger.error(f"Error listing documents: {e}")
             return [f"Error during debug: {str(e)}"]
 
     async def fix_document_metadata(self):
@@ -971,7 +944,7 @@ class QdrantHandler:
                             })
 
                     except Exception as e:
-                        print(f"Error processing document {result.id}: {e}")
+                        logger.error(f"Error processing document {result.id}: {e}")
                         continue
 
                 # Batch update documents
@@ -983,24 +956,20 @@ class QdrantHandler:
                                     self._update_document_metadata(operation)
                                 )
                         total_fixed += len(update_operations)
-                        print(f"Fixed {len(update_operations)} documents in batch")
                     except Exception as e:
-                        print(f"Error during batch update: {e}")
+                        logger.error(f"Error during batch update: {e}")
 
                 if not next_page_offset:
                     break
                 offset = next_page_offset
 
-            print(f"Total documents fixed: {total_fixed}")
-            
-            # Clear caches after fixes
             if hasattr(self, '_materials_cache'):
                 self._materials_cache.clear()
             if hasattr(self, '_search_cache'):
                 self._search_cache.clear()
 
         except Exception as e:
-            print(f"Error fixing metadata: {e}")
+            logger.error(f"Error fixing metadata: {e}")
             traceback.print_exc()
 
     async def _update_document_metadata(self, operation: dict):
@@ -1012,7 +981,7 @@ class QdrantHandler:
                 payload={"metadata": operation["metadata"]}
             )
         except Exception as e:
-            print(f"Error updating document {operation['id']}: {e}")
+            logger.error(f"Error updating document {operation['id']}: {e}")
             raise
 
 
@@ -1066,20 +1035,19 @@ class Embeddings:
         """Embed documents with parallel processing."""
         batch_size = 100
         all_embeddings = []
-        
+
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i+batch_size]
-            
-            # Process batch concurrently
+
             loop = asyncio.get_event_loop()
             batch_embeddings = await loop.run_in_executor(
                 self.executor,
                 self.embeddings.embed_documents,
                 batch
             )
-            
+
             all_embeddings.extend(batch_embeddings)
-            
+
         return all_embeddings
 
     def clear_cache(self):
