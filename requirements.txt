@@ -63,3 +63,4 @@ itsdangerous
 logfire
 pydantic-ai
 python-logging-loki-v2
+tavily-python
