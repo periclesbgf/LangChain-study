@@ -10,6 +10,16 @@ pip install -r requirements.txt
 
 Para rodar, siga estes passos:
 
+Entre em app/sql_interface/sql_tables.py e remova o # na linha 201
+
+Caso tenha alguma atualização de commit execute:
+
+```sh
+./scripts/delete_db_psql.sh
+```
+
+E siga normalmente:
+
 ```sh
 ./scripts/create_db_psql.sh
 ./scripts/qdrant_create.sh
