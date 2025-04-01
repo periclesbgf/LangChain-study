@@ -64,3 +64,4 @@ logfire
 pydantic-ai
 python-logging-loki-v2
 tavily-python
+google-api-python-client
