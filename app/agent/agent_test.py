@@ -1100,14 +1100,8 @@ def create_teaching_node():
     Perfil do Aluno:
     {user_profile}
 
-    Fonte de Informação:
+    Fonte do contexto:
     {source_type}
-
-    Contexto Principal (OBRIGATÓRIO EXPLICAR):
-    {primary_context}
-
-    Contextos Secundários (OBRIGATÓRIO EXPLICAR):
-    {secondary_contexts}
 
     Histórico da Conversa:
     {chat_history}
@@ -1115,8 +1109,16 @@ def create_teaching_node():
     Mensagem do aluno:
     {question}
 
+    Contexto Principal (OBRIGATÓRIO EXPLICAR):
+    {primary_context}
+
+    Contextos Secundários (OBRIGATÓRIO EXPLICAR):
+    {secondary_contexts}
+
     ESTRUTURA DA RESPOSTA:
     - Escolha uma maneira explicar o contexto recuperado.
+    - Monte sua resposta utilizando o contexto principal e secundário.
+    - Se o contexto for uma imagem, explique o que é e como funciona.
     - Responda como um tutor educacional sempre orientando o aluno a chegar na resposta. Incentive o raciocínio e a busca ativa de soluções.
     - Siga o plano de resposta fornecido e adapte conforme necessário.
 
@@ -1266,6 +1268,8 @@ def create_teaching_node():
                     "question": latest_question,
                     "chat_history": chat_history
                 }
+                print("[NODE:TEACHING CONTEXT] Prompt params:", prompt_params)
+
                 stream = model.astream(context_prompt.format(**prompt_params))
 
             # Se tiver imagem, enviar um chunk com a imagem primeiro
@@ -1296,7 +1300,7 @@ def create_teaching_node():
                 response = AIMessage(content=full_response)
             
             history_message = AIMessage(content=full_response)
-            
+            #print(f"[NODE:TEACHING] Full response: {response.content}")
             # Update state
             new_state = state.copy()
             new_state["messages"] = list(state["messages"]) + [response]
