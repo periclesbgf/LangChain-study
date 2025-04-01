@@ -1268,7 +1268,6 @@ def create_teaching_node():
                     "question": latest_question,
                     "chat_history": chat_history
                 }
-                print("[NODE:TEACHING CONTEXT] Prompt params:", prompt_params)
 
                 stream = model.astream(context_prompt.format(**prompt_params))
 
@@ -1298,7 +1297,7 @@ def create_teaching_node():
                 response = AIMessage(content=json.dumps(response_content))
             else:
                 response = AIMessage(content=full_response)
-            
+
             history_message = AIMessage(content=full_response)
             #print(f"[NODE:TEACHING] Full response: {response.content}")
             # Update state
@@ -1308,11 +1307,11 @@ def create_teaching_node():
                 HumanMessage(content=latest_question),
                 history_message
             ]
-            
+
             # Enviar mensagem de conclusão com o tempo de processamento
             processing_time = time.time() - start_time
             yield {"type": "complete", "content": f"Resposta completa em {processing_time:.2f}s"}
-            
+
             # Atualizar estado após conclusão
             state.update(new_state)
 
