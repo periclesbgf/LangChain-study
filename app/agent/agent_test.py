@@ -1106,7 +1106,7 @@ def create_teaching_node():
     Contexto Principal (OBRIGATÓRIO EXPLICAR):
     {primary_context}
 
-    Contextos Secundários (EXPLICAR SE RELEVANTES):
+    Contextos Secundários (OBRIGATÓRIO EXPLICAR):
     {secondary_contexts}
 
     Histórico da Conversa:
@@ -1116,7 +1116,7 @@ def create_teaching_node():
     {question}
 
     ESTRUTURA DA RESPOSTA:
-    - Escolha uma maneira explicar o contexto principal e, se relevante, os contextos secundários.
+    - Escolha uma maneira explicar o contexto recuperado.
     - Responda como um tutor educacional sempre orientando o aluno a chegar na resposta. Incentive o raciocínio e a busca ativa de soluções.
     - Siga o plano de resposta fornecido e adapte conforme necessário.
 
@@ -1132,6 +1132,7 @@ def create_teaching_node():
     - Voce DEVE guiar o aluno sem dar respostas diretas
     - A resposta deve ser muito detalhada, abordando conceitos e passos necessários
     - Voce responde diretamente ao aluno
+    - Você pode mostrar imagens ou tabelas, mas deve explicar o que são e como funcionam. Essas imagens estão presentes no contexto.
     """
 
     DIRECT_RESPONSE_PROMPT = """
@@ -1173,7 +1174,7 @@ def create_teaching_node():
     context_prompt = ChatPromptTemplate.from_template(CONTEXT_BASED_PROMPT)
     direct_prompt = ChatPromptTemplate.from_template(DIRECT_RESPONSE_PROMPT)
     # Configuração do modelo com streaming ativado
-    model = ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True)
+    model = ChatOpenAI(model="gpt-4o", temperature=0.1, streaming=True)
 
     async def generate_teaching_response(state: AgentState):
         """Gera resposta em formato de streaming usando chunks"""
@@ -1200,6 +1201,7 @@ def create_teaching_node():
                     "question": latest_question,
                     "chat_history": chat_history
                 }
+                print("[NODE:TEACHING] Prompt params:", prompt_params)
                 stream = model.astream(direct_prompt.format(**prompt_params))
 
             else:

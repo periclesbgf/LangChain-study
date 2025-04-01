@@ -286,7 +286,6 @@ async def google_login_callback(request: Request, code: str, session: Session = 
         user = await sql_database_controller.google_login(user_info)
 
         access_token_jwt = create_access_token(data={"sub": user.Email})
-        refresh_token_jwt = create_refresh_token(data={"sub": user.Email})
 
         request.session['google_credentials'] = credentials_to_dict(credentials_obj)
 
@@ -327,9 +326,7 @@ async def google_login_callback(request: Request, code: str, session: Session = 
             print(f"Erro inesperado ao buscar cursos do Google Classroom no handler: {e_classroom}")
             # Lidar com outras exceções inesperadas
 
-
-        # Redirecionar diretamente para /home-student, passando o access_token e refresh_token
-        frontend_redirect_url = f"http://{APP_URL}:8080/home-student?accessToken={access_token_jwt}&refreshToken={refresh_token_jwt}"  # Redireciona para /home-student
+        frontend_redirect_url = f"{APP_URL}/home-student?accessToken={access_token_jwt}"  # Redireciona para /home-student
         return RedirectResponse(url=frontend_redirect_url, status_code=303)
 
     except Exception as e:
