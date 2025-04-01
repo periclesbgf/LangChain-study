@@ -15,6 +15,8 @@ Entre em app/sql_interface/sql_tables.py e remova o # na linha 201
 Caso tenha alguma atualização de commit execute:
 
 ```sh
+source venv/bin/activate
+pip install -r requirements.txt
 ./scripts/delete_db_psql.sh
 ```
 
