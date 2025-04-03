@@ -68,7 +68,5 @@ app.include_router(router_workspace)
 app.include_router(router_pdf)
 app.include_router(router_support)
 
-logger.info("[STARTUP] Aplicação FastAPI iniciada com logging para Loki.")
-
 if __name__ == '__main__':
     uvicorn.run(app, host="0.0.0.0", port=8000)
