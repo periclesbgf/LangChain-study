@@ -237,6 +237,8 @@ class DisciplineDispatcher:
                     Inicio=datetime.combine(session_date.date(), horario_inicio_obj),
                     Fim=datetime.combine(session_date.date(), horario_fim_obj),
                     Local="Sala de Aula Física",
+                    Categoria="estudo_individual",
+                    Importancia="alta", #modificar se necessário
                     CriadoPor=user_id
                 )
                 self.database_manager.session.execute(new_event)
