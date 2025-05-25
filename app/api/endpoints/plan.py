@@ -179,9 +179,7 @@ async def get_sessions_without_plan_by_discipline(
 
         if not sessions:
             return {"sessions": []}
-        print({
-            "sessions": sessions
-        })
+
         return {
             "sessions": sessions
         }
@@ -329,6 +327,8 @@ async def create_automatic_study_plan(
                 end_time=end_datetime,
                 location="Online",
                 current_user=current_user['sub'],
+                categoria="estudo_individual",
+                importancia="alta",
                 #course_id=planData.disciplina_id
             )
 
