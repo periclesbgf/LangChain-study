@@ -116,8 +116,6 @@ class PlanController:
             sessions_without_plan = await self.dispatcher.get_sessions_without_plan_by(
                 student_email, sessions_for_discipline
             )
-            print("Sessions without plan:")
-            print(sessions_without_plan)
 
             return sessions_without_plan
         except Exception as e:

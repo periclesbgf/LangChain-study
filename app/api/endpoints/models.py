@@ -56,6 +56,9 @@ class CalendarEvent(BaseModel):
     start_time: datetime
     end_time: datetime
     location: str
+    categoria: str
+    importancia: str
+    material: Optional[str] = None
 
 class CalendarEventUpdate(BaseModel):
     title: str
@@ -63,6 +66,9 @@ class CalendarEventUpdate(BaseModel):
     start_time: datetime
     end_time: datetime
     location: str
+    categoria: str
+    importancia: str
+    material: Optional[str] = None
 
 class DisciplineCreate(BaseModel):
     nome_curso: str

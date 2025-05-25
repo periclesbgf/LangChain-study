@@ -27,6 +27,9 @@ class CalendarDispatcher:
                     "Inicio": event.Inicio.isoformat() if event.Inicio else None,
                     "Fim": event.Fim.isoformat() if event.Fim else None,
                     "Local": event.Local,
+                    "Categoria": event.Categoria,
+                    "Importancia": event.Importancia,
+                    "Material": event.Material,
                     "CriadoPor": event.CriadoPor
                 }
                 for event in events

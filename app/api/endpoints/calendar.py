@@ -51,6 +51,9 @@ async def create_calendar_event(
             event.location,
             current_user['sub'],
             course_id,
+            event.categoria,
+            event.importancia,
+            event.material,
         )
 
         logger.info(f"[CALENDAR_CREATE] Usuário {current_user['sub']} criou um novo evento no calendário")
@@ -86,6 +89,9 @@ async def update_calendar_event(
             end_time=event_data.end_time,
             location=event_data.location,
             current_user=current_user['sub'],
+            categoria=event_data.categoria,
+            importancia=event_data.importancia,
+            material=event_data.material,
         )
 
         logger.info(f"[CALENDAR_UPDATE] Usuário {current_user['sub']} atualizou o evento {event_id} no calendário")

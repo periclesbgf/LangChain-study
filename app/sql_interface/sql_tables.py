@@ -147,6 +147,9 @@ tabela_eventos_calendario = Table('EventosCalendario', metadata,
     Column('Inicio', DateTime, nullable=False),
     Column('Fim', DateTime, nullable=False),
     Column('Local', String(200)),
+    Column('Categoria', Enum('aula', 'estudo_individual', 'prova', 'estudo_em_grupo', 'tarefa', 'outro', name='evento_categoria_enum'), nullable=False),
+    Column('Importancia', Enum('Urgente', 'alta', 'media', 'baixa', name='evento_importancia_enum'), nullable=False),
+    Column('Material', String(200)),
     Column('CriadoPor', Integer, ForeignKey('Usuarios.IdUsuario'), nullable=False, index=True)
 )
 
