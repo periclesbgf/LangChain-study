@@ -60,6 +60,8 @@ async def create_calendar_event(
         return {"message": "Event created successfully"}
     except Exception as e:
         logger.error(f"Error creating calendar event for user: {current_user['sub']} - {str(e)}")
+        if "End time must be after start time" in str(e):
+            raise HTTPException(status_code=400, detail="End time must be after start time")
         if "duplicado" in str(e):
             raise HTTPException(status_code=400, detail="Event already exists")
         raise HTTPException(status_code=500, detail=str(e))

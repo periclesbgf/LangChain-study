@@ -1,5 +1,6 @@
 # controllers/calendar_controller.py
 
+from fastapi import HTTPException
 from api.dispatchers.calendar_dispatcher import CalendarDispatcher
 from database.sql_database_manager import DatabaseManager
 from datetime import datetime
@@ -55,6 +56,8 @@ class CalendarController:
         # print("Start time: ", start_time_final)
         # print("End time: ", end_time_final)
         # print(f"Creating event for user: {current_user}")
+        if end_time <= start_time:
+            raise HTTPException(status_code=400, detail="End time must be after start time")
 
         event_data = {
             'GoogleEventId': f"event-{current_user}-{title}",
@@ -71,6 +74,9 @@ class CalendarController:
         return self.dispatcher.create_event(event_data, current_user)
 
     def update_event(self, event_id: int, title: str = None, description: str = None, start_time = None, end_time = None, location: str = None, current_user: str = None, categoria: str = None, importancia: str = None, material: str = None):
+        if end_time <= start_time:
+            raise HTTPException(status_code=400, detail="End time must be after start time")
+
         updated_data = {}
         if title:
             updated_data['Titulo'] = title
