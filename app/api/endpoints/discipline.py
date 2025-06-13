@@ -1,8 +1,7 @@
 # api/endpoints/discipline.py
 
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile, Depends, HTTPException
-from fastapi.logger import logger
-from sqlalchemy.orm import Session
+from logg import logger
 from database.sql_database_manager import DatabaseManager, session, metadata
 from api.controllers.auth import get_current_user
 from api.controllers.discipline_controller import DisciplineController
@@ -15,10 +14,10 @@ import re
 
 router_disciplines = APIRouter()
 
-# GET - List all disciplines
+
 @router_disciplines.get("/disciplines")
 async def get_all_user_disciplines(current_user: dict = Depends(get_current_user)):
-    print(f"Buscando todas as disciplinas para o usuário: {current_user['sub']}")
+    logger.info(f"[DISCIPLINE_LIST] Usuário {current_user['sub']} acessou lista de disciplinas")
     try:
         sql_database_manager = DatabaseManager(session, metadata)
         dispatcher = DisciplineDispatcher(sql_database_manager)
@@ -40,7 +39,7 @@ async def get_discipline_by_id(
     discipline_id: int,
     current_user: dict = Depends(get_current_user)
 ):
-    print(f"Buscando disciplina {discipline_id} para o usuário: {current_user['sub']}")
+    logger.info(f"Buscando disciplina {discipline_id} para o usuário: {current_user['sub']}")
     try:
         sql_database_manager = DatabaseManager(session, metadata)
         dispatcher = DisciplineDispatcher(sql_database_manager)
@@ -51,10 +50,6 @@ async def get_discipline_by_id(
         if not result:
             raise HTTPException(status_code=404, detail="Disciplina não encontrada.")
 
-        # Adicionando log para debug da estrutura de dados
-        print(f"Estrutura do resultado: {result}")
-
-        # Acessar diretamente o nome da disciplina do resultado
         discipline_name = result["NomeCurso"] if isinstance(result, dict) else None
 
         if discipline_name is None:
@@ -63,7 +58,6 @@ async def get_discipline_by_id(
                 detail="Formato de resposta inválido da disciplina"
             )
 
-        print(f"Disciplina {discipline_id} encontrada para o usuário: {current_user['sub']}")
         return {"discipline_name": discipline_name}
 
     except KeyError as e:
@@ -81,7 +75,7 @@ async def create_discipline(
     discipline: DisciplineCreate,
     current_user: dict = Depends(get_current_user)
 ):
-    print(f"Criando nova disciplina para o usuário: {current_user['sub']}")
+    logger.info(f"[DISCIPLINE_CREATE] Usuário {current_user['sub']} está criando uma nova disciplina")
     try:
         # Validar turno
         if discipline.turno_estudo not in ['manha', 'tarde', 'noite']:
@@ -108,7 +102,7 @@ async def create_discipline(
             current_user=current_user['sub']
         )
 
-        print(f"Nova disciplina criada com sucesso para o usuário: {current_user['sub']}")
+        logger.info(f"[DISCIPLINE_CREATE_SUCCESS] Usuário {current_user['sub']} criou disciplina: {discipline.nome_curso}")
         return {"message": "Discipline created successfully"}
     except Exception as e:
         logger.error(f"Erro ao criar disciplina para o usuário: {current_user['sub']} - {str(e)}")
@@ -157,7 +151,6 @@ async def update_discipline(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# DELETE - Delete a discipline
 @router_disciplines.delete("/disciplines/{discipline_id}")
 async def delete_discipline(
     discipline_id: int,

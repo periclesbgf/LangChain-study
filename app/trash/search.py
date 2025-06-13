@@ -30,7 +30,7 @@ def list_tables():
 def prepare_query(query):
     return query.replace('```sql', '').replace('```', '').strip()
 
-list_tables()
+#list_tables()
 
 query = """
 SELECT * FROM "Usuarios";

@@ -31,7 +31,12 @@ class LoginModel(BaseModel):
 
 class Token(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str
+    expires_in: int
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
 
 class PromptModel(BaseModel):
     question: str
@@ -51,6 +56,9 @@ class CalendarEvent(BaseModel):
     start_time: datetime
     end_time: datetime
     location: str
+    categoria: str
+    importancia: str
+    material: Optional[str] = None
 
 class CalendarEventUpdate(BaseModel):
     title: str
@@ -58,6 +66,9 @@ class CalendarEventUpdate(BaseModel):
     start_time: datetime
     end_time: datetime
     location: str
+    categoria: str
+    importancia: str
+    material: Optional[str] = None
 
 class DisciplineCreate(BaseModel):
     nome_curso: str
@@ -300,3 +311,11 @@ class ResetPasswordModel(BaseModel):
 
 class ForgotPasswordModel(BaseModel):
     user_email: str
+
+class SupportRequest(BaseModel):
+    message_type: str
+    subject: str
+    page: str
+    message: str
+    images: Optional[List[UploadFile]] = None
+

@@ -8,6 +8,7 @@ import asyncio
 import time
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Union, AsyncGenerator
+from logg import logger
 import uuid
 import hashlib
 from cachetools import TTLCache, LRUCache
@@ -234,6 +235,7 @@ class ChatController:
         This method is already async and must be awaited.
         """
         start_time = time.time()
+        logger.info(f"[USER_MESSAGE] {self.student_email} | disciplina={self.disciplina} | session={self.session_id}")
         
         try:
             if not user_input:
@@ -249,13 +251,8 @@ class ChatController:
 
             try:
                 current_history = self.chat_history.messages[-MAX_HISTORY_MESSAGES:] if self.chat_history.messages else []
-                print(f"[CHAT_CONTROLLER] Retrieved chat history: {len(current_history)} messages")
-                for i, msg in enumerate(current_history):
-                    print(f"[CHAT_CONTROLLER] Message {i}: type={type(msg).__name__}, content preview: {str(msg.content)[:50]}...")
             except Exception as hist_error:
-                print(f"[CHAT_CONTROLLER] ERROR retrieving chat history: {str(hist_error)}")
-                import traceback
-                traceback.print_exc()
+                logger.warning(f"[CHAT_CONTROLLER] ERROR retrieving chat history: {str(hist_error)}")
                 current_history = []
 
             if user_input:
@@ -285,8 +282,8 @@ class ChatController:
 
                             self._analytics["interaction_count"] += 1
                             self._analytics["last_response_time"] = time.time() - start_time
-
-                            logger.info(f"Processed message in {self._analytics['last_response_time']:.2f}s")
+                            
+                            logger.info(f"[CHAT_RESPONSE] {self.student_email} | session={self.session_id} | time={self._analytics['last_response_time']:.2f}s")
                             return response
 
             if stream:
@@ -340,7 +337,6 @@ class ChatController:
                     has_image = True
                     full_text = chunk.get("content", "")  # Texto associado à imagem
                     image_data = chunk.get("image")
-                    print(f"CHAT_CONTROLLER: Received image chunk")
                 elif chunk_type == "error":
                     yield chunk
                     break
@@ -348,10 +344,9 @@ class ChatController:
 
 
             processing_time = time.time() - start_time
-            logger.info(f"Streaming response completed in {processing_time:.2f}s")
+            logger.info(f"[CHAT_STREAM] {self.student_email} | session={self.session_id} | time={processing_time:.2f}s")
 
             if full_text:
-                print(f"CHAT_CONTROLLER: Salvando mensagem completa no histórico (tamanho: {len(full_text)})")
                 if has_image and image_data:
                     multimodal_content = {
                         "type": "multimodal",
@@ -370,8 +365,6 @@ class ChatController:
 
         except Exception as e:
             logger.error(f"Error in streaming generator: {e}")
-            import traceback
-            traceback.print_exc()
             yield {"type": "error", "content": f"Ocorreu um erro ao processar sua mensagem: {str(e)}"}
 
     async def _process_response_content(
@@ -428,12 +421,9 @@ class ChatController:
                     raise ValueError(f"Error normalizing multimodal content: {norm_error}")
             self.chat_history.add_message(user_message)
             self.chat_history.add_message(ai_message)
-            print(f"[CHAT_CONTROLLER]   Messages successfully added to history")
 
         except Exception as e:
             logger.error(f"Error saving chat history: {e}")
-            import traceback
-            traceback.print_exc()
 
     def _create_chain(self):
         """Create optimized processing chain"""
